@@ -1,0 +1,20 @@
+name: slashai
+
+workers:
+  - name: discord-bot
+    github:
+      repo: mindfulent/slashAI
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    environment_slug: python
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    run_command: python src/discord_bot.py
+    envs:
+      - key: DISCORD_BOT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: ANTHROPIC_API_KEY
+        scope: RUN_TIME
+        type: SECRET

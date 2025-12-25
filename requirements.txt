@@ -1,0 +1,13 @@
+# slashAI Dependencies
+
+# Discord
+discord.py>=2.3.0
+
+# MCP Server
+mcp[cli]>=1.25.0
+
+# Anthropic Claude API
+anthropic>=0.40.0
+
+# Environment management
+python-dotenv>=1.0.0
