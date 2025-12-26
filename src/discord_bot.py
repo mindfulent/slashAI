@@ -8,6 +8,7 @@ Integrates with memory system for persistent context.
 
 import asyncio
 import os
+import re
 from typing import Optional
 
 import asyncpg
@@ -187,10 +188,58 @@ class DiscordBot(commands.Bot):
         return "\n\n".join(parts)
 
     def _chunk_message(self, content: str) -> list[str]:
-        """Split a message into chunks that fit Discord's 2000 char limit."""
+        """Split a message into chunks that fit Discord's 2000 char limit.
+
+        Uses semantic chunking for markdown: prefers splitting on headers (##, ###, etc.)
+        before falling back to paragraph breaks, then sentence breaks, then word breaks.
+        """
         if len(content) <= DISCORD_MAX_LENGTH:
             return [content]
 
+        # Try semantic chunking first for markdown content
+        if re.search(r'^#{1,6}\s', content, re.MULTILINE):
+            chunks = self._chunk_by_headers(content)
+            if chunks:
+                return chunks
+
+        # Fallback to simple chunking
+        return self._chunk_simple(content)
+
+    def _chunk_by_headers(self, content: str) -> list[str]:
+        """Split content by markdown headers, keeping structure intact."""
+        # Split on headers (keep the header with its section)
+        header_pattern = r'(?=^#{1,6}\s)'
+        sections = re.split(header_pattern, content, flags=re.MULTILINE)
+        sections = [s for s in sections if s.strip()]
+
+        chunks = []
+        current_chunk = ""
+
+        for section in sections:
+            # If adding this section would exceed limit
+            if len(current_chunk) + len(section) > DISCORD_MAX_LENGTH:
+                # Save current chunk if non-empty
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+
+                # If section itself exceeds limit, sub-chunk it
+                if len(section) > DISCORD_MAX_LENGTH:
+                    sub_chunks = self._chunk_simple(section)
+                    chunks.extend(sub_chunks)
+                    current_chunk = ""
+                else:
+                    current_chunk = section
+            else:
+                current_chunk += section
+
+        # Don't forget the last chunk
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+
+        return chunks
+
+    def _chunk_simple(self, content: str) -> list[str]:
+        """Simple chunking: split at paragraph, sentence, or word boundaries."""
         chunks = []
         remaining = content
 
@@ -199,15 +248,30 @@ class DiscordBot(commands.Bot):
                 chunks.append(remaining)
                 break
 
-            # Find a good break point (prefer newline, then space)
+            # Find best break point (prefer paragraph > sentence > word)
             break_at = DISCORD_MAX_LENGTH
-            newline_idx = remaining.rfind("\n", 0, DISCORD_MAX_LENGTH)
-            if newline_idx > DISCORD_MAX_LENGTH // 2:
-                break_at = newline_idx + 1
+
+            # Try paragraph break (double newline)
+            para_idx = remaining.rfind("\n\n", 0, DISCORD_MAX_LENGTH)
+            if para_idx > DISCORD_MAX_LENGTH // 2:
+                break_at = para_idx + 2
             else:
-                space_idx = remaining.rfind(" ", 0, DISCORD_MAX_LENGTH)
-                if space_idx > DISCORD_MAX_LENGTH // 2:
-                    break_at = space_idx + 1
+                # Try single newline
+                newline_idx = remaining.rfind("\n", 0, DISCORD_MAX_LENGTH)
+                if newline_idx > DISCORD_MAX_LENGTH // 2:
+                    break_at = newline_idx + 1
+                else:
+                    # Try sentence end (. ! ?)
+                    for punct in [". ", "! ", "? "]:
+                        punct_idx = remaining.rfind(punct, 0, DISCORD_MAX_LENGTH)
+                        if punct_idx > DISCORD_MAX_LENGTH // 2:
+                            break_at = punct_idx + len(punct)
+                            break
+                    else:
+                        # Last resort: word break
+                        space_idx = remaining.rfind(" ", 0, DISCORD_MAX_LENGTH)
+                        if space_idx > DISCORD_MAX_LENGTH // 2:
+                            break_at = space_idx + 1
 
             chunks.append(remaining[:break_at].rstrip())
             remaining = remaining[break_at:].lstrip()
