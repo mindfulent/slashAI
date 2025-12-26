@@ -15,7 +15,7 @@ class MemoryConfig:
 
     # Retrieval settings
     top_k: int = 5
-    similarity_threshold: float = 0.5  # Lowered from 0.7 for better recall
+    similarity_threshold: float = 0.3  # Lowered for better recall
 
     # Extraction settings
     extraction_message_threshold: int = 10
@@ -36,7 +36,7 @@ class MemoryConfig:
         """Create config from environment variables with defaults."""
         return cls(
             top_k=int(os.getenv("MEMORY_TOP_K", "5")),
-            similarity_threshold=float(os.getenv("MEMORY_SIMILARITY_THRESHOLD", "0.7")),
+            similarity_threshold=float(os.getenv("MEMORY_SIMILARITY_THRESHOLD", "0.3")),
             extraction_message_threshold=int(
                 os.getenv("MEMORY_EXTRACTION_THRESHOLD", "10")
             ),
