@@ -9,11 +9,13 @@ Handles:
 
 import base64
 import hashlib
+import io
 import json
 from dataclasses import dataclass
 from typing import Optional
 
 from anthropic import AsyncAnthropic
+from PIL import Image
 import voyageai
 
 
@@ -258,12 +260,13 @@ class ImageAnalyzer:
         """
         Get Voyage multimodal embedding for the image.
 
-        Uses voyage-multimodal-3 which accepts base64 images directly.
+        Uses voyage-multimodal-3 which requires PIL Image objects.
         """
-        base64_image = base64.standard_b64encode(image_bytes).decode("utf-8")
+        # Convert bytes to PIL Image (Voyage SDK requires PIL images)
+        pil_image = Image.open(io.BytesIO(image_bytes))
 
         result = await self.voyage.multimodal_embed(
-            inputs=[[{"type": "image", "data": base64_image}]],
+            inputs=[[pil_image]],
             model=self.config.embedding_model,
         )
 
