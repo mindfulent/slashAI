@@ -75,44 +75,56 @@ class MemoryRetriever:
             user_id, embedding, context_privacy, channel, top_k
         )
 
-        # Debug: log available memories for this user
-        all_memories = await self.db.fetch(
-            "SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories WHERE user_id = $1",
-            user_id
-        )
-        logger.info(f"User has {len(all_memories)} total memories:")
-        for m in all_memories:
-            logger.info(f"  [{m['privacy_level']}] guild={m['origin_guild_id']}: {m['topic_summary'][:50]}...")
-
-        # Debug: show similarity scores WITH privacy filter applied
+        # Debug: log eligible memories (privacy-filtered) and similarities
         embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
-        # Build privacy-aware similarity check
         if context_privacy == PrivacyLevel.DM:
-            sim_filter = "TRUE"  # DMs can see everything
-            sim_params = [embedding_str, user_id]
+            # DMs can see everything
+            eligible_memories = await self.db.fetch(
+                "SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories WHERE user_id = $1",
+                user_id
+            )
+            similarity_check = await self.db.fetch(
+                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
+                   FROM memories WHERE user_id = $2 ORDER BY embedding <=> $1::vector LIMIT 5""",
+                embedding_str, user_id
+            )
         elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
-            sim_filter = """
-                privacy_level = 'global'
-                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
-                OR (privacy_level = 'channel_restricted' AND origin_channel_id = $4)
-            """
-            sim_params = [embedding_str, user_id, guild_id, channel_id]
+            eligible_memories = await self.db.fetch(
+                """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
+                   WHERE user_id = $1 AND (privacy_level = 'global'
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2)
+                   OR (privacy_level = 'channel_restricted' AND origin_channel_id = $3))""",
+                user_id, guild_id, channel_id
+            )
+            similarity_check = await self.db.fetch(
+                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
+                   FROM memories WHERE user_id = $2 AND (privacy_level = 'global'
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
+                   OR (privacy_level = 'channel_restricted' AND origin_channel_id = $4))
+                   ORDER BY embedding <=> $1::vector LIMIT 5""",
+                embedding_str, user_id, guild_id, channel_id
+            )
         else:  # GUILD_PUBLIC - exclude DMs entirely
-            sim_filter = """
-                privacy_level = 'global'
-                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
-            """
-            sim_params = [embedding_str, user_id, guild_id]
+            eligible_memories = await self.db.fetch(
+                """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
+                   WHERE user_id = $1 AND (privacy_level = 'global'
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2))""",
+                user_id, guild_id
+            )
+            similarity_check = await self.db.fetch(
+                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
+                   FROM memories WHERE user_id = $2 AND (privacy_level = 'global'
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3))
+                   ORDER BY embedding <=> $1::vector LIMIT 5""",
+                embedding_str, user_id, guild_id
+            )
 
-        similarity_check = await self.db.fetch(
-            f"""SELECT topic_summary, privacy_level, origin_guild_id,
-                      1 - (embedding <=> $1::vector) as similarity
-               FROM memories WHERE user_id = $2 AND ({sim_filter})
-               ORDER BY embedding <=> $1::vector LIMIT 5""",
-            *sim_params
-        )
-        logger.info(f"Top 5 eligible memories (threshold={self.config.similarity_threshold}):")
+        logger.info(f"User has {len(eligible_memories)} eligible memories (context={context_privacy.value}):")
+        for m in eligible_memories:
+            logger.info(f"  [{m['privacy_level']}] {m['topic_summary'][:50]}...")
+
+        logger.info(f"Top similarities (threshold={self.config.similarity_threshold}):")
         for m in similarity_check:
             logger.info(f"  sim={m['similarity']:.3f} [{m['privacy_level']}] {m['topic_summary'][:40]}...")
 
