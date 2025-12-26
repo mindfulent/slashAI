@@ -89,12 +89,17 @@ class MemoryManager:
         )
 
         # Append new messages to session
-        messages = session["messages"] or []
+        # Handle both list (correct) and string (legacy double-encoded) formats
+        raw_messages = session["messages"]
+        if isinstance(raw_messages, str):
+            messages = json.loads(raw_messages) if raw_messages else []
+        else:
+            messages = raw_messages or []
         messages.append({"role": "user", "content": user_message})
         messages.append({"role": "assistant", "content": assistant_message})
 
         await self.db.execute(
-            """UPDATE memory_sessions SET messages = $1, message_count = message_count + 2,
+            """UPDATE memory_sessions SET messages = $1::jsonb, message_count = message_count + 2,
                last_activity_at = NOW() WHERE user_id = $2 AND channel_id = $3""",
             json.dumps(messages),
             user_id,
