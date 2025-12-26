@@ -310,9 +310,9 @@ from dataclasses import dataclass
 
 @dataclass
 class MemoryConfig:
-    # Retrieval settings (per RMM paper recommendations)
+    # Retrieval settings
     top_k: int = 5                      # Number of memories to retrieve
-    similarity_threshold: float = 0.7   # Minimum cosine similarity
+    similarity_threshold: float = 0.3   # Minimum cosine similarity (lowered for better recall)
     
     # Extraction settings
     extraction_message_threshold: int = 10  # Extract after N messages
@@ -1194,7 +1194,7 @@ VOYAGE_API_KEY=pa-...
 # Feature flags
 MEMORY_ENABLED=true
 MEMORY_TOP_K=5
-MEMORY_SIMILARITY_THRESHOLD=0.7
+MEMORY_SIMILARITY_THRESHOLD=0.3
 MEMORY_MERGE_THRESHOLD=0.85
 ```
 

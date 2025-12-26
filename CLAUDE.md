@@ -35,6 +35,7 @@ The system has four components that work together:
 
 2. **`discord_bot.py`** - discord.py Bot with dual responsibilities
    - Handles message events for chatbot (mentions and DMs)
+   - Reads text file attachments (.md, .txt, .py, .json, etc.) up to 100KB
    - Exposes async methods (`send_message`, `read_messages`, etc.) for MCP tools
    - Initializes database pool and memory manager on startup
    - Uses `_ready_event` for startup synchronization
