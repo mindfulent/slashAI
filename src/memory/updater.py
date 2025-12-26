@@ -64,6 +64,10 @@ class MemoryUpdater:
         self.anthropic = anthropic_client
         self.config = config
 
+    def _embedding_to_str(self, embedding: list[float]) -> str:
+        """Convert embedding list to pgvector string format."""
+        return "[" + ",".join(str(x) for x in embedding) + "]"
+
     async def update(
         self,
         user_id: int,
@@ -112,7 +116,8 @@ class MemoryUpdater:
             ORDER BY embedding <=> $1::vector
             LIMIT 1
         """
-        return await self.db.fetchrow(sql, embedding, user_id, privacy_level.value)
+        embedding_str = self._embedding_to_str(embedding)
+        return await self.db.fetchrow(sql, embedding_str, user_id, privacy_level.value)
 
     async def _merge(
         self, existing: dict, new: ExtractedMemory, new_embedding: list[float]
@@ -144,14 +149,14 @@ class MemoryUpdater:
         result = await self.db.fetchrow(
             """
             UPDATE memories SET
-                topic_summary = $1, raw_dialogue = $2, embedding = $3,
+                topic_summary = $1, raw_dialogue = $2, embedding = $3::vector,
                 confidence = $4, source_count = source_count + 1, updated_at = NOW()
             WHERE id = $5
             RETURNING id
             """,
             merged["merged_summary"],
             merged["merged_dialogue"],
-            merged_embedding,
+            self._embedding_to_str(merged_embedding),
             merged.get("confidence", new.confidence),
             existing["id"],
         )
@@ -172,7 +177,7 @@ class MemoryUpdater:
             INSERT INTO memories (
                 user_id, topic_summary, raw_dialogue, embedding,
                 memory_type, confidence, privacy_level, origin_channel_id, origin_guild_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9)
             ON CONFLICT (user_id, md5(topic_summary)) DO UPDATE SET
                 raw_dialogue = EXCLUDED.raw_dialogue,
                 embedding = EXCLUDED.embedding,
@@ -184,7 +189,7 @@ class MemoryUpdater:
             user_id,
             memory.summary,
             memory.raw_dialogue,
-            embedding,
+            self._embedding_to_str(embedding),
             memory.memory_type,
             memory.confidence,
             privacy_level.value,

@@ -103,6 +103,9 @@ class MemoryRetriever:
         - Restricted channel: global + same-guild public + same-channel restricted
         - Public channel: global + same-guild public
         """
+        # Convert embedding list to string format for pgvector
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
         base_query = """
             SELECT
                 id, topic_summary, raw_dialogue, memory_type, privacy_level,
@@ -118,7 +121,7 @@ class MemoryRetriever:
         if context_privacy == PrivacyLevel.DM:
             # DM context: all memories visible (user is only viewer)
             privacy_filter = "TRUE"
-            params = [embedding, user_id, self.config.similarity_threshold, top_k]
+            params = [embedding_str, user_id, self.config.similarity_threshold, top_k]
 
         elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
             # Restricted channel: global + same-guild public + same-channel restricted
@@ -130,7 +133,7 @@ class MemoryRetriever:
                 OR (privacy_level = 'channel_restricted' AND origin_channel_id = $6)
             """
             params = [
-                embedding,
+                embedding_str,
                 user_id,
                 self.config.similarity_threshold,
                 top_k,
@@ -146,7 +149,7 @@ class MemoryRetriever:
                 OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
             """
             params = [
-                embedding,
+                embedding_str,
                 user_id,
                 self.config.similarity_threshold,
                 top_k,
