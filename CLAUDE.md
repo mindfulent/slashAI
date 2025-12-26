@@ -36,6 +36,7 @@ The system has four components that work together:
 2. **`discord_bot.py`** - discord.py Bot with dual responsibilities
    - Handles message events for chatbot (mentions and DMs)
    - Reads text file attachments (.md, .txt, .py, .json, etc.) up to 100KB
+   - Auto-chunks long responses (semantic splitting on markdown headers)
    - Exposes async methods (`send_message`, `read_messages`, etc.) for MCP tools
    - Initializes database pool and memory manager on startup
    - Uses `_ready_event` for startup synchronization
@@ -77,9 +78,9 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 ## Key Constants
 
-- `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:14`)
+- `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:21`)
 - `MAX_HISTORY_LENGTH`: 20 messages per conversation
-- Discord message limit: 2000 characters (enforced in system prompt)
+- `DISCORD_MAX_LENGTH`: 2000 characters (auto-chunked if exceeded)
 
 ## Environment Variables
 
