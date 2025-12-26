@@ -180,10 +180,15 @@ class DiscordBot(commands.Bot):
             try:
                 content_bytes = await attachment.read()
                 content = content_bytes.decode("utf-8", errors="replace")
-                parts.append(f"**File: {attachment.filename}**\n```\n{content}\n```")
+                logger.info(f"Read attachment: {attachment.filename} ({len(content)} chars)")
+                # Use XML tags to avoid conflicts with code blocks inside the file
+                parts.append(f'<attached_file name="{attachment.filename}">\n{content}\n</attached_file>')
             except Exception as e:
                 logger.warning(f"Failed to read attachment {attachment.filename}: {e}")
                 parts.append(f"[Failed to read {attachment.filename}: {e}]")
+
+        if not parts and attachments:
+            logger.debug(f"No text attachments in {len(attachments)} file(s)")
 
         return "\n\n".join(parts)
 
