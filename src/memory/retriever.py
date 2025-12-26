@@ -5,6 +5,7 @@ Semantic search with privacy-aware filtering using Voyage AI embeddings
 and pgvector for similarity search.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -15,6 +16,8 @@ import voyageai
 
 from .config import MemoryConfig
 from .privacy import PrivacyLevel, classify_channel_privacy
+
+logger = logging.getLogger("slashAI.memory")
 
 
 @dataclass
@@ -59,11 +62,27 @@ class MemoryRetriever:
         """
         top_k = top_k or self.config.top_k
         context_privacy = await classify_channel_privacy(channel)
+
+        # Debug: log retrieval context
+        guild_id = getattr(channel, 'guild', None)
+        guild_id = guild_id.id if guild_id else None
+        channel_id = getattr(channel, 'id', None)
+        logger.info(f"Retrieval context: privacy={context_privacy.value}, guild={guild_id}, channel={channel_id}")
+
         embedding = await self._embed(query, input_type="query")
 
         sql, params = self._build_privacy_query(
             user_id, embedding, context_privacy, channel, top_k
         )
+
+        # Debug: log available memories for this user
+        all_memories = await self.db.fetch(
+            "SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories WHERE user_id = $1",
+            user_id
+        )
+        logger.info(f"User has {len(all_memories)} total memories:")
+        for m in all_memories:
+            logger.info(f"  [{m['privacy_level']}] guild={m['origin_guild_id']}: {m['topic_summary'][:40]}...")
 
         rows = await self.db.fetch(sql, *params)
 
