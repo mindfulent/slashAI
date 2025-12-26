@@ -11,3 +11,9 @@ anthropic>=0.40.0
 
 # Environment management
 python-dotenv>=1.0.0
+
+# Database (Memory System v0.9.1)
+asyncpg>=0.29.0
+
+# Embeddings (Anthropic's official partner)
+voyageai>=0.3.0

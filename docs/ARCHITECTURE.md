@@ -1,40 +1,49 @@
 # slashAI Architecture
 
-Discord chatbot + MCP server powered by Claude Sonnet 4.5.
+Discord chatbot + MCP server powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
 ## Overview
 
 slashAI serves two purposes:
 1. **MCP Server**: Exposes Discord operations as tools for Claude Code
-2. **Chatbot**: Responds to Discord messages using Claude Sonnet 4.5
+2. **Chatbot**: Responds to Discord messages using Claude Sonnet 4.5 with persistent memory
 
 ## Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Claude Code                            │
-│                    (MCP Client)                             │
-└─────────────────────┬───────────────────────────────────────┘
-                      │ stdio (JSON-RPC 2.0)
-┌─────────────────────▼───────────────────────────────────────┐
-│                  slashAI MCP Server                         │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ Tools:                                                 │ │
-│  │  • send_message(channel_id, content)                   │ │
-│  │  • edit_message(channel_id, message_id, content)       │ │
-│  │  • read_messages(channel_id, limit)                    │ │
-│  │  • list_channels(guild_id)                             │ │
-│  │  • get_channel_info(channel_id)                        │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                         │                                   │
-│  ┌──────────────────────▼─────────────────────────────────┐ │
-│  │            Discord Bot (discord.py)                    │ │
-│  │         Maintains persistent connection                │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                      │
-                      ▼
-              Discord API
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              slashAI v0.9.1                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────────┐  │
+│  │  Discord Bot    │───▶│  Claude Client  │───▶│  Memory Manager         │  │
+│  │                 │    │                 │    │                         │  │
+│  │  on_message()   │    │  chat()         │    │  - extract_topics()     │  │
+│  │  _handle_chat() │    │  inject_memory()│    │  - retrieve_memories()  │  │
+│  │                 │    │                 │    │  - update_memory()      │  │
+│  │  [Passes channel│    │  [Passes channel│    │  - classify_privacy()   │  │
+│  │   for privacy]  │    │   context]      │    │                         │  │
+│  └─────────────────┘    └─────────────────┘    └───────────┬─────────────┘  │
+│                                                            │                │
+│  ┌─────────────────────────────────────────────────────────┼──────────────┐ │
+│  │                         Data Layer                      │              │ │
+│  │  ┌─────────────────┐    ┌─────────────────┐    ┌───────▼───────────┐  │ │
+│  │  │  PostgreSQL     │    │  pgvector       │    │  Voyage AI        │  │ │
+│  │  │  (memories w/   │◀──▶│  (semantic      │◀───│  (embeddings)     │  │ │
+│  │  │  privacy_level) │    │   search)       │    │                   │  │ │
+│  │  └─────────────────┘    └─────────────────┘    └───────────────────┘  │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+MCP Server Flow:
+Claude Code ──stdio──▶ mcp_server.py ──▶ discord_bot.py ──▶ Discord API
+
+Chatbot Flow:
+Discord User ──▶ discord_bot.py ──▶ claude_client.py ──▶ Anthropic API
+                                           │
+                                           ▼
+                                   memory/ (retrieval + tracking)
 ```
 
 ## Components
@@ -77,8 +86,35 @@ Anthropic API wrapper for chatbot responses.
 
 **Features:**
 - Conversation history management (per channel or per user)
+- Memory retrieval and injection into system prompt
 - System prompt configuration
 - Token usage tracking
+
+### 4. Memory System (`src/memory/`)
+
+Privacy-aware persistent memory using PostgreSQL + pgvector + Voyage AI.
+
+**Components:**
+
+| Module | Responsibility |
+|--------|----------------|
+| `config.py` | Configuration dataclass with defaults |
+| `privacy.py` | Privacy level classification based on channel |
+| `extractor.py` | LLM-based topic extraction from conversations |
+| `retriever.py` | Vector search with privacy filtering |
+| `updater.py` | ADD/MERGE memory operations |
+| `manager.py` | Facade orchestrating all operations |
+
+**Privacy Levels:**
+
+| Level | Assigned When | Retrievable In |
+|-------|---------------|----------------|
+| `dm` | Conversation in DM | DMs only |
+| `channel_restricted` | Role-gated channel | Same channel only |
+| `guild_public` | Public channel | Any channel in same guild |
+| `global` | Explicit, non-sensitive facts | Anywhere |
+
+See `docs/MEMORY_TECHSPEC.md` and `docs/MEMORY_PRIVACY.md` for full documentation.
 
 ## Technology Stack
 
@@ -87,6 +123,8 @@ Anthropic API wrapper for chatbot responses.
 | MCP Server | mcp (FastMCP) | >=1.25.0 |
 | Discord | discord.py | >=2.3.0 |
 | Claude API | anthropic | >=0.40.0 |
+| Database | asyncpg + pgvector | >=0.29.0 |
+| Embeddings | voyageai | >=0.3.0 |
 | Python | Python | >=3.10 |
 
 ## Configuration
@@ -94,8 +132,14 @@ Anthropic API wrapper for chatbot responses.
 ### Environment Variables (`.env`)
 
 ```env
+# Required
 DISCORD_BOT_TOKEN=your_discord_bot_token
 ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# Memory System (v0.9.1)
+DATABASE_URL=postgresql://user:pass@host:5432/slashai
+VOYAGE_API_KEY=pa-your_voyage_api_key
+MEMORY_ENABLED=true
 ```
 
 ### Claude Code MCP Configuration
@@ -162,8 +206,10 @@ python src/discord_bot.py
 ## Future Enhancements
 
 - [ ] Slash command support (`/ask`, `/summarize`)
-- [ ] Per-user conversation memory with persistence
+- [x] Per-user conversation memory with persistence (v0.9.1)
 - [ ] Rate limiting and token budget management
 - [ ] Multi-guild support with per-guild configuration
 - [ ] Agent Skills integration for extended capabilities
 - [ ] Webhook support for notifications
+- [ ] User memory commands (`/memories`, `/forget`)
+- [ ] Memory decay (Ebbinghaus-inspired)

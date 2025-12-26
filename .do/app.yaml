@@ -18,3 +18,12 @@ workers:
       - key: ANTHROPIC_API_KEY
         scope: RUN_TIME
         type: SECRET
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: VOYAGE_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: MEMORY_ENABLED
+        scope: RUN_TIME
+        value: "true"

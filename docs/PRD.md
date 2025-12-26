@@ -464,9 +464,14 @@ The following are explicitly NOT included in v0.9.0:
 
 ## 8. Future Roadmap
 
+### v0.9.1 (Current)
+- Privacy-aware persistent memory with PostgreSQL + pgvector
+- Voyage AI embeddings for semantic search
+- Four privacy levels: dm, channel_restricted, guild_public, global
+
 ### v1.0.0 (Planned)
 - Slash command support (`/ask`, `/summarize`)
-- Persistent conversation memory
+- User memory commands (`/memories`, `/forget`)
 - Basic usage analytics
 
 ### v1.1.0 (Planned)

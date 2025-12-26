@@ -3,12 +3,19 @@ slashAI Claude Client
 
 Wrapper for the Anthropic API to power chatbot responses.
 Manages conversation history per user/channel.
+Integrates with memory system for persistent context.
 """
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Optional
 
+import discord
 from anthropic import AsyncAnthropic
+
+if TYPE_CHECKING:
+    from memory import MemoryManager
+    from memory.retriever import RetrievedMemory
 
 # Claude Sonnet 4.5 model ID
 MODEL_ID = "claude-sonnet-4-5-20250929"
@@ -75,10 +82,12 @@ class ClaudeClient:
     def __init__(
         self,
         api_key: str,
+        memory_manager: Optional["MemoryManager"] = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         model: str = MODEL_ID,
     ):
         self.client = AsyncAnthropic(api_key=api_key)
+        self.memory = memory_manager
         self.system_prompt = system_prompt
         self.model = model
         # Conversation history keyed by (user_id, channel_id)
@@ -98,6 +107,7 @@ class ClaudeClient:
         user_id: str,
         channel_id: str,
         content: str,
+        channel: Optional[discord.abc.Messageable] = None,
         max_tokens: int = 1024,
     ) -> str:
         """
@@ -107,6 +117,7 @@ class ClaudeClient:
             user_id: Discord user ID
             channel_id: Discord channel ID
             content: The user's message
+            channel: Discord channel for memory privacy context
             max_tokens: Maximum tokens in response (default 1024)
 
         Returns:
@@ -115,14 +126,26 @@ class ClaudeClient:
         key = self._get_conversation_key(user_id, channel_id)
         conversation = self._conversations[key]
 
+        # Retrieve relevant memories (privacy-filtered)
+        memory_context = ""
+        if self.memory and channel:
+            memories = await self.memory.retrieve(int(user_id), content, channel)
+            if memories:
+                memory_context = self._format_memories(memories)
+
         # Add user message to history
         conversation.add_message("user", content)
+
+        # Build system prompt with memory context
+        system = self.system_prompt
+        if memory_context:
+            system = f"{self.system_prompt}\n\n{memory_context}"
 
         # Make API request
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
-            system=self.system_prompt,
+            system=system,
             messages=conversation.get_messages(),
         )
 
@@ -136,7 +159,31 @@ class ClaudeClient:
         # Add assistant response to history
         conversation.add_message("assistant", response_text)
 
+        # Track message for memory extraction
+        if self.memory and channel:
+            await self.memory.track_message(
+                int(user_id), int(channel_id), channel, content, response_text
+            )
+
         return response_text
+
+    def _format_memories(self, memories: list["RetrievedMemory"]) -> str:
+        """Format retrieved memories for injection into system prompt."""
+        if not memories:
+            return ""
+
+        lines = ["## Relevant Context From Past Conversations"]
+        for i, mem in enumerate(memories, 1):
+            lines.append(f"\n### Memory {i} ({mem.memory_type})")
+            lines.append(f"**Summary**: {mem.summary}")
+            lines.append(f"**Context**:\n{mem.raw_dialogue}")
+
+        lines.append("\n---")
+        lines.append(
+            "Use this context naturally if relevant. "
+            "Don't explicitly mention 'remembering' unless asked."
+        )
+        return "\n".join(lines)
 
     async def chat_single(
         self,

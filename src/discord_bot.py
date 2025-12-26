@@ -3,13 +3,16 @@ slashAI Discord Bot
 
 Maintains persistent Discord connection and provides methods for MCP tools.
 Can also run standalone as a chatbot powered by Claude Sonnet 4.5.
+Integrates with memory system for persistent context.
 """
 
 import asyncio
 import os
 from typing import Optional
 
+import asyncpg
 import discord
+from anthropic import AsyncAnthropic
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -30,13 +33,34 @@ class DiscordBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
         self.claude_client: Optional[ClaudeClient] = None
+        self.db_pool: Optional[asyncpg.Pool] = None
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
         """Called when the bot is starting up."""
-        # Initialize Claude client for chatbot functionality
         api_key = os.getenv("ANTHROPIC_API_KEY")
-        if api_key:
+        database_url = os.getenv("DATABASE_URL")
+        memory_enabled = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
+
+        if api_key and database_url and memory_enabled:
+            # Initialize memory system
+            try:
+                from memory import MemoryManager
+
+                self.db_pool = await asyncpg.create_pool(database_url)
+                anthropic_client = AsyncAnthropic(api_key=api_key)
+                memory_manager = MemoryManager(self.db_pool, anthropic_client)
+                self.claude_client = ClaudeClient(
+                    api_key, memory_manager=memory_manager
+                )
+                print("Memory system initialized successfully")
+            except Exception as e:
+                print(f"Failed to initialize memory system: {e}")
+                print("Falling back to v0.9.0 behavior (no memory)")
+                if api_key:
+                    self.claude_client = ClaudeClient(api_key)
+        elif api_key:
+            # Fallback: no memory system
             self.claude_client = ClaudeClient(api_key)
 
     async def on_ready(self):
@@ -88,10 +112,17 @@ class DiscordBot(commands.Bot):
                     user_id=str(message.author.id),
                     channel_id=str(message.channel.id),
                     content=content,
+                    channel=message.channel,  # Pass channel for memory privacy
                 )
                 await message.reply(response)
             except Exception as e:
                 await message.reply(f"Sorry, I encountered an error: {str(e)}")
+
+    async def close(self):
+        """Clean up resources on shutdown."""
+        if self.db_pool:
+            await self.db_pool.close()
+        await super().close()
 
     # --- MCP Tool Methods ---
 
