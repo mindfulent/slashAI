@@ -200,9 +200,18 @@ class MemoryUpdater:
 
     def _parse_merge_response(self, response_text: str) -> dict:
         """Parse Claude's merge response JSON."""
+        import re
+
         text = response_text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
+
+        # Extract JSON from markdown code blocks (handles ```json or ``` with content before/after)
+        code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if code_block_match:
+            text = code_block_match.group(1)
+        else:
+            # Try to find raw JSON object
+            json_match = re.search(r"\{.*\}", text, re.DOTALL)
+            if json_match:
+                text = json_match.group(0)
+
         return json.loads(text)

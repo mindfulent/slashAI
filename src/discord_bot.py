@@ -129,6 +129,11 @@ class DiscordBot(commands.Bot):
         # Remove bot mention from content
         content = message.content.replace(f"<@{self.user.id}>", "").strip()
 
+        # Process text file attachments (.md, .txt, .py, .json, etc.)
+        attachment_contents = await self._read_text_attachments(message.attachments)
+        if attachment_contents:
+            content = f"{content}\n\n{attachment_contents}" if content else attachment_contents
+
         if not content:
             return
 
@@ -143,6 +148,40 @@ class DiscordBot(commands.Bot):
                 await message.reply(response)
             except Exception as e:
                 await message.reply(f"Sorry, I encountered an error: {str(e)}")
+
+    async def _read_text_attachments(
+        self, attachments: list[discord.Attachment]
+    ) -> str:
+        """Download and read text-based file attachments."""
+        TEXT_EXTENSIONS = {
+            ".md", ".txt", ".py", ".js", ".ts", ".json", ".yaml", ".yml",
+            ".toml", ".ini", ".cfg", ".conf", ".sh", ".bash", ".zsh",
+            ".html", ".css", ".xml", ".csv", ".log", ".sql", ".r", ".rs",
+            ".go", ".java", ".c", ".cpp", ".h", ".hpp", ".cs", ".rb",
+        }
+        MAX_FILE_SIZE = 100_000  # 100KB limit per file
+
+        parts = []
+        for attachment in attachments:
+            # Check file extension
+            ext = "." + attachment.filename.lower().rsplit(".", 1)[-1] if "." in attachment.filename else ""
+            if ext not in TEXT_EXTENSIONS:
+                continue
+
+            # Check file size
+            if attachment.size > MAX_FILE_SIZE:
+                parts.append(f"[File {attachment.filename} too large ({attachment.size} bytes)]")
+                continue
+
+            try:
+                content_bytes = await attachment.read()
+                content = content_bytes.decode("utf-8", errors="replace")
+                parts.append(f"**File: {attachment.filename}**\n```\n{content}\n```")
+            except Exception as e:
+                logger.warning(f"Failed to read attachment {attachment.filename}: {e}")
+                parts.append(f"[Failed to read {attachment.filename}: {e}]")
+
+        return "\n\n".join(parts)
 
     async def close(self):
         """Clean up resources on shutdown."""

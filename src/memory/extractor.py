@@ -193,13 +193,23 @@ class MemoryExtractor:
 
     def _parse_response(self, response_text: str) -> list[ExtractedMemory]:
         """Parse Claude's JSON response into ExtractedMemory objects."""
+        import logging
+        import re
+
+        logger = logging.getLogger("slashAI.memory")
+
         try:
             text = response_text.strip()
-            # Handle markdown code blocks
-            if text.startswith("```"):
-                text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
+
+            # Extract JSON from markdown code blocks (handles ```json or ``` with content before/after)
+            code_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if code_block_match:
+                text = code_block_match.group(1)
+            else:
+                # Try to find raw JSON object
+                json_match = re.search(r"\{.*\}", text, re.DOTALL)
+                if json_match:
+                    text = json_match.group(0)
 
             data = json.loads(text)
             return [
@@ -213,5 +223,6 @@ class MemoryExtractor:
                 for item in data.get("extracted_memories", [])
             ]
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"Memory extraction parse error: {e}")
+            logger.error(f"Memory extraction parse error: {e}")
+            logger.debug(f"Raw response: {response_text[:500]}")
             return []

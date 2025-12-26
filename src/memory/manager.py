@@ -155,26 +155,30 @@ class MemoryManager:
         messages: list[dict],
     ):
         """Extract memories from accumulated messages."""
-        logger.info(f"Extracting memories from {len(messages)} messages")
-        extracted_with_privacy = await self.extractor.extract_with_privacy(
-            messages, channel
-        )
-        logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
-
-        guild = getattr(channel, "guild", None)
-        guild_id = guild.id if guild else None
-
-        for memory, privacy_level in extracted_with_privacy:
-            logger.info(f"Storing memory: [{privacy_level.value}] {memory.topic_summary[:50]}...")
-            await self.updater.update(
-                user_id, memory, privacy_level, channel_id, guild_id
+        try:
+            logger.info(f"Extracting memories from {len(messages)} messages")
+            extracted_with_privacy = await self.extractor.extract_with_privacy(
+                messages, channel
             )
+            logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
 
-        # Reset session after extraction
-        await self.db.execute(
-            """UPDATE memory_sessions SET extracted_at = NOW(), messages = '[]'::jsonb,
-               message_count = 0 WHERE user_id = $1 AND channel_id = $2""",
-            user_id,
-            channel_id,
-        )
-        logger.info(f"Session reset for user={user_id}, channel={channel_id}")
+            guild = getattr(channel, "guild", None)
+            guild_id = guild.id if guild else None
+
+            for memory, privacy_level in extracted_with_privacy:
+                logger.info(f"Storing memory: [{privacy_level.value}] {memory.summary[:50]}...")
+                await self.updater.update(
+                    user_id, memory, privacy_level, channel_id, guild_id
+                )
+
+            # Reset session after extraction
+            await self.db.execute(
+                """UPDATE memory_sessions SET extracted_at = NOW(), messages = '[]'::jsonb,
+                   message_count = 0 WHERE user_id = $1 AND channel_id = $2""",
+                user_id,
+                channel_id,
+            )
+            logger.info(f"Session reset for user={user_id}, channel={channel_id}")
+        except Exception as e:
+            logger.error(f"Memory extraction failed for user={user_id}: {e}", exc_info=True)
+            # Don't reset session on failure - will retry next threshold
