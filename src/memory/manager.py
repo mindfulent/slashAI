@@ -6,11 +6,14 @@ with privacy enforcement.
 """
 
 import json
+import logging
 from typing import Optional
 
 import asyncpg
 import discord
 from anthropic import AsyncAnthropic
+
+logger = logging.getLogger("slashAI.memory")
 
 from .config import MemoryConfig
 from .extractor import MemoryExtractor
@@ -50,7 +53,12 @@ class MemoryManager:
         Returns:
             List of relevant memories
         """
-        return await self.retriever.retrieve(user_id, query, channel)
+        logger.info(f"Retrieving memories for user={user_id}, query={query[:50]}...")
+        memories = await self.retriever.retrieve(user_id, query, channel)
+        logger.info(f"Retrieved {len(memories)} memories")
+        for mem in memories:
+            logger.debug(f"  - [{mem.memory_type}] {mem.summary[:50]}... (sim={mem.similarity:.3f})")
+        return memories
 
     async def track_message(
         self,
@@ -74,6 +82,8 @@ class MemoryManager:
         guild = getattr(channel, "guild", None)
         guild_id = guild.id if guild else None
 
+        logger.info(f"Tracking message for user={user_id}, channel={channel_id}, privacy={channel_privacy.value}")
+
         session = await self._get_or_create_session(
             user_id, channel_id, guild_id, channel_privacy
         )
@@ -91,9 +101,14 @@ class MemoryManager:
             channel_id,
         )
 
+        msg_count = len(messages) // 2
+        threshold = self.config.extraction_message_threshold
+        logger.info(f"Session has {msg_count}/{threshold} message exchanges")
+
         # Check if we should trigger extraction
         # Threshold is per-message, but we store pairs, so multiply by 2
         if len(messages) >= self.config.extraction_message_threshold * 2:
+            logger.info(f"Threshold reached, triggering extraction for user={user_id}")
             await self._trigger_extraction(user_id, channel_id, channel, messages)
 
     async def _get_or_create_session(
@@ -135,14 +150,17 @@ class MemoryManager:
         messages: list[dict],
     ):
         """Extract memories from accumulated messages."""
+        logger.info(f"Extracting memories from {len(messages)} messages")
         extracted_with_privacy = await self.extractor.extract_with_privacy(
             messages, channel
         )
+        logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
 
         guild = getattr(channel, "guild", None)
         guild_id = guild.id if guild else None
 
         for memory, privacy_level in extracted_with_privacy:
+            logger.info(f"Storing memory: [{privacy_level.value}] {memory.topic_summary[:50]}...")
             await self.updater.update(
                 user_id, memory, privacy_level, channel_id, guild_id
             )
@@ -154,3 +172,4 @@ class MemoryManager:
             user_id,
             channel_id,
         )
+        logger.info(f"Session reset for user={user_id}, channel={channel_id}")

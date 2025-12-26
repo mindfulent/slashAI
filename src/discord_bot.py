@@ -20,6 +20,15 @@ from claude_client import ClaudeClient
 
 load_dotenv()
 
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("slashAI")
+
 
 class DiscordBot(commands.Bot):
     """Discord bot with MCP-compatible methods and chatbot functionality."""
@@ -40,11 +49,18 @@ class DiscordBot(commands.Bot):
     async def setup_hook(self):
         """Called when the bot is starting up."""
         if not self.enable_chat:
-            return  # MCP-only mode, skip Claude client setup
+            logger.info("MCP-only mode, skipping Claude client setup")
+            return
 
         api_key = os.getenv("ANTHROPIC_API_KEY")
         database_url = os.getenv("DATABASE_URL")
         memory_enabled = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
+        voyage_key = os.getenv("VOYAGE_API_KEY")
+
+        logger.info(f"Setup: ANTHROPIC_API_KEY={'set' if api_key else 'missing'}")
+        logger.info(f"Setup: DATABASE_URL={'set' if database_url else 'missing'}")
+        logger.info(f"Setup: MEMORY_ENABLED={memory_enabled}")
+        logger.info(f"Setup: VOYAGE_API_KEY={'set' if voyage_key else 'missing'}")
 
         if api_key and database_url and memory_enabled:
             # Initialize memory system
@@ -57,15 +73,18 @@ class DiscordBot(commands.Bot):
                 self.claude_client = ClaudeClient(
                     api_key, memory_manager=memory_manager
                 )
-                print("Memory system initialized successfully")
+                logger.info("Memory system initialized successfully")
             except Exception as e:
-                print(f"Failed to initialize memory system: {e}")
-                print("Falling back to v0.9.0 behavior (no memory)")
+                logger.error(f"Failed to initialize memory system: {e}", exc_info=True)
+                logger.warning("Falling back to v0.9.0 behavior (no memory)")
                 if api_key:
                     self.claude_client = ClaudeClient(api_key)
         elif api_key:
             # Fallback: no memory system
+            logger.info("Memory system disabled, using basic Claude client")
             self.claude_client = ClaudeClient(api_key)
+        else:
+            logger.warning("No ANTHROPIC_API_KEY, chatbot disabled")
 
     async def on_ready(self):
         """Called when the bot has connected to Discord."""
