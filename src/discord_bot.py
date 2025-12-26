@@ -24,7 +24,7 @@ load_dotenv()
 class DiscordBot(commands.Bot):
     """Discord bot with MCP-compatible methods and chatbot functionality."""
 
-    def __init__(self):
+    def __init__(self, enable_chat: bool = True):
         intents = discord.Intents.default()
         intents.message_content = True
         intents.guilds = True
@@ -32,12 +32,16 @@ class DiscordBot(commands.Bot):
 
         super().__init__(command_prefix="!", intents=intents)
 
+        self.enable_chat = enable_chat  # Disable for MCP-only mode
         self.claude_client: Optional[ClaudeClient] = None
         self.db_pool: Optional[asyncpg.Pool] = None
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
         """Called when the bot is starting up."""
+        if not self.enable_chat:
+            return  # MCP-only mode, skip Claude client setup
+
         api_key = os.getenv("ANTHROPIC_API_KEY")
         database_url = os.getenv("DATABASE_URL")
         memory_enabled = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
@@ -86,7 +90,10 @@ class DiscordBot(commands.Bot):
         # Process commands first
         await self.process_commands(message)
 
-        # Chatbot: respond when mentioned or in DMs
+        # Chatbot: respond when mentioned or in DMs (skip if chat disabled)
+        if not self.enable_chat:
+            return
+
         if self.user.mentioned_in(message) or isinstance(
             message.channel, discord.DMChannel
         ):

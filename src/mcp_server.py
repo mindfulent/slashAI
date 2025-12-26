@@ -29,7 +29,7 @@ async def lifespan(server: FastMCP):
     if not token:
         raise ValueError("DISCORD_BOT_TOKEN environment variable not set")
 
-    bot = DiscordBot()
+    bot = DiscordBot(enable_chat=False)  # MCP-only, no chat responses
     bot_task = asyncio.create_task(bot.start(token))
 
     # Wait for bot to be ready
