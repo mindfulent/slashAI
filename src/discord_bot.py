@@ -22,6 +22,9 @@ load_dotenv()
 
 import logging
 
+# Discord message length limit
+DISCORD_MAX_LENGTH = 2000
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -145,7 +148,7 @@ class DiscordBot(commands.Bot):
                     content=content,
                     channel=message.channel,  # Pass channel for memory privacy
                 )
-                await message.reply(response)
+                await self._send_chunked(message.channel, response, reply_to=message)
             except Exception as e:
                 await message.reply(f"Sorry, I encountered an error: {str(e)}")
 
@@ -183,6 +186,49 @@ class DiscordBot(commands.Bot):
 
         return "\n\n".join(parts)
 
+    def _chunk_message(self, content: str) -> list[str]:
+        """Split a message into chunks that fit Discord's 2000 char limit."""
+        if len(content) <= DISCORD_MAX_LENGTH:
+            return [content]
+
+        chunks = []
+        remaining = content
+
+        while remaining:
+            if len(remaining) <= DISCORD_MAX_LENGTH:
+                chunks.append(remaining)
+                break
+
+            # Find a good break point (prefer newline, then space)
+            break_at = DISCORD_MAX_LENGTH
+            newline_idx = remaining.rfind("\n", 0, DISCORD_MAX_LENGTH)
+            if newline_idx > DISCORD_MAX_LENGTH // 2:
+                break_at = newline_idx + 1
+            else:
+                space_idx = remaining.rfind(" ", 0, DISCORD_MAX_LENGTH)
+                if space_idx > DISCORD_MAX_LENGTH // 2:
+                    break_at = space_idx + 1
+
+            chunks.append(remaining[:break_at].rstrip())
+            remaining = remaining[break_at:].lstrip()
+
+        return chunks
+
+    async def _send_chunked(
+        self, channel: discord.abc.Messageable, content: str, reply_to: discord.Message = None
+    ) -> discord.Message:
+        """Send a message, splitting into chunks if needed. Returns the last message sent."""
+        chunks = self._chunk_message(content)
+        last_msg = None
+
+        for i, chunk in enumerate(chunks):
+            if i == 0 and reply_to:
+                last_msg = await reply_to.reply(chunk)
+            else:
+                last_msg = await channel.send(chunk)
+
+        return last_msg
+
     async def close(self):
         """Clean up resources on shutdown."""
         if self.db_pool:
@@ -196,7 +242,7 @@ class DiscordBot(commands.Bot):
         channel = self.get_channel(channel_id)
         if channel is None:
             channel = await self.fetch_channel(channel_id)
-        return await channel.send(content)
+        return await self._send_chunked(channel, content)
 
     async def edit_message(
         self, channel_id: int, message_id: int, content: str
@@ -206,6 +252,9 @@ class DiscordBot(commands.Bot):
         if channel is None:
             channel = await self.fetch_channel(channel_id)
         message = await channel.fetch_message(message_id)
+        # Truncate if too long (edits can't be split)
+        if len(content) > DISCORD_MAX_LENGTH:
+            content = content[: DISCORD_MAX_LENGTH - 20] + "\n\n[...truncated]"
         return await message.edit(content=content)
 
     async def read_messages(
