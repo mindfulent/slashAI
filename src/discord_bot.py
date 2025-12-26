@@ -48,6 +48,7 @@ class DiscordBot(commands.Bot):
         self.enable_chat = enable_chat  # Disable for MCP-only mode
         self.claude_client: Optional[ClaudeClient] = None
         self.db_pool: Optional[asyncpg.Pool] = None
+        self.image_observer = None  # Image memory system
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -60,11 +61,13 @@ class DiscordBot(commands.Bot):
         database_url = os.getenv("DATABASE_URL")
         memory_enabled = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
         voyage_key = os.getenv("VOYAGE_API_KEY")
+        image_memory_enabled = os.getenv("IMAGE_MEMORY_ENABLED", "false").lower() == "true"
 
         logger.info(f"Setup: ANTHROPIC_API_KEY={'set' if api_key else 'missing'}")
         logger.info(f"Setup: DATABASE_URL={'set' if database_url else 'missing'}")
         logger.info(f"Setup: MEMORY_ENABLED={memory_enabled}")
         logger.info(f"Setup: VOYAGE_API_KEY={'set' if voyage_key else 'missing'}")
+        logger.info(f"Setup: IMAGE_MEMORY_ENABLED={image_memory_enabled}")
 
         if api_key and database_url and memory_enabled:
             # Initialize memory system
@@ -78,6 +81,11 @@ class DiscordBot(commands.Bot):
                     api_key, memory_manager=memory_manager
                 )
                 logger.info("Memory system initialized successfully")
+
+                # Initialize image memory if enabled
+                if image_memory_enabled and self._has_image_memory_config():
+                    await self._setup_image_memory(anthropic_client)
+
             except Exception as e:
                 logger.error(f"Failed to initialize memory system: {e}", exc_info=True)
                 logger.warning("Falling back to v0.9.0 behavior (no memory)")
@@ -89,6 +97,30 @@ class DiscordBot(commands.Bot):
             self.claude_client = ClaudeClient(api_key)
         else:
             logger.warning("No ANTHROPIC_API_KEY, chatbot disabled")
+
+    def _has_image_memory_config(self) -> bool:
+        """Check if required image memory configuration is present."""
+        spaces_key = os.getenv("DO_SPACES_KEY")
+        spaces_secret = os.getenv("DO_SPACES_SECRET")
+        return bool(spaces_key and spaces_secret)
+
+    async def _setup_image_memory(self, anthropic_client: AsyncAnthropic):
+        """Initialize the image memory system."""
+        try:
+            from memory.images import ImageObserver, ImageStorage
+
+            storage = ImageStorage()
+            self.image_observer = ImageObserver(
+                db_pool=self.db_pool,
+                anthropic_client=anthropic_client,
+                storage=storage,
+                moderation_enabled=os.getenv("IMAGE_MODERATION_ENABLED", "true").lower() == "true",
+            )
+            logger.info("Image memory system initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize image memory: {e}", exc_info=True)
+            logger.warning("Image memory disabled due to initialization failure")
+            self.image_observer = None
 
     async def on_ready(self):
         """Called when the bot has connected to Discord."""
@@ -113,6 +145,10 @@ class DiscordBot(commands.Bot):
         # Process commands first
         await self.process_commands(message)
 
+        # Process image attachments for memory (before chat handling)
+        if self.image_observer and message.attachments:
+            await self._process_image_attachments(message)
+
         # Chatbot: respond when mentioned or in DMs (skip if chat disabled)
         if not self.enable_chat:
             return
@@ -121,6 +157,32 @@ class DiscordBot(commands.Bot):
             message.channel, discord.DMChannel
         ):
             await self._handle_chat(message)
+
+    async def _process_image_attachments(self, message: discord.Message):
+        """Process image attachments for memory system."""
+        for attachment in message.attachments:
+            # Check if it is a supported image format
+            if self._is_supported_image(attachment.filename):
+                try:
+                    observation_id = await self.image_observer.handle_image(
+                        message, attachment, bot=self
+                    )
+                    if observation_id:
+                        logger.info(
+                            f"Stored image observation {observation_id} for user {message.author.id}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Failed to process image from {message.author.id}: {e}",
+                        exc_info=True,
+                    )
+
+    def _is_supported_image(self, filename: str) -> bool:
+        """Check if file extension is a supported image format."""
+        if not filename:
+            return False
+        ext = filename.rsplit(".", 1)[-1].lower()
+        return ext in {"png", "jpg", "jpeg", "gif", "webp"}
 
     async def _handle_chat(self, message: discord.Message):
         """Generate a Claude response to a message."""

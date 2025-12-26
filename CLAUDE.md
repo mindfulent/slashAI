@@ -55,6 +55,13 @@ The system has four components that work together:
    - `updater.py`: ADD/MERGE logic (same privacy level only)
    - `manager.py`: Facade orchestrating all operations
 
+5. **`src/memory/images/`** - Image memory system (v0.9.2)
+   - `observer.py`: Entry point for image processing pipeline
+   - `analyzer.py`: Claude Vision analysis + Voyage multimodal embeddings
+   - `clusterer.py`: Groups observations into build clusters
+   - `narrator.py`: Generates progression narratives for builds
+   - `storage.py`: DigitalOcean Spaces integration
+
 **Data flow:**
 ```
 Claude Code → stdio → mcp_server.py → discord_bot.py → Discord API
@@ -91,6 +98,12 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `DATABASE_URL` | For memory | PostgreSQL connection string |
 | `VOYAGE_API_KEY` | For memory | Voyage AI API key for embeddings |
 | `MEMORY_ENABLED` | No | Set to "true" to enable memory system |
+| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory (v0.9.2) |
+| `DO_SPACES_KEY` | For images | DigitalOcean Spaces access key |
+| `DO_SPACES_SECRET` | For images | DigitalOcean Spaces secret key |
+| `DO_SPACES_BUCKET` | For images | Spaces bucket name (default: slashai-images) |
+| `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
+| `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
 
 ## Development Notes
 
@@ -116,6 +129,11 @@ psql $DATABASE_URL -f migrations/001_enable_pgvector.sql
 psql $DATABASE_URL -f migrations/002_create_memories.sql
 psql $DATABASE_URL -f migrations/003_create_sessions.sql
 psql $DATABASE_URL -f migrations/004_add_indexes.sql
+
+# Image memory system (v0.9.2)
+psql $DATABASE_URL -f migrations/005_create_build_clusters.sql
+psql $DATABASE_URL -f migrations/006_create_image_observations.sql
+psql $DATABASE_URL -f migrations/007_create_image_moderation_and_indexes.sql
 ```
 
 ## Memory Privacy Model

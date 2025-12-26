@@ -38,6 +38,11 @@ class MemoryManager:
             db_pool, self.retriever, anthropic_client, self.config
         )
         self.db = db_pool
+        self._anthropic = anthropic_client
+
+        # Image memory components (lazy initialized)
+        self._image_observer = None
+        self._build_narrator = None
 
     async def retrieve(
         self, user_id: int, query: str, channel: discord.abc.Messageable
@@ -59,6 +64,33 @@ class MemoryManager:
         for mem in memories:
             logger.debug(f"  - [{mem.memory_type}] {mem.summary[:50]}... (sim={mem.similarity:.3f})")
         return memories
+
+    async def get_build_context(
+        self, user_id: int, channel: discord.abc.Messageable
+    ) -> str:
+        """
+        Get build context for injection into chat responses.
+
+        Args:
+            user_id: Discord user ID
+            channel: Discord channel for privacy context
+
+        Returns:
+            Formatted markdown string with build context, or empty string
+        """
+        if not self._build_narrator:
+            # Lazy import to avoid circular dependencies
+            from .images.narrator import BuildNarrator
+
+            self._build_narrator = BuildNarrator(self.db, self._anthropic)
+
+        privacy_level = await classify_channel_privacy(channel)
+        guild = getattr(channel, "guild", None)
+        guild_id = guild.id if guild else None
+
+        return await self._build_narrator.get_brief_context(
+            user_id, privacy_level.value, guild_id
+        )
 
     async def track_message(
         self,
