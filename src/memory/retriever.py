@@ -82,7 +82,20 @@ class MemoryRetriever:
         )
         logger.info(f"User has {len(all_memories)} total memories:")
         for m in all_memories:
-            logger.info(f"  [{m['privacy_level']}] guild={m['origin_guild_id']}: {m['topic_summary'][:40]}...")
+            logger.info(f"  [{m['privacy_level']}] guild={m['origin_guild_id']}: {m['topic_summary'][:50]}...")
+
+        # Debug: show similarity scores before threshold filter
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        similarity_check = await self.db.fetch(
+            """SELECT topic_summary, privacy_level, origin_guild_id,
+                      1 - (embedding <=> $1::vector) as similarity
+               FROM memories WHERE user_id = $2
+               ORDER BY embedding <=> $1::vector LIMIT 5""",
+            embedding_str, user_id
+        )
+        logger.info(f"Top 5 similarities (before privacy filter, threshold={self.config.similarity_threshold}):")
+        for m in similarity_check:
+            logger.info(f"  sim={m['similarity']:.3f} [{m['privacy_level']}] {m['topic_summary'][:40]}...")
 
         rows = await self.db.fetch(sql, *params)
 

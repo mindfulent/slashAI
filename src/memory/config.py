@@ -13,9 +13,9 @@ from dataclasses import dataclass
 class MemoryConfig:
     """Configuration for the memory system."""
 
-    # Retrieval settings (per RMM paper recommendations)
+    # Retrieval settings
     top_k: int = 5
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.5  # Lowered from 0.7 for better recall
 
     # Extraction settings
     extraction_message_threshold: int = 10
