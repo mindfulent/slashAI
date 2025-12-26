@@ -79,35 +79,35 @@ User: fixed it, getting way better rates now. thanks! btw my IGN is CreeperSlaye
 
 OUTPUT:
 ```json
-{
+{{
   "extracted_memories": [
-    {
+    {{
       "summary": "User's Minecraft IGN is CreeperSlayer99",
       "type": "semantic",
       "raw_dialogue": "User: btw my IGN is CreeperSlayer99 if you see me on the server",
       "confidence": 1.0,
       "global_safe": true
-    },
-    {
+    }},
+    {{
       "summary": "User built an ilmango creeper farm design and debugged a light leak issue",
       "type": "episodic",
       "raw_dialogue": "User: hey, my creeper farm isn't working. I built the ilmango design...\\nUser: fixed it, getting way better rates now.",
       "confidence": 1.0,
       "global_safe": false
-    },
-    {
+    }},
+    {{
       "summary": "User is familiar with technical Minecraft (knows ilmango, understands spawn mechanics)",
       "type": "semantic",
       "raw_dialogue": "User: I built the ilmango design... I'm at Y=200, AFKing about 130 blocks away",
       "confidence": 0.8,
       "global_safe": false
-    }
+    }}
   ]
-}
+}}
 ```
 
 ## Your Task
-Extract memories from the following conversation. If no memorable information is present, return `{"extracted_memories": []}`.
+Extract memories from the following conversation. If no memorable information is present, return `{{"extracted_memories": []}}`.
 
 CONVERSATION:
 {conversation}
