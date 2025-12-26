@@ -219,6 +219,9 @@ class BuildClusterer:
         # Generate auto-name from tags and type
         auto_name = self._generate_cluster_name(observation_type, tags)
 
+        # Convert embedding to pgvector string format
+        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+        
         # Insert cluster
         row = await self.db.fetchrow(
             """
@@ -231,7 +234,7 @@ class BuildClusterer:
             """,
             user_id,
             auto_name,
-            embedding,
+            embedding_str,
             observation_type,
             tags,
             privacy_level,
@@ -268,6 +271,9 @@ class BuildClusterer:
             observation_id,
         )
 
+        # Convert embedding to pgvector string format
+        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+        
         # Update cluster: increment count, update timestamps, recalculate centroid
         # Using rolling average for efficiency
         await self.db.execute(
@@ -282,7 +288,7 @@ class BuildClusterer:
             WHERE id = $1
             """,
             cluster_id,
-            embedding,
+            embedding_str,
         )
 
     def _generate_cluster_name(

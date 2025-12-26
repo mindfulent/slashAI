@@ -207,6 +207,9 @@ class ImageObserver:
         """Insert a new image observation record."""
         import json
 
+        # Convert embedding list to pgvector string format
+        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+        
         row = await self.db.fetchrow(
             """
             INSERT INTO image_observations (
@@ -236,7 +239,7 @@ class ImageObserver:
             summary,
             tags,
             json.dumps(detected_elements),
-            embedding,
+            embedding_str,
             observation_type,
             privacy_level.value,
             accompanying_text,
