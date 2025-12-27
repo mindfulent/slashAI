@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server for the Minecraft College community. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.6
+**Current Version:** 0.9.7
 
 ## Overview
 

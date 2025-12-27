@@ -16,6 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.7] - 2025-12-27
+
+### Fixed
+- "Could not process image" errors from Anthropic API on certain JPEG images (e.g., Google Pixel photos)
+- Added image normalization to fix CMYK color space, progressive JPEG encoding, and problematic EXIF metadata
+
+### Technical Details
+- Added `normalize_image_for_api()` function in `discord_bot.py` and `analyzer.py`
+- All JPEGs are now re-encoded through PIL before sending to API
+- Converts unsupported color modes (CMYK, YCCK, LAB, P) to RGB/RGBA
+- No new dependencies
+- No new environment variables
+- No database migrations required
+
+---
+
 ## [0.9.6] - 2025-12-27
 
 ### Changed
@@ -252,6 +268,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.7 | 2025-12-27 | Fix image processing errors on Pixel photos |
 | 0.9.6 | 2025-12-27 | Reduce trailing questions in responses |
 | 0.9.5 | 2025-12-27 | Self-knowledge capabilities in system prompt |
 | 0.9.4 | 2025-12-27 | Fix crash on image-only messages |
@@ -299,7 +316,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.7...HEAD
+[0.9.7]: https://github.com/mindfulent/slashAI/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/mindfulent/slashAI/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/mindfulent/slashAI/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/mindfulent/slashAI/compare/v0.9.3...v0.9.4

@@ -26,6 +26,81 @@ MAX_IMAGE_BYTES = 5_000_000  # 5MB limit for Anthropic API
 MAX_IMAGE_DIMENSION = 8000  # Max 8000x8000 pixels
 
 
+def normalize_image_for_api(image_bytes: bytes, media_type: str) -> tuple[bytes, str]:
+    """
+    Normalize an image to ensure API compatibility.
+
+    Fixes common issues that cause "Could not process image" errors:
+    - CMYK/YCCK color space (convert to RGB)
+    - Progressive JPEG encoding
+    - Problematic EXIF metadata
+    - Palette mode images
+
+    Args:
+        image_bytes: Original image data
+        media_type: MIME type (e.g., "image/jpeg")
+
+    Returns:
+        Tuple of (normalized_bytes, media_type)
+    """
+    img = None
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+
+        # Check if normalization is needed
+        needs_normalize = (
+            img.mode in ("CMYK", "YCCK", "LAB", "P", "PA", "LA", "I", "F") or
+            media_type == "image/jpeg"  # Always re-encode JPEGs to strip EXIF/fix progressive
+        )
+
+        if not needs_normalize:
+            return image_bytes, media_type
+
+        # Convert to RGB (or RGBA if has transparency)
+        if img.mode in ("RGBA", "LA", "PA"):
+            img = img.convert("RGBA")
+            out_format = "PNG"
+            out_media = "image/png"
+        elif img.mode in ("CMYK", "YCCK", "LAB", "I", "F"):
+            img = img.convert("RGB")
+            out_format = "JPEG"
+            out_media = "image/jpeg"
+        elif img.mode == "P":
+            # Palette mode - check if has transparency
+            if img.info.get("transparency") is not None:
+                img = img.convert("RGBA")
+                out_format = "PNG"
+                out_media = "image/png"
+            else:
+                img = img.convert("RGB")
+                out_format = "JPEG"
+                out_media = "image/jpeg"
+        else:
+            # RGB or L mode - just re-encode
+            if img.mode == "L":
+                img = img.convert("RGB")
+            out_format = "JPEG"
+            out_media = "image/jpeg"
+
+        # Re-encode (strips EXIF, fixes progressive JPEG, normalizes encoding)
+        buffer = io.BytesIO()
+        if out_format == "JPEG":
+            img.save(buffer, format="JPEG", quality=90, optimize=True)
+        else:
+            img.save(buffer, format="PNG", optimize=True)
+
+        result = buffer.getvalue()
+        logger.info(f"[NORMALIZE] Converted {media_type} {img.mode} -> {out_media} ({len(image_bytes)} -> {len(result)} bytes)")
+        return result, out_media
+
+    except Exception as e:
+        logger.warning(f"[NORMALIZE] Failed to normalize image: {e}")
+        return image_bytes, media_type
+    finally:
+        if img is not None:
+            img.close()
+
+
 def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = MAX_IMAGE_BYTES) -> tuple[bytes, str]:
     """
     Resize an image if it exceeds API limits.
@@ -239,11 +314,14 @@ class ImageAnalyzer:
         Returns:
             AnalysisResult with all extracted information
         """
-        # Generate file hash for deduplication (before any resizing)
+        # Generate file hash for deduplication (before any processing)
         file_hash = hashlib.sha256(image_bytes).hexdigest()
 
-        # Resize if needed for Anthropic API
-        resized_bytes, resized_media_type = resize_image_for_api(image_bytes, media_type)
+        # Normalize first (fix color space, strip EXIF, re-encode)
+        normalized_bytes, normalized_media_type = normalize_image_for_api(image_bytes, media_type)
+
+        # Then resize if needed for Anthropic API
+        resized_bytes, resized_media_type = resize_image_for_api(normalized_bytes, normalized_media_type)
 
         # Get Claude vision analysis (with resized image)
         analysis = await self._get_vision_analysis(resized_bytes, resized_media_type)
@@ -272,8 +350,11 @@ class ImageAnalyzer:
         Returns:
             ModerationResult indicating safety status
         """
-        # Resize if needed for Anthropic API
-        resized_bytes, resized_media_type = resize_image_for_api(image_bytes, media_type)
+        # Normalize first (fix color space, strip EXIF, re-encode)
+        normalized_bytes, normalized_media_type = normalize_image_for_api(image_bytes, media_type)
+
+        # Then resize if needed for Anthropic API
+        resized_bytes, resized_media_type = resize_image_for_api(normalized_bytes, normalized_media_type)
         base64_image = base64.standard_b64encode(resized_bytes).decode("utf-8")
 
         response = await self.anthropic.messages.create(
