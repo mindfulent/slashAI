@@ -96,6 +96,28 @@ async def edit_message(channel_id: str, message_id: str, content: str) -> str:
 
 
 @mcp.tool()
+async def delete_message(channel_id: str, message_id: str) -> str:
+    """
+    Delete a message from a Discord channel.
+
+    Args:
+        channel_id: The Discord channel ID containing the message
+        message_id: The ID of the message to delete
+
+    Returns:
+        Confirmation of the deletion
+    """
+    if bot is None:
+        return "Error: Discord bot not initialized"
+
+    try:
+        await bot.delete_message(int(channel_id), int(message_id))
+        return f"Message {message_id} deleted successfully"
+    except Exception as e:
+        return f"Error deleting message: {str(e)}"
+
+
+@mcp.tool()
 async def read_messages(channel_id: str, limit: int = 10) -> str:
     """
     Read recent messages from a Discord channel.
@@ -120,7 +142,7 @@ async def read_messages(channel_id: str, limit: int = 10) -> str:
         formatted = []
         for msg in messages:
             timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            formatted.append(f"[{timestamp}] {msg.author.name}: {msg.content}")
+            formatted.append(f"[{timestamp}] (ID: {msg.id}) {msg.author.name}: {msg.content}")
 
         return "\n".join(formatted)
     except Exception as e:

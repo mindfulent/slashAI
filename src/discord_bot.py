@@ -445,6 +445,14 @@ class DiscordBot(commands.Bot):
             content = content[: DISCORD_MAX_LENGTH - 20] + "\n\n[...truncated]"
         return await message.edit(content=content)
 
+    async def delete_message(self, channel_id: int, message_id: int) -> None:
+        """Delete a message. Used by MCP tools."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        message = await channel.fetch_message(message_id)
+        await message.delete()
+
     async def read_messages(
         self, channel_id: int, limit: int = 10
     ) -> list[discord.Message]:

@@ -13,8 +13,8 @@ slashAI is a Discord chatbot and MCP server powered by Claude Sonnet 4.5 with pr
 ## Commands
 
 ```bash
-# Setup
-python -m venv venv && venv\Scripts\activate  # Windows
+# Setup (Windows)
+python -m venv venv && venv\Scripts\activate
 pip install -r requirements.txt
 
 # Run standalone chatbot
@@ -26,43 +26,6 @@ python src/mcp_server.py
 
 ## Architecture
 
-The system has four components that work together:
-
-1. **`mcp_server.py`** - FastMCP server exposing Discord tools via stdio transport
-   - Uses `@mcp.tool()` decorators for tool definitions
-   - Starts Discord bot via async lifespan context manager
-   - Channel IDs passed as strings (converted to int internally)
-
-2. **`discord_bot.py`** - discord.py Bot with dual responsibilities
-   - Handles message events for chatbot (mentions and DMs)
-   - Reads text file attachments (.md, .txt, .py, .json, etc.) up to 100KB
-   - Auto-chunks long responses (semantic splitting on markdown headers)
-   - Exposes async methods (`send_message`, `read_messages`, etc.) for MCP tools
-   - Initializes database pool and memory manager on startup
-   - Uses `_ready_event` for startup synchronization
-
-3. **`claude_client.py`** - Anthropic API wrapper
-   - Conversation history keyed by `(user_id, channel_id)` tuple
-   - History capped at 20 messages per conversation
-   - Integrates with MemoryManager for retrieval and tracking
-   - Tracks cumulative token usage for cost monitoring
-
-4. **`src/memory/`** - Privacy-aware persistent memory system
-   - `config.py`: Configuration (top_k, thresholds, embedding model)
-   - `privacy.py`: Privacy level classification based on channel
-   - `extractor.py`: LLM-based topic extraction from conversations
-   - `retriever.py`: Vector search with Voyage AI + pgvector
-   - `updater.py`: ADD/MERGE logic (same privacy level only)
-   - `manager.py`: Facade orchestrating all operations
-
-5. **`src/memory/images/`** - Image memory system (v0.9.2)
-   - `observer.py`: Entry point for image processing pipeline
-   - `analyzer.py`: Claude Vision analysis + Voyage multimodal embeddings
-   - `clusterer.py`: Groups observations into build clusters
-   - `narrator.py`: Generates progression narratives for builds
-   - `storage.py`: DigitalOcean Spaces integration
-
-**Data flow:**
 ```
 Claude Code → stdio → mcp_server.py → discord_bot.py → Discord API
 
@@ -73,21 +36,57 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
                                Voyage AI (embeddings)
 ```
 
+**Core components:**
+
+1. **`mcp_server.py`** - FastMCP server with stdio transport
+   - `@mcp.tool()` decorators define tools
+   - Lifespan context manager starts/stops Discord bot
+   - Channel IDs passed as strings (converted to int internally)
+
+2. **`discord_bot.py`** - discord.py Bot
+   - Chatbot: responds to mentions and DMs
+   - Reads text attachments (.md, .txt, .py, etc.) up to 100KB
+   - Auto-chunks responses >2000 chars (semantic splitting on headers)
+   - Exposes async methods for MCP tools
+   - `_ready_event` for startup synchronization
+
+3. **`claude_client.py`** - Anthropic API wrapper
+   - Conversation history keyed by `(user_id, channel_id)` tuple
+   - History capped at 20 messages
+   - System prompt in `DEFAULT_SYSTEM_PROMPT` (personality config)
+   - Tracks cumulative token usage
+
+4. **`src/memory/`** - Text memory system
+   - `extractor.py`: LLM topic extraction (triggers after 10 exchanges)
+   - `retriever.py`: Voyage AI + pgvector similarity search
+   - `updater.py`: ADD/MERGE logic for memory updates
+   - `privacy.py`: dm/channel_restricted/guild_public/global levels
+   - `manager.py`: Facade orchestrating all operations
+
+5. **`src/memory/images/`** - Image memory system
+   - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering)
+   - `analyzer.py`: Claude Vision + Voyage multimodal embeddings
+   - `clusterer.py`: Groups images into build clusters by similarity
+   - `narrator.py`: Generates progression narratives
+   - `storage.py`: DigitalOcean Spaces (S3-compatible)
+
 ## MCP Tools
 
 | Tool | Parameters | Returns |
 |------|------------|---------|
 | `send_message` | `channel_id`, `content` | Message ID |
 | `edit_message` | `channel_id`, `message_id`, `content` | Confirmation |
+| `delete_message` | `channel_id`, `message_id` | Confirmation |
 | `read_messages` | `channel_id`, `limit` (max 100) | Formatted message list |
 | `list_channels` | `guild_id` (optional) | Channel list with IDs |
 | `get_channel_info` | `channel_id` | Channel metadata dict |
 
 ## Key Constants
 
-- `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:21`)
+- `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:22`)
 - `MAX_HISTORY_LENGTH`: 20 messages per conversation
-- `DISCORD_MAX_LENGTH`: 2000 characters (auto-chunked if exceeded)
+- `DISCORD_MAX_LENGTH`: 2000 characters (auto-chunked)
+- `extraction_message_threshold`: 10 exchanges before memory extraction
 
 ## Environment Variables
 
@@ -98,7 +97,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `DATABASE_URL` | For memory | PostgreSQL connection string |
 | `VOYAGE_API_KEY` | For memory | Voyage AI API key for embeddings |
 | `MEMORY_ENABLED` | No | Set to "true" to enable memory system |
-| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory (v0.9.2) |
+| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory |
 | `DO_SPACES_KEY` | For images | DigitalOcean Spaces access key |
 | `DO_SPACES_SECRET` | For images | DigitalOcean Spaces secret key |
 | `DO_SPACES_BUCKET` | For images | Spaces bucket name (default: slashai-images) |
@@ -107,33 +106,31 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 ## Development Notes
 
-- **Restart requirements:**
-  - `mcp_server.py` changes: Restart Claude Code
-  - `discord_bot.py` changes: Restart bot process
-  - `claude_client.py` changes: Apply on next message
-  - `src/memory/` changes: Restart bot process
+**Restart requirements:**
+- `mcp_server.py` changes: Restart Claude Code
+- `discord_bot.py` changes: Restart bot process
+- `claude_client.py` changes: Apply on next message
+- `src/memory/` changes: Restart bot process
 
-- **MCP server lifespan:** Bot starts on server init, has 30s connection timeout
+**MCP server lifespan:** Bot starts on server init, has 30s connection timeout
 
-- **Bot personality:** Configured in `DEFAULT_SYSTEM_PROMPT` in `claude_client.py`. Tuned for direct, technical communication with minimal emoji.
-
-- **Memory system rollback:** Set `MEMORY_ENABLED=false` to fall back to v0.9.0 behavior
+**Memory system rollback:** Set `MEMORY_ENABLED=false` to fall back to v0.9.0 behavior (no memory)
 
 ## Database Migrations
 
-Run migrations in order to set up the memory system:
+Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL client:
 
-```bash
-# Connect to your PostgreSQL database and run:
-psql $DATABASE_URL -f migrations/001_enable_pgvector.sql
-psql $DATABASE_URL -f migrations/002_create_memories.sql
-psql $DATABASE_URL -f migrations/003_create_sessions.sql
-psql $DATABASE_URL -f migrations/004_add_indexes.sql
+```sql
+-- Text memory (v0.9.1)
+\i migrations/001_enable_pgvector.sql
+\i migrations/002_create_memories.sql
+\i migrations/003_create_sessions.sql
+\i migrations/004_add_indexes.sql
 
-# Image memory system (v0.9.2)
-psql $DATABASE_URL -f migrations/005_create_build_clusters.sql
-psql $DATABASE_URL -f migrations/006_create_image_observations.sql
-psql $DATABASE_URL -f migrations/007_create_image_moderation_and_indexes.sql
+-- Image memory (v0.9.2)
+\i migrations/005_create_build_clusters.sql
+\i migrations/006_create_image_observations.sql
+\i migrations/007_create_image_moderation_and_indexes.sql
 ```
 
 ## Memory Privacy Model
@@ -147,4 +144,32 @@ Memories are classified by privacy level based on their source channel:
 | `guild_public` | Public channel | Any channel in same guild |
 | `global` | Explicit facts (IGN, timezone) | Anywhere |
 
-See `docs/MEMORY_TECHSPEC.md` and `docs/MEMORY_PRIVACY.md` for full documentation.
+See `docs/MEMORY_TECHSPEC.md` and `docs/MEMORY_PRIVACY.md` for details.
+
+## Image Memory Pipeline
+
+When a user posts an image:
+1. **Moderation** - Claude Vision checks for policy violations (confidence ≥0.7 = delete, 0.5-0.7 = flag for review)
+2. **Analysis** - Claude Vision generates description/tags, Voyage creates multimodal embedding
+3. **Storage** - Image uploaded to DO Spaces with hash-based deduplication
+4. **Clustering** - Observation assigned to or creates a build cluster based on embedding similarity
+5. **Narration** - On demand, generates progression narratives for build clusters
+
+## Claude Code MCP Configuration
+
+Add to `~/.claude.json` (or Claude Code settings):
+
+```json
+{
+  "mcpServers": {
+    "slashAI": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["C:/Users/slash/Projects/slashAI/src/mcp_server.py"],
+      "env": {
+        "DISCORD_BOT_TOKEN": "your_token_here"
+      }
+    }
+  }
+}
+```
