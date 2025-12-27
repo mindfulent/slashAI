@@ -9,10 +9,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Slash command support (`/ask`, `/summarize`, `/clear`)
-- Persistent conversation memory (database-backed)
 - Rate limiting and token budget management
 - Multi-guild configuration support
-- Webhook notifications for mentions
+- User commands for build management (`/builds`, `/myprojects`)
+- Automatic milestone detection with notifications
+
+---
+
+## [0.9.2] - 2025-12-26
+
+### Added
+
+#### Image Memory System
+- Full image memory pipeline for tracking Minecraft build projects
+- **ImageObserver** - Entry point orchestrating moderation, analysis, storage, and clustering
+- **ImageAnalyzer** - Claude Vision for structured image analysis:
+  - Detailed descriptions, one-line summaries, and tags
+  - Structured element detection (biome, time, structures, materials, style, completion stage)
+  - Observation type classification (build_progress, landscape, redstone, farm, other)
+  - Voyage multimodal-3 embeddings for semantic similarity
+- **ImageStorage** - DigitalOcean Spaces integration:
+  - Private ACL with signed URL access
+  - Hash-based deduplication
+  - Organized storage: `images/{user_id}/{year}/{month}/{hash}.{ext}`
+- **BuildClusterer** - Groups related observations into project clusters:
+  - Cosine similarity matching against cluster centroids (threshold: 0.72)
+  - Privacy-compatible cluster assignment
+  - Automatic cluster naming based on detected tags
+  - Rolling centroid updates for efficiency
+- **BuildNarrator** - Generates progression narratives:
+  - Chronological timeline with milestone detection
+  - Brief context injection for chat responses
+  - LLM-generated summaries celebrating progress
+
+#### Content Moderation
+- Pre-storage moderation check for all images
+- Multi-tier confidence handling:
+  - High confidence (≥0.7): Delete message, warn user, notify moderators
+  - Uncertain (0.5-0.7): Flag for review, continue processing
+  - Low confidence (<0.5): Proceed normally
+- Text-only moderation log (violated images never stored)
+- Moderator notifications via configured channel
+
+#### Database Schema (migrations 005-007)
+- `build_clusters` table for project grouping with centroid embeddings
+- `image_observations` table with full metadata, embeddings, and cluster references
+- `image_moderation_log` table for violation tracking
+- Privacy-aware indexes for efficient retrieval
+
+#### Real-time Image Understanding
+- Images in chat messages are now passed to Claude Vision
+- Bot can see and respond to images shared in conversation
+
+### Fixed
+- pgvector embedding format for database inserts (string format `[0.1,0.2,...]`)
+- pgvector centroid parsing in cluster matching
+- Voyage multimodal embedding to use PIL Image objects (not base64)
+
+### Technical Details
+- New dependencies: `boto3`, `Pillow`
+- Environment variables: `DO_SPACES_KEY`, `DO_SPACES_SECRET`, `DO_SPACES_BUCKET`, `DO_SPACES_REGION`, `IMAGE_MEMORY_ENABLED`, `IMAGE_MODERATION_ENABLED`, `MOD_CHANNEL_ID`
+
+---
+
+## [0.9.1] - 2025-12-26
+
+### Added
+
+#### Privacy-Aware Persistent Memory
+- Cross-session memory using PostgreSQL + pgvector + Voyage AI
+- Four privacy levels with channel-based classification:
+  - `dm` - DM conversations, retrievable only in DMs
+  - `channel_restricted` - Role-gated channels, retrievable in same channel only
+  - `guild_public` - Public channels, retrievable anywhere in same guild
+  - `global` - Explicit facts (IGN, timezone), retrievable everywhere
+- **MemoryExtractor** - LLM-based topic extraction:
+  - Triggers after 5 message exchanges (lowered from 10 for faster learning)
+  - Structured JSON output with topics, sentiments, and privacy levels
+  - Handles multi-topic conversations
+- **MemoryRetriever** - Semantic search with privacy filtering:
+  - Voyage AI embeddings (voyage-3.5-lite)
+  - pgvector cosine similarity (threshold: 0.3)
+  - Privacy-filtered results based on conversation context
+- **MemoryUpdater** - ADD/MERGE logic for memory updates:
+  - New information creates new memories
+  - Related information merges with existing memories
+  - Same-privacy-level constraint for merges
+- **MemoryManager** - Facade orchestrating all memory operations
+
+#### Message Handling
+- Automatic message chunking for responses exceeding Discord's 2000 character limit
+- Semantic splitting on markdown headers (##, ###)
+- File attachment reading (.md, .txt, .py, .json, .yaml, .csv, etc.)
+- Support for up to 100KB attachments
+
+#### Database Schema (migrations 001-004)
+- `memories` table with embeddings, privacy levels, and metadata
+- `sessions` table for conversation tracking
+- pgvector extension for vector similarity search
+- Efficient indexes for privacy-filtered retrieval
+
+### Fixed
+- JSONB handling for session messages
+- Memory extraction prompt escaping for Python .format()
+- Duplicate message responses
+- Privacy filter application to similarity debug logging
+
+### Technical Details
+- New dependencies: `asyncpg`, `voyageai`, `numpy`
+- Environment variables: `DATABASE_URL`, `VOYAGE_API_KEY`, `MEMORY_ENABLED`
+- Fallback: Set `MEMORY_ENABLED=false` to disable memory and return to v0.9.0 behavior
 
 ---
 
@@ -80,21 +186,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.2 | 2025-12-26 | Image memory system with build tracking and clustering |
+| 0.9.1 | 2025-12-26 | Privacy-aware persistent text memory |
 | 0.9.0 | 2025-12-25 | Initial release with Discord bot and MCP server |
 
 ---
 
 ## Upgrade Notes
 
-### Migrating from Previous Versions
+### Migrating to 0.9.2
 
-This is the initial release. No migration required.
+1. Run database migrations 005-007:
+   ```sql
+   \i migrations/005_create_build_clusters.sql
+   \i migrations/006_create_image_observations.sql
+   \i migrations/007_create_image_moderation_and_indexes.sql
+   ```
+
+2. Configure DigitalOcean Spaces credentials (required for image storage)
+
+3. Set `IMAGE_MEMORY_ENABLED=true` to enable image memory
+
+### Migrating to 0.9.1
+
+1. Set up PostgreSQL with pgvector extension
+
+2. Run database migrations 001-004:
+   ```sql
+   \i migrations/001_enable_pgvector.sql
+   \i migrations/002_create_memories.sql
+   \i migrations/003_create_sessions.sql
+   \i migrations/004_add_indexes.sql
+   ```
+
+3. Configure `DATABASE_URL` and `VOYAGE_API_KEY` environment variables
+
+4. Set `MEMORY_ENABLED=true` to enable memory system
 
 ### Breaking Changes
 
-None (initial release).
+None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/mindfulent/slashAI/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/mindfulent/slashAI/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/mindfulent/slashAI/releases/tag/v0.9.0

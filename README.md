@@ -1,6 +1,8 @@
 # slashAI
 
-AI-powered Discord bot and MCP server for the Minecraft College community. Powered by Claude Sonnet 4.5.
+AI-powered Discord bot and MCP server for the Minecraft College community. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
+
+**Current Version:** 0.9.2
 
 ## Overview
 
@@ -17,10 +19,29 @@ slashAI operates in two complementary modes:
 - Custom personality tuned for the Minecraft College community
 - Direct message support for private conversations
 - Discord-native formatting (markdown, code blocks)
+- Automatic message chunking for responses exceeding Discord's 2000 character limit
+- File attachment reading (.md, .txt, .py, etc.)
+
+### Persistent Memory (v0.9.1+)
+- **Cross-session memory** - Bot remembers facts, preferences, and context between conversations
+- **Privacy-aware retrieval** - Four privacy levels (dm, channel_restricted, guild_public, global)
+- **LLM-based extraction** - Automatic topic extraction after 5 message exchanges
+- **Semantic search** - Voyage AI embeddings with pgvector for relevant memory retrieval
+- **ADD/MERGE logic** - Intelligently updates existing memories vs creating new ones
+
+### Image Memory (v0.9.2+)
+- **Build tracking** - Recognizes and tracks Minecraft build projects over time
+- **Visual analysis** - Claude Vision for structured image description and tagging
+- **Multimodal embeddings** - Voyage multimodal-3 for semantic image similarity
+- **Build clustering** - Automatically groups related images into project clusters
+- **Progression narratives** - Generates stories about a user's build journey
+- **Content moderation** - Active moderation for policy violations
+- **Persistent storage** - DigitalOcean Spaces for permanent image storage
 
 ### MCP Server Mode
 - **`send_message`** - Post messages to any channel the bot can access
 - **`edit_message`** - Modify existing bot messages
+- **`delete_message`** - Delete bot messages
 - **`read_messages`** - Fetch recent message history from channels
 - **`list_channels`** - Enumerate available text channels
 - **`get_channel_info`** - Retrieve channel metadata (topic, category, etc.)
@@ -107,7 +128,17 @@ Then in Claude Code:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | Discord bot token from Developer Portal |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude access |
+| `ANTHROPIC_API_KEY` | For chatbot | Anthropic API key for Claude access |
+| `DATABASE_URL` | For memory | PostgreSQL connection string with pgvector |
+| `VOYAGE_API_KEY` | For memory | Voyage AI API key for embeddings |
+| `MEMORY_ENABLED` | No | Set to "true" to enable text memory (v0.9.1+) |
+| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory (v0.9.2+) |
+| `DO_SPACES_KEY` | For images | DigitalOcean Spaces access key |
+| `DO_SPACES_SECRET` | For images | DigitalOcean Spaces secret key |
+| `DO_SPACES_BUCKET` | For images | Spaces bucket name (default: slashai-images) |
+| `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
+| `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
+| `MOD_CHANNEL_ID` | No | Discord channel ID for moderation alerts |
 
 ### Customizing the Personality
 
@@ -159,11 +190,36 @@ slashAI/
 │   ├── __init__.py
 │   ├── discord_bot.py      # Discord client, event handlers, chatbot logic
 │   ├── mcp_server.py       # MCP server with tool definitions
-│   └── claude_client.py    # Anthropic API wrapper, conversation management
+│   ├── claude_client.py    # Anthropic API wrapper, conversation management
+│   └── memory/             # Memory system (v0.9.1+)
+│       ├── __init__.py
+│       ├── config.py       # Memory configuration
+│       ├── privacy.py      # Privacy level classification
+│       ├── extractor.py    # LLM topic extraction
+│       ├── retriever.py    # Voyage AI + pgvector retrieval
+│       ├── updater.py      # ADD/MERGE memory logic
+│       ├── manager.py      # Memory system facade
+│       └── images/         # Image memory (v0.9.2+)
+│           ├── __init__.py
+│           ├── observer.py     # Pipeline entry point
+│           ├── analyzer.py     # Claude Vision + Voyage embeddings
+│           ├── clusterer.py    # Build project grouping
+│           ├── narrator.py     # Progression narratives
+│           └── storage.py      # DO Spaces integration
+├── migrations/             # Database migrations
+│   ├── 001_enable_pgvector.sql
+│   ├── 002_create_memories.sql
+│   ├── 003_create_sessions.sql
+│   ├── 004_add_indexes.sql
+│   ├── 005_create_build_clusters.sql
+│   ├── 006_create_image_observations.sql
+│   └── 007_create_image_moderation_and_indexes.sql
 ├── docs/
-│   ├── ARCHITECTURE.md     # High-level architecture overview
-│   ├── TECHSPEC.md         # Detailed technical specification
-│   └── PRD.md              # Product requirements document
+│   ├── ARCHITECTURE.md         # High-level architecture overview
+│   ├── MEMORY_TECHSPEC.md      # Text memory specification
+│   ├── MEMORY_PRIVACY.md       # Privacy model documentation
+│   ├── MEMORY_IMAGES.md        # Image memory specification
+│   └── PRD.md                  # Product requirements document
 ├── .do/
 │   └── app.yaml            # DigitalOcean App Platform config
 ├── .env.example            # Environment variable template
@@ -205,6 +261,11 @@ doctl apps update <app-id> --spec .do/app.yaml
 | Discord Client | discord.py | ≥2.3.0 |
 | MCP Server | mcp (FastMCP) | ≥1.25.0 |
 | Claude API | anthropic | ≥0.40.0 |
+| Embeddings | voyageai | ≥0.3.0 |
+| Vector Database | PostgreSQL + pgvector | ≥16 + 0.7 |
+| Database Driver | asyncpg | ≥0.29.0 |
+| Image Storage | boto3 (S3) | ≥1.35.0 |
+| Image Processing | Pillow | ≥10.0.0 |
 | Environment | python-dotenv | ≥1.0.0 |
 
 ## Cost Estimation
@@ -221,7 +282,9 @@ doctl apps update <app-id> --spec .do/app.yaml
 ## Documentation
 
 - [Architecture Overview](docs/ARCHITECTURE.md) - System design and component overview
-- [Technical Specification](docs/TECHSPEC.md) - Detailed implementation documentation
+- [Memory Technical Spec](docs/MEMORY_TECHSPEC.md) - Text memory system design
+- [Memory Privacy Model](docs/MEMORY_PRIVACY.md) - Privacy level classification
+- [Image Memory Spec](docs/MEMORY_IMAGES.md) - Image memory system design
 - [Product Requirements](docs/PRD.md) - User stories and acceptance criteria
 - [Changelog](CHANGELOG.md) - Version history and release notes
 
