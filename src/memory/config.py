@@ -18,7 +18,7 @@ class MemoryConfig:
     similarity_threshold: float = 0.3  # Lowered for better recall
 
     # Extraction settings
-    extraction_message_threshold: int = 10
+    extraction_message_threshold: int = 5
     extraction_inactivity_minutes: int = 30
 
     # Merge settings
@@ -38,7 +38,7 @@ class MemoryConfig:
             top_k=int(os.getenv("MEMORY_TOP_K", "5")),
             similarity_threshold=float(os.getenv("MEMORY_SIMILARITY_THRESHOLD", "0.3")),
             extraction_message_threshold=int(
-                os.getenv("MEMORY_EXTRACTION_THRESHOLD", "10")
+                os.getenv("MEMORY_EXTRACTION_THRESHOLD", "5")
             ),
             extraction_inactivity_minutes=int(
                 os.getenv("MEMORY_INACTIVITY_MINUTES", "30")
