@@ -8,6 +8,7 @@ Orchestrates:
 4. Clustering (build grouping)
 """
 
+import gc
 import logging
 from datetime import datetime
 from typing import Optional
@@ -188,6 +189,12 @@ class ImageObserver:
         )
 
         logger.info(f"[OBSERVER] Complete! observation_id={observation_id}")
+
+        # Free memory on constrained workers
+        del image_bytes
+        del analysis
+        gc.collect()
+
         return observation_id
 
     async def _check_duplicate(

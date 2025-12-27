@@ -43,6 +43,7 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
 
     logger.info(f"[RESIZE] Image too large ({len(image_bytes)} bytes), resizing...")
 
+    img = None
     try:
         img = Image.open(io.BytesIO(image_bytes))
 
@@ -54,18 +55,20 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
             logger.info(f"[RESIZE] Reduced dimensions to {new_size}")
 
         # Try progressively lower quality until under limit
+        result_bytes = image_bytes  # fallback
         for quality in [85, 70, 55, 40]:
             buffer = io.BytesIO()
 
             # Convert to RGB if saving as JPEG (no alpha channel)
+            save_img = img
             if img.mode in ("RGBA", "P"):
                 rgb_img = Image.new("RGB", img.size, (255, 255, 255))
                 if img.mode == "P":
-                    img = img.convert("RGBA")
-                rgb_img.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
-                img = rgb_img
+                    save_img = img.convert("RGBA")
+                rgb_img.paste(save_img, mask=save_img.split()[3] if len(save_img.split()) > 3 else None)
+                save_img = rgb_img
 
-            img.save(buffer, format="JPEG", quality=quality, optimize=True)
+            save_img.save(buffer, format="JPEG", quality=quality, optimize=True)
             result_bytes = buffer.getvalue()
 
             if len(result_bytes) <= max_bytes:
@@ -86,6 +89,9 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
     except Exception as e:
         logger.error(f"[RESIZE] Failed to resize image: {e}")
         return image_bytes, media_type  # Return original on failure
+    finally:
+        if img is not None:
+            img.close()
 
 
 # Analysis prompt for Minecraft screenshots
@@ -335,16 +341,32 @@ class ImageAnalyzer:
         Get Voyage multimodal embedding for the image.
 
         Uses voyage-multimodal-3 which requires PIL Image objects.
+        Resizes to max 512px to reduce memory usage on constrained workers.
         """
-        # Convert bytes to PIL Image (Voyage SDK requires PIL images)
-        pil_image = Image.open(io.BytesIO(image_bytes))
+        MAX_EMBEDDING_DIMENSION = 512  # Reduce memory for embeddings
 
-        result = await self.voyage.multimodal_embed(
-            inputs=[[pil_image]],
-            model=self.config.embedding_model,
-        )
+        pil_image = None
+        try:
+            # Convert bytes to PIL Image
+            pil_image = Image.open(io.BytesIO(image_bytes))
 
-        return result.embeddings[0]
+            # Resize if too large (reduces memory significantly)
+            if pil_image.width > MAX_EMBEDDING_DIMENSION or pil_image.height > MAX_EMBEDDING_DIMENSION:
+                ratio = min(MAX_EMBEDDING_DIMENSION / pil_image.width, MAX_EMBEDDING_DIMENSION / pil_image.height)
+                new_size = (int(pil_image.width * ratio), int(pil_image.height * ratio))
+                pil_image = pil_image.resize(new_size, Image.Resampling.LANCZOS)
+                logger.info(f"[EMBED] Resized image to {new_size} for embedding")
+
+            result = await self.voyage.multimodal_embed(
+                inputs=[[pil_image]],
+                model=self.config.embedding_model,
+            )
+
+            return result.embeddings[0]
+        finally:
+            # Explicitly close PIL image to free memory
+            if pil_image is not None:
+                pil_image.close()
 
     async def get_text_embedding(self, text: str, input_type: str = "document") -> list[float]:
         """

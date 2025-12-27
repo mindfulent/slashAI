@@ -57,9 +57,9 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
 
     logger.info(f"[RESIZE] Image too large ({len(image_bytes)} bytes), resizing...")
 
+    img = None
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        original_format = img.format or "PNG"
 
         # Check if dimensions are too large
         if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
@@ -69,18 +69,20 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
             logger.info(f"[RESIZE] Reduced dimensions to {new_size}")
 
         # Try progressively lower quality until under limit
+        result_bytes = image_bytes  # fallback
         for quality in [85, 70, 55, 40]:
             buffer = io.BytesIO()
 
             # Convert to RGB if saving as JPEG (no alpha channel)
+            save_img = img
             if img.mode in ("RGBA", "P"):
                 rgb_img = Image.new("RGB", img.size, (255, 255, 255))
                 if img.mode == "P":
-                    img = img.convert("RGBA")
-                rgb_img.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
-                img = rgb_img
+                    save_img = img.convert("RGBA")
+                rgb_img.paste(save_img, mask=save_img.split()[3] if len(save_img.split()) > 3 else None)
+                save_img = rgb_img
 
-            img.save(buffer, format="JPEG", quality=quality, optimize=True)
+            save_img.save(buffer, format="JPEG", quality=quality, optimize=True)
             result_bytes = buffer.getvalue()
 
             if len(result_bytes) <= max_bytes:
@@ -101,6 +103,9 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
     except Exception as e:
         logger.error(f"[RESIZE] Failed to resize image: {e}")
         return image_bytes, media_type  # Return original on failure
+    finally:
+        if img is not None:
+            img.close()
 
 
 class DiscordBot(commands.Bot):
