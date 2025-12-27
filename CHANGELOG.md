@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.5] - 2025-12-27
+
+### Added
+- Self-knowledge in system prompt—bot can now accurately answer questions about its own capabilities
+- Covers text memory, image memory, privacy boundaries, real-time vision, and limitations
+
+### Technical Details
+- No new dependencies
+- No new environment variables
+- No database migrations required
+
+---
+
 ## [0.9.4] - 2025-12-27
 
 ### Fixed
@@ -225,6 +238,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.5 | 2025-12-27 | Self-knowledge capabilities in system prompt |
 | 0.9.4 | 2025-12-27 | Fix crash on image-only messages |
 | 0.9.3 | 2025-12-27 | Large image handling and memory optimization fixes |
 | 0.9.2 | 2025-12-26 | Image memory system with build tracking and clustering |
@@ -270,7 +284,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/mindfulent/slashAI/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/mindfulent/slashAI/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/mindfulent/slashAI/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/mindfulent/slashAI/compare/v0.9.1...v0.9.2
