@@ -57,11 +57,12 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - Tracks cumulative token usage
 
 4. **`src/memory/`** - Text memory system
-   - `extractor.py`: LLM topic extraction (triggers after 10 exchanges)
+   - `extractor.py`: LLM topic extraction (triggers after 5 exchanges)
    - `retriever.py`: Voyage AI + pgvector similarity search
    - `updater.py`: ADD/MERGE logic for memory updates
    - `privacy.py`: dm/channel_restricted/guild_public/global levels
    - `manager.py`: Facade orchestrating all operations
+   - `config.py`: Configurable thresholds (env-overridable)
 
 5. **`src/memory/images/`** - Image memory system
    - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering)
@@ -86,7 +87,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 - `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:22`)
 - `MAX_HISTORY_LENGTH`: 20 messages per conversation
 - `DISCORD_MAX_LENGTH`: 2000 characters (auto-chunked)
-- `extraction_message_threshold`: 10 exchanges before memory extraction
+- `extraction_message_threshold`: 5 exchanges before memory extraction (in `config.py:21`)
 
 ## Environment Variables
 
@@ -155,6 +156,27 @@ When a user posts an image:
 4. **Clustering** - Observation assigned to or creates a build cluster based on embedding similarity
 5. **Narration** - On demand, generates progression narratives for build clusters
 
+## Troubleshooting
+
+**Bot doesn't respond to mentions:**
+- Check `ANTHROPIC_API_KEY` is set (chatbot mode requires it)
+- Verify bot has `message_content` intent enabled in Discord Developer Portal
+- Check logs: `logger.setLevel(logging.DEBUG)` for verbose output
+
+**Memory not being stored:**
+- Ensure `MEMORY_ENABLED=true` and `DATABASE_URL` + `VOYAGE_API_KEY` are set
+- Check migration status: all 7 migrations must be applied
+- Verify pgvector extension is enabled: `SELECT * FROM pg_extension WHERE extname = 'vector';`
+
+**MCP tools return "Discord bot not initialized":**
+- Bot has 30s to connect on startup
+- Check `DISCORD_BOT_TOKEN` is valid
+- Restart Claude Code to reinitialize the MCP server
+
+**Images not being processed:**
+- Requires `IMAGE_MEMORY_ENABLED=true` plus DO Spaces credentials
+- Check image size (max 10MB) and format (png, jpg, jpeg, gif, webp)
+
 ## Claude Code MCP Configuration
 
 Add to `~/.claude.json` (or Claude Code settings):
@@ -173,3 +195,7 @@ Add to `~/.claude.json` (or Claude Code settings):
   }
 }
 ```
+
+## Files to Ignore
+
+- `src/claude_client_new.py` - Experimental file, not used in production

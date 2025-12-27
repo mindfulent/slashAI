@@ -11,12 +11,81 @@ import base64
 import hashlib
 import io
 import json
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from anthropic import AsyncAnthropic
 from PIL import Image
 import voyageai
+
+logger = logging.getLogger("slashAI.images")
+
+# Anthropic API limits for images
+MAX_IMAGE_BYTES = 5_000_000  # 5MB limit for Anthropic API
+MAX_IMAGE_DIMENSION = 8000  # Max 8000x8000 pixels
+
+
+def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = MAX_IMAGE_BYTES) -> tuple[bytes, str]:
+    """
+    Resize an image if it exceeds API limits.
+
+    Args:
+        image_bytes: Original image data
+        media_type: MIME type (e.g., "image/jpeg")
+        max_bytes: Maximum allowed size in bytes
+
+    Returns:
+        Tuple of (resized_bytes, media_type) - media_type may change to JPEG for better compression
+    """
+    if len(image_bytes) <= max_bytes:
+        return image_bytes, media_type
+
+    logger.info(f"[RESIZE] Image too large ({len(image_bytes)} bytes), resizing...")
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+
+        # Check if dimensions are too large
+        if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+            ratio = min(MAX_IMAGE_DIMENSION / img.width, MAX_IMAGE_DIMENSION / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            logger.info(f"[RESIZE] Reduced dimensions to {new_size}")
+
+        # Try progressively lower quality until under limit
+        for quality in [85, 70, 55, 40]:
+            buffer = io.BytesIO()
+
+            # Convert to RGB if saving as JPEG (no alpha channel)
+            if img.mode in ("RGBA", "P"):
+                rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                rgb_img.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
+                img = rgb_img
+
+            img.save(buffer, format="JPEG", quality=quality, optimize=True)
+            result_bytes = buffer.getvalue()
+
+            if len(result_bytes) <= max_bytes:
+                logger.info(f"[RESIZE] Compressed to {len(result_bytes)} bytes at quality={quality}")
+                return result_bytes, "image/jpeg"
+
+        # Last resort: reduce dimensions further
+        while len(result_bytes) > max_bytes and min(img.size) > 100:
+            new_size = (img.width // 2, img.height // 2)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=40, optimize=True)
+            result_bytes = buffer.getvalue()
+            logger.info(f"[RESIZE] Further reduced to {new_size}, now {len(result_bytes)} bytes")
+
+        return result_bytes, "image/jpeg"
+
+    except Exception as e:
+        logger.error(f"[RESIZE] Failed to resize image: {e}")
+        return image_bytes, media_type  # Return original on failure
 
 
 # Analysis prompt for Minecraft screenshots
@@ -164,14 +233,17 @@ class ImageAnalyzer:
         Returns:
             AnalysisResult with all extracted information
         """
-        # Generate file hash for deduplication
+        # Generate file hash for deduplication (before any resizing)
         file_hash = hashlib.sha256(image_bytes).hexdigest()
 
-        # Get Claude vision analysis
-        analysis = await self._get_vision_analysis(image_bytes, media_type)
+        # Resize if needed for Anthropic API
+        resized_bytes, resized_media_type = resize_image_for_api(image_bytes, media_type)
 
-        # Get Voyage multimodal embedding
-        embedding = await self._get_embedding(image_bytes)
+        # Get Claude vision analysis (with resized image)
+        analysis = await self._get_vision_analysis(resized_bytes, resized_media_type)
+
+        # Get Voyage multimodal embedding (use original for best quality, or resized if too large)
+        embedding = await self._get_embedding(image_bytes if len(image_bytes) <= 10_000_000 else resized_bytes)
 
         return AnalysisResult(
             description=analysis.get("description", "No description available"),
@@ -194,7 +266,9 @@ class ImageAnalyzer:
         Returns:
             ModerationResult indicating safety status
         """
-        base64_image = base64.standard_b64encode(image_bytes).decode("utf-8")
+        # Resize if needed for Anthropic API
+        resized_bytes, resized_media_type = resize_image_for_api(image_bytes, media_type)
+        base64_image = base64.standard_b64encode(resized_bytes).decode("utf-8")
 
         response = await self.anthropic.messages.create(
             model=self.config.vision_model,
@@ -207,7 +281,7 @@ class ImageAnalyzer:
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": media_type,
+                                "media_type": resized_media_type,
                                 "data": base64_image,
                             },
                         },

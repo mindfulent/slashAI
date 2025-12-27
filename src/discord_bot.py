@@ -7,6 +7,7 @@ Integrates with memory system for persistent context.
 """
 
 import asyncio
+import io
 import os
 import re
 from typing import Optional
@@ -16,6 +17,7 @@ import discord
 from anthropic import AsyncAnthropic
 from discord.ext import commands
 from dotenv import load_dotenv
+from PIL import Image
 
 from claude_client import ClaudeClient
 
@@ -26,12 +28,79 @@ import logging
 # Discord message length limit
 DISCORD_MAX_LENGTH = 2000
 
+# Anthropic API limits for images
+MAX_IMAGE_BYTES = 5_000_000  # 5MB limit for Anthropic API
+MAX_IMAGE_DIMENSION = 8000  # Max 8000x8000 pixels
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("slashAI")
+
+
+def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = MAX_IMAGE_BYTES) -> tuple[bytes, str]:
+    """
+    Resize an image if it exceeds API limits.
+
+    Args:
+        image_bytes: Original image data
+        media_type: MIME type (e.g., "image/jpeg")
+        max_bytes: Maximum allowed size in bytes
+
+    Returns:
+        Tuple of (resized_bytes, media_type) - media_type may change to JPEG for better compression
+    """
+    if len(image_bytes) <= max_bytes:
+        return image_bytes, media_type
+
+    logger.info(f"[RESIZE] Image too large ({len(image_bytes)} bytes), resizing...")
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        original_format = img.format or "PNG"
+
+        # Check if dimensions are too large
+        if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+            ratio = min(MAX_IMAGE_DIMENSION / img.width, MAX_IMAGE_DIMENSION / img.height)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            logger.info(f"[RESIZE] Reduced dimensions to {new_size}")
+
+        # Try progressively lower quality until under limit
+        for quality in [85, 70, 55, 40]:
+            buffer = io.BytesIO()
+
+            # Convert to RGB if saving as JPEG (no alpha channel)
+            if img.mode in ("RGBA", "P"):
+                rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                rgb_img.paste(img, mask=img.split()[3] if len(img.split()) > 3 else None)
+                img = rgb_img
+
+            img.save(buffer, format="JPEG", quality=quality, optimize=True)
+            result_bytes = buffer.getvalue()
+
+            if len(result_bytes) <= max_bytes:
+                logger.info(f"[RESIZE] Compressed to {len(result_bytes)} bytes at quality={quality}")
+                return result_bytes, "image/jpeg"
+
+        # Last resort: reduce dimensions further
+        while len(result_bytes) > max_bytes and min(img.size) > 100:
+            new_size = (img.width // 2, img.height // 2)
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=40, optimize=True)
+            result_bytes = buffer.getvalue()
+            logger.info(f"[RESIZE] Further reduced to {new_size}, now {len(result_bytes)} bytes")
+
+        return result_bytes, "image/jpeg"
+
+    except Exception as e:
+        logger.error(f"[RESIZE] Failed to resize image: {e}")
+        return image_bytes, media_type  # Return original on failure
 
 
 class DiscordBot(commands.Bot):
@@ -141,6 +210,17 @@ class DiscordBot(commands.Bot):
         # Ignore messages from the bot itself
         if message.author == self.user:
             return
+
+        # DEBUG: Log every incoming message to diagnose mobile upload issues
+        has_attachments = len(message.attachments) > 0
+        has_embeds = len(message.embeds) > 0
+        is_mention = self.user.mentioned_in(message)
+        is_dm = isinstance(message.channel, discord.DMChannel)
+        logger.info(
+            f"[MSG] from={message.author.name} channel={getattr(message.channel, 'name', 'DM')} "
+            f"attachments={len(message.attachments)} embeds={len(message.embeds)} "
+            f"mention={is_mention} dm={is_dm} content_len={len(message.content)}"
+        )
 
         # Process commands first
         await self.process_commands(message)
@@ -280,7 +360,7 @@ class DiscordBot(commands.Bot):
             List of (image_bytes, media_type) tuples
         """
         IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-        MAX_IMAGE_SIZE = 20_000_000  # 20MB limit
+        MAX_IMAGE_SIZE = 20_000_000  # 20MB limit for downloading
 
         images = []
         for attachment in attachments:
@@ -304,10 +384,15 @@ class DiscordBot(commands.Bot):
                     "gif": "image/gif",
                     "webp": "image/webp",
                 }.get(ext, "image/png")
-                images.append((image_bytes, media_type))
+
                 logger.info(f"Read image for vision: {attachment.filename} ({len(image_bytes)} bytes)")
+
+                # Resize if too large for Anthropic API (5MB limit)
+                image_bytes, media_type = resize_image_for_api(image_bytes, media_type)
+
+                images.append((image_bytes, media_type))
             except Exception as e:
-                logger.warning(f"Failed to read image {attachment.filename}: {e}")
+                logger.warning(f"Failed to read image {attachment.filename}: {e}", exc_info=True)
 
         return images
 
