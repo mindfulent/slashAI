@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.6] - 2025-12-27
+
+### Changed
+- Reduced trailing question frequency in responses—bot no longer ends every message with a question
+- Added guidance to Communication Style: questions are fine when genuinely curious, not as conversational filler
+- Added "Not a conversation prolonger" to personality constraints
+
+### Technical Details
+- No new dependencies
+- No new environment variables
+- No database migrations required
+
+---
+
 ## [0.9.5] - 2025-12-27
 
 ### Added
@@ -238,6 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.6 | 2025-12-27 | Reduce trailing questions in responses |
 | 0.9.5 | 2025-12-27 | Self-knowledge capabilities in system prompt |
 | 0.9.4 | 2025-12-27 | Fix crash on image-only messages |
 | 0.9.3 | 2025-12-27 | Large image handling and memory optimization fixes |
@@ -284,7 +299,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/mindfulent/slashAI/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/mindfulent/slashAI/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/mindfulent/slashAI/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/mindfulent/slashAI/compare/v0.9.2...v0.9.3

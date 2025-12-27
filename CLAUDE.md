@@ -78,16 +78,19 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `send_message` | `channel_id`, `content` | Message ID |
 | `edit_message` | `channel_id`, `message_id`, `content` | Confirmation |
 | `delete_message` | `channel_id`, `message_id` | Confirmation |
-| `read_messages` | `channel_id`, `limit` (max 100) | Formatted message list |
+| `read_messages` | `channel_id`, `limit` (default 10, max 100) | Formatted message list |
 | `list_channels` | `guild_id` (optional) | Channel list with IDs |
 | `get_channel_info` | `channel_id` | Channel metadata dict |
 
 ## Key Constants
 
-- `MODEL_ID`: `claude-sonnet-4-5-20250929` (in `claude_client.py:22`)
-- `MAX_HISTORY_LENGTH`: 20 messages per conversation
-- `DISCORD_MAX_LENGTH`: 2000 characters (auto-chunked)
-- `extraction_message_threshold`: 5 exchanges before memory extraction (in `config.py:21`)
+| Constant | Value | Location |
+|----------|-------|----------|
+| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py:22` |
+| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:110` |
+| `extraction_message_threshold` | 5 exchanges | `memory/config.py:21` |
+| `similarity_threshold` | 0.3 | `memory/config.py:18` |
+| `cluster_assignment_threshold` | 0.72 | `memory/config.py:74` |
 
 ## Environment Variables
 
