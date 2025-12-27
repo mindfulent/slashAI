@@ -58,6 +58,11 @@ class MemoryManager:
         Returns:
             List of relevant memories
         """
+        # Handle empty queries (e.g., image-only messages)
+        if not query or not query.strip():
+            logger.debug("Empty query, skipping memory retrieval")
+            return []
+
         logger.info(f"Retrieving memories for user={user_id}, query={query[:50]}...")
         memories = await self.retriever.retrieve(user_id, query, channel)
         logger.info(f"Retrieved {len(memories)} memories")

@@ -60,6 +60,10 @@ class MemoryRetriever:
         Returns:
             List of relevant memories, privacy-filtered
         """
+        # Skip retrieval for empty queries (e.g., image-only messages)
+        if not query or not query.strip():
+            return []
+
         top_k = top_k or self.config.top_k
         context_privacy = await classify_channel_privacy(channel)
 
