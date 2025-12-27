@@ -211,7 +211,11 @@ class DiscordBot(commands.Bot):
         if attachment_contents:
             content = f"{content}\n\n{attachment_contents}" if content else attachment_contents
 
-        if not content:
+        # Download image attachments for vision
+        images = await self._read_image_attachments(message.attachments)
+
+        # Need either text or images to proceed
+        if not content and not images:
             return
 
         async with message.channel.typing():
@@ -221,9 +225,11 @@ class DiscordBot(commands.Bot):
                     channel_id=str(message.channel.id),
                     content=content,
                     channel=message.channel,  # Pass channel for memory privacy
+                    images=images if images else None,
                 )
                 await self._send_chunked(message.channel, response, reply_to=message)
             except Exception as e:
+                logger.error(f"Chat error: {e}", exc_info=True)
                 await message.reply(f"Sorry, I encountered an error: {str(e)}")
 
     async def _read_text_attachments(
@@ -264,6 +270,46 @@ class DiscordBot(commands.Bot):
             logger.debug(f"No text attachments in {len(attachments)} file(s)")
 
         return "\n\n".join(parts)
+
+    async def _read_image_attachments(
+        self, attachments: list[discord.Attachment]
+    ) -> list[tuple[bytes, str]]:
+        """Download image attachments for vision analysis.
+
+        Returns:
+            List of (image_bytes, media_type) tuples
+        """
+        IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+        MAX_IMAGE_SIZE = 20_000_000  # 20MB limit
+
+        images = []
+        for attachment in attachments:
+            # Check file extension
+            ext = attachment.filename.lower().rsplit(".", 1)[-1] if "." in attachment.filename else ""
+            if ext not in IMAGE_EXTENSIONS:
+                continue
+
+            # Check file size
+            if attachment.size > MAX_IMAGE_SIZE:
+                logger.warning(f"Image too large for vision: {attachment.filename} ({attachment.size} bytes)")
+                continue
+
+            try:
+                image_bytes = await attachment.read()
+                # Map extension to media type
+                media_type = {
+                    "png": "image/png",
+                    "jpg": "image/jpeg",
+                    "jpeg": "image/jpeg",
+                    "gif": "image/gif",
+                    "webp": "image/webp",
+                }.get(ext, "image/png")
+                images.append((image_bytes, media_type))
+                logger.info(f"Read image for vision: {attachment.filename} ({len(image_bytes)} bytes)")
+            except Exception as e:
+                logger.warning(f"Failed to read image {attachment.filename}: {e}")
+
+        return images
 
     def _chunk_message(self, content: str) -> list[str]:
         """Split a message into chunks that fit Discord's 2000 char limit.

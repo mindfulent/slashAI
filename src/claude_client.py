@@ -124,6 +124,7 @@ class ClaudeClient:
         content: str,
         channel: Optional[discord.abc.Messageable] = None,
         max_tokens: int = 1024,
+        images: Optional[list[tuple[bytes, str]]] = None,
     ) -> str:
         """
         Send a message and get a response from Claude.
@@ -134,6 +135,7 @@ class ClaudeClient:
             content: The user's message
             channel: Discord channel for memory privacy context
             max_tokens: Maximum tokens in response (default 1024)
+            images: Optional list of (image_bytes, media_type) tuples
 
         Returns:
             Claude's response text
@@ -148,20 +150,32 @@ class ClaudeClient:
             if memories:
                 memory_context = self._format_memories(memories)
 
-        # Add user message to history
-        conversation.add_message("user", content)
+        # Build message content (multimodal if images present)
+        if images:
+            message_content = self._build_multimodal_content(content, images)
+        else:
+            message_content = content
+
+        # Add user message to history (text only for history storage)
+        conversation.add_message("user", content or "[image]")
 
         # Build system prompt with memory context
         system = self.system_prompt
         if memory_context:
             system = f"{self.system_prompt}\n\n{memory_context}"
 
+        # Build messages list, replacing last message with multimodal if needed
+        messages = conversation.get_messages()
+        if images and messages:
+            # Replace the last user message with multimodal content
+            messages[-1] = {"role": "user", "content": message_content}
+
         # Make API request
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             system=system,
-            messages=conversation.get_messages(),
+            messages=messages,
         )
 
         # Track token usage
@@ -199,6 +213,38 @@ class ClaudeClient:
             "Don't explicitly mention 'remembering' unless asked."
         )
         return "\n".join(lines)
+
+    def _build_multimodal_content(
+        self, text: str, images: list[tuple[bytes, str]]
+    ) -> list[dict]:
+        """Build multimodal content array for Anthropic API.
+
+        Args:
+            text: Text content (may be empty)
+            images: List of (image_bytes, media_type) tuples
+
+        Returns:
+            List of content blocks for the messages API
+        """
+        content = []
+
+        # Add images first
+        for image_bytes, media_type in images:
+            image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": image_b64,
+                }
+            })
+
+        # Add text if present
+        if text:
+            content.append({"type": "text", "text": text})
+
+        return content
 
     async def chat_single(
         self,
