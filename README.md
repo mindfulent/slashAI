@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/slashAI_icon.png" alt="slashAI" width="200">
+</p>
+
 # slashAI
 
 AI-powered Discord bot and MCP server for the Minecraft College community. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
