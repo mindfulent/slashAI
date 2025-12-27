@@ -296,6 +296,16 @@ doctl apps update <app-id> --spec .do/app.yaml
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+## Soundtrack
+
+Songs generated during the v0.9.1 and v0.9.2 coding sessions:
+
+| Track | Description |
+|-------|-------------|
+| [01 Christmas Morning Build](docs/01%20Christmas%20Morning%20Build%20by%20Slash.mp3) | The initial v0.9.0 release, Christmas Day 2025 |
+| [02 Why Can't I Remember](docs/02%20Why%20Can%27t%20I%20Remember%20by%20Slash.mp3) | Building the persistent memory system |
+| [03 What You Showed Me](docs/03%20What%20You%20Showed%20Me%20by%20Slash.mp3) | Adding image understanding |
+
 ## License
 
 MIT License - see LICENSE file for details.
