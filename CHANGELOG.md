@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.3] - 2025-12-27
+
+### Fixed
+
+#### Large Image Handling
+- Images exceeding Anthropic's 5MB limit are now automatically resized
+- Progressive JPEG compression (85 → 70 → 55 → 40 quality) before dimension reduction
+- Proper MIME type updates when images are converted to JPEG
+
+#### Memory Optimization for Constrained Workers
+- Voyage embeddings now resize images to max 512px (reduces RAM from ~36MB to ~750KB for phone photos)
+- PIL images explicitly closed in `finally` blocks to prevent memory leaks
+- Explicit `gc.collect()` after image processing completes
+- Fixed `UnboundLocalError` for `result_bytes` in resize function
+
+#### Diagnostic Logging
+- Added `[MSG]` logging at start of `on_message` showing attachments, embeds, mentions, and DM status
+- Helps diagnose mobile upload issues and silent failures
+
+### Technical Details
+- No new dependencies
+- No new environment variables
+- No database migrations required
+
+---
+
 ## [0.9.2] - 2025-12-26
 
 ### Added
@@ -186,6 +212,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.3 | 2025-12-27 | Large image handling and memory optimization fixes |
 | 0.9.2 | 2025-12-26 | Image memory system with build tracking and clustering |
 | 0.9.1 | 2025-12-26 | Privacy-aware persistent text memory |
 | 0.9.0 | 2025-12-25 | Initial release with Discord bot and MCP server |
@@ -229,7 +256,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/mindfulent/slashAI/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/mindfulent/slashAI/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/mindfulent/slashAI/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/mindfulent/slashAI/releases/tag/v0.9.0
