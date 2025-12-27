@@ -8,6 +8,7 @@ Orchestrates:
 4. Clustering (build grouping)
 """
 
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -23,6 +24,8 @@ from .storage import ImageStorage
 
 
 # Supported image formats
+logger = logging.getLogger("slashAI.images")
+
 SUPPORTED_FORMATS = {"png", "jpg", "jpeg", "gif", "webp"}
 
 # MIME type mapping
@@ -82,21 +85,30 @@ class ImageObserver:
         Returns:
             observation_id if stored, None if rejected/moderated
         """
+        logger.info(f"[OBSERVER] Starting handle_image for {attachment.filename}")
+        
         # Validate format
         if not self._is_supported_image(attachment.filename):
+            logger.warning(f"[OBSERVER] Unsupported format: {attachment.filename}")
             return None
 
         # Download image
+        logger.info(f"[OBSERVER] Downloading image from Discord (size={attachment.size} bytes)...")
         try:
             image_bytes = await attachment.read()
-        except discord.HTTPException:
+            logger.info(f"[OBSERVER] Downloaded {len(image_bytes)} bytes successfully")
+        except discord.HTTPException as e:
+            logger.error(f"[OBSERVER] Failed to download image: {e}")
             return None
 
         media_type = self._get_media_type(attachment.filename)
+        logger.info(f"[OBSERVER] Media type: {media_type}")
 
         # STEP 1: Content moderation (MUST happen first)
         if self.moderation_enabled:
+            logger.info(f"[OBSERVER] Step 1: Running content moderation...")
             moderation = await self.analyzer.moderate(image_bytes, media_type)
+            logger.info(f"[OBSERVER] Moderation result: safe={moderation.is_safe}, confidence={moderation.confidence}, type={moderation.violation_type}")
 
             if not moderation.is_safe:
                 if moderation.confidence >= 0.7:
@@ -114,8 +126,10 @@ class ImageObserver:
         file_hash = None  # Will be set by analysis
 
         # STEP 3: Full analysis (description, tags, embedding)
+        logger.info(f"[OBSERVER] Step 3: Running full analysis (Claude Vision + Voyage embedding)...")
         analysis = await self.analyzer.analyze(image_bytes, media_type)
         file_hash = analysis.file_hash
+        logger.info(f"[OBSERVER] Analysis complete: type={analysis.observation_type}, tags={analysis.tags[:3] if analysis.tags else []}, embedding_dims={len(analysis.embedding)}")
 
         # Check for existing observation with same hash
         existing = await self._check_duplicate(file_hash, message.author.id)
@@ -123,15 +137,18 @@ class ImageObserver:
             return existing
 
         # STEP 4: Upload to storage
+        logger.info(f"[OBSERVER] Step 4: Uploading to DO Spaces...")
         storage_key, storage_url = await self.storage.upload(
             image_bytes, message.author.id, file_hash, media_type
         )
+        logger.info(f"[OBSERVER] Uploaded: key={storage_key}")
 
         # STEP 5: Get privacy level
         privacy_level = await classify_channel_privacy(message.channel)
         guild_id = message.guild.id if message.guild else None
 
         # STEP 6: Insert observation
+        logger.info(f"[OBSERVER] Step 6: Inserting observation into database...")
         observation_id = await self._insert_observation(
             user_id=message.author.id,
             message_id=message.id,
@@ -156,7 +173,10 @@ class ImageObserver:
             captured_at=message.created_at,
         )
 
+        logger.info(f"[OBSERVER] Inserted observation_id={observation_id}")
+        
         # STEP 7: Assign to cluster
+        logger.info(f"[OBSERVER] Step 7: Assigning to cluster...")
         await self.clusterer.assign_to_cluster(
             user_id=message.author.id,
             observation_id=observation_id,
@@ -167,6 +187,7 @@ class ImageObserver:
             guild_id=guild_id,
         )
 
+        logger.info(f"[OBSERVER] Complete! observation_id={observation_id}")
         return observation_id
 
     async def _check_duplicate(

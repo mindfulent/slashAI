@@ -146,6 +146,8 @@ class DiscordBot(commands.Bot):
         await self.process_commands(message)
 
         # Process image attachments for memory (before chat handling)
+        if message.attachments:
+            logger.info(f"[IMAGE] Message has {len(message.attachments)} attachments, image_observer={'enabled' if self.image_observer else 'DISABLED'}")
         if self.image_observer and message.attachments:
             await self._process_image_attachments(message)
 
@@ -160,22 +162,31 @@ class DiscordBot(commands.Bot):
 
     async def _process_image_attachments(self, message: discord.Message):
         """Process image attachments for memory system."""
-        for attachment in message.attachments:
+        logger.info(f"[IMAGE] Processing {len(message.attachments)} attachment(s) from user {message.author.id}")
+        
+        for i, attachment in enumerate(message.attachments):
+            logger.info(f"[IMAGE] Attachment {i+1}: filename={attachment.filename}, size={attachment.size}, content_type={attachment.content_type}, url={attachment.url[:80]}...")
+            
             # Check if it is a supported image format
             if self._is_supported_image(attachment.filename):
+                logger.info(f"[IMAGE] Supported format detected, starting processing...")
                 try:
                     observation_id = await self.image_observer.handle_image(
                         message, attachment, bot=self
                     )
                     if observation_id:
                         logger.info(
-                            f"Stored image observation {observation_id} for user {message.author.id}"
+                            f"[IMAGE] SUCCESS: Stored observation {observation_id} for user {message.author.id}"
                         )
+                    else:
+                        logger.warning(f"[IMAGE] handle_image returned None (rejected/moderated/duplicate)")
                 except Exception as e:
                     logger.error(
-                        f"Failed to process image from {message.author.id}: {e}",
+                        f"[IMAGE] FAILED to process image from {message.author.id}: {e}",
                         exc_info=True,
                     )
+            else:
+                logger.debug(f"[IMAGE] Skipping unsupported format: {attachment.filename}")
 
     def _is_supported_image(self, filename: str) -> bool:
         """Check if file extension is a supported image format."""
