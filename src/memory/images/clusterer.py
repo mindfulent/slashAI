@@ -180,7 +180,7 @@ class BuildClusterer:
         if not candidates:
             return None
 
-        embedding_array = np.array(embedding)
+        embedding_array = np.array(embedding, dtype=np.float32)
         best_match = None
         best_similarity = -1.0
 
@@ -188,7 +188,13 @@ class BuildClusterer:
             if candidate["centroid_embedding"] is None:
                 continue
 
-            centroid = np.array(candidate["centroid_embedding"])
+            # Parse centroid from database (comes as string or list depending on driver)
+            raw_centroid = candidate["centroid_embedding"]
+            if isinstance(raw_centroid, str):
+                # pgvector returns string like '[0.1,0.2,...]' - parse it
+                centroid = np.array([float(x) for x in raw_centroid.strip('[]').split(',')], dtype=np.float32)
+            else:
+                centroid = np.array(raw_centroid, dtype=np.float32)
 
             # Cosine similarity
             dot_product = np.dot(embedding_array, centroid)
