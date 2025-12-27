@@ -6,6 +6,7 @@ Manages conversation history per user/channel.
 Integrates with memory system for persistent context.
 """
 
+import base64
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
