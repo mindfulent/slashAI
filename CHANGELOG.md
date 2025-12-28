@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.8] - 2025-12-27
+
+### Changed
+- Strengthened "no trailing questions" rule in system prompt—now a hard ban instead of soft guidance
+- Explicitly bans curious follow-ups like "what are you working on?" and "how's it going?"
+- Only allowed exception: when needing info to help (e.g., "which file?")
+
+### Technical Details
+- No new dependencies
+- No new environment variables
+- No database migrations required
+
+---
+
 ## [0.9.7] - 2025-12-27
 
 ### Fixed
@@ -268,6 +282,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.8 | 2025-12-27 | Hard ban on trailing questions |
 | 0.9.7 | 2025-12-27 | Fix image processing errors on Pixel photos |
 | 0.9.6 | 2025-12-27 | Reduce trailing questions in responses |
 | 0.9.5 | 2025-12-27 | Self-knowledge capabilities in system prompt |
@@ -316,7 +331,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.8...HEAD
+[0.9.8]: https://github.com/mindfulent/slashAI/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/mindfulent/slashAI/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/mindfulent/slashAI/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/mindfulent/slashAI/compare/v0.9.4...v0.9.5
