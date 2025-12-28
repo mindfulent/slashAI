@@ -15,7 +15,7 @@ from .privacy import PrivacyLevel, classify_channel_privacy, classify_memory_pri
 
 # Extraction prompt adapted from RMM paper Appendix D.1.1
 MEMORY_EXTRACTION_PROMPT = """
-You are a memory extraction system for slashAI, a Discord bot serving the Minecraft College community.
+You are a memory extraction system for slashAI, a Discord bot.
 
 ## Task
 Given a conversation between a User and Assistant (slashAI), extract memorable facts and topics that would be useful in future conversations.

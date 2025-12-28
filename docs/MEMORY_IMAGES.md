@@ -368,7 +368,7 @@ class ImageAnalysisConfig:
 
 ```python
 IMAGE_ANALYSIS_PROMPT = """
-You are analyzing a Minecraft screenshot shared in the Minecraft College Discord community.
+You are analyzing a Minecraft screenshot shared in a Discord community.
 
 ## Task
 Analyze this image and provide:

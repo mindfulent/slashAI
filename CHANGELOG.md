@@ -228,7 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responds to @mentions in any channel the bot can access
 - Direct message (DM) support for private conversations
 - Per-user, per-channel conversation history (up to 20 messages retained)
-- Custom system prompt tailored for Minecraft College community personality
+- Custom system prompt with configurable personality
 - Token usage tracking with cost estimation
 - Typing indicator while generating responses
 - Automatic response truncation to Discord's 2000 character limit

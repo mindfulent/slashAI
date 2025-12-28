@@ -171,7 +171,7 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
 
 # Analysis prompt for Minecraft screenshots
 IMAGE_ANALYSIS_PROMPT = """
-You are analyzing a Minecraft screenshot shared in the Minecraft College Discord community.
+You are analyzing a Minecraft screenshot shared in a Discord community.
 
 ## Task
 Analyze this image and provide:

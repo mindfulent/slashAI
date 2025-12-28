@@ -346,11 +346,11 @@ Memory extraction occurs when ANY of these conditions are met:
 
 ### 6.2 Extraction Prompt
 
-Adapted from RMM paper Appendix D.1.1 for Minecraft College context:
+Adapted from RMM paper Appendix D.1.1:
 
 ```python
 MEMORY_EXTRACTION_PROMPT = """
-You are a memory extraction system for slashAI, a Discord bot serving the Minecraft College community.
+You are a memory extraction system for slashAI, a Discord bot.
 
 ## Task
 Given a conversation between a User and Assistant (slashAI), extract memorable facts and topics that would be useful in future conversations.

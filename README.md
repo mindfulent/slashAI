@@ -4,7 +4,7 @@
 
 # slashAI
 
-AI-powered Discord bot and MCP server for the Minecraft College community. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
+AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
 **Current Version:** 0.9.8
 
@@ -20,7 +20,7 @@ slashAI operates in two complementary modes:
 ### Chatbot Mode
 - Natural conversation with Claude Sonnet 4.5's intelligence
 - Per-user, per-channel conversation history (maintains context across messages)
-- Custom personality tuned for the Minecraft College community
+- Customizable personality via system prompt
 - Direct message support for private conversations
 - Discord-native formatting (markdown, code blocks)
 - Automatic message chunking for responses exceeding Discord's 2000 character limit
@@ -318,4 +318,4 @@ MIT License - see LICENSE file for details.
 
 - [Anthropic](https://anthropic.com) for Claude and the MCP protocol
 - [discord.py](https://discordpy.readthedocs.io/) for the excellent Discord library
-- The Minecraft College community for being the inspiration and first users
+- The community for being the inspiration and first users

@@ -8,13 +8,13 @@
 | Version | 0.9.0 |
 | Last Updated | 2025-12-25 |
 | Status | Implemented |
-| Owner | Minecraft College |
+| Owner | slashAI |
 
 ---
 
 ## 1. Executive Summary
 
-slashAI is an AI-powered Discord bot that brings Claude Sonnet 4.5's intelligence to the Minecraft College community. It enables natural conversations through Discord mentions and provides programmatic Discord control via the Model Context Protocol (MCP) for integration with Claude Code.
+slashAI is an AI-powered Discord bot that brings Claude Sonnet 4.5's intelligence to any community. It enables natural conversations through Discord mentions and provides programmatic Discord control via the Model Context Protocol (MCP) for integration with Claude Code.
 
 ### 1.1 Vision
 
@@ -32,7 +32,7 @@ Create an AI assistant that feels like a knowledgeable community member—one wh
 
 ### 2.1 Community Member (Discord User)
 
-**Profile**: Active Minecraft College Discord member who plays on the server
+**Profile**: Active Discord community member
 
 **Needs**:
 - Quick answers to Minecraft questions
@@ -58,7 +58,7 @@ Create an AI assistant that feels like a knowledgeable community member—one wh
 
 ### 2.3 Server Administrator
 
-**Profile**: Manages the Minecraft College Discord server and community
+**Profile**: Manages the Discord server and community
 
 **Needs**:
 - Reliable bot that doesn't require constant maintenance
@@ -134,7 +134,7 @@ Create an AI assistant that feels like a knowledgeable community member—one wh
 
 #### US-004: Custom Personality
 
-**As a** Minecraft College community member
+**As a** community member
 **I want to** interact with a bot that has a distinct, community-appropriate personality
 **So that** conversations feel natural and aligned with our community vibe
 
@@ -431,7 +431,7 @@ The following are explicitly NOT included in v0.9.0:
 
 ### 6.1 Adoption
 
-- [ ] Bot is active in Minecraft College Discord
+- [ ] Bot is active in target Discord server
 - [ ] At least 10 unique users interact with the bot in first week
 
 ### 6.2 Engagement
