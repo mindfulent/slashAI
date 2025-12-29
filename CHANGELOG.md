@@ -16,6 +16,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.9] - 2025-12-28
+
+### Fixed
+
+#### Cross-User Guild Memory Sharing
+- `guild_public` memories were incorrectly user-scoped, preventing cross-user knowledge sharing
+- When User A shared information in a public channel, User B couldn't access that memory
+- Now `guild_public` memories are properly shared across all users in the same guild
+
+#### Files Updated
+- `src/memory/retriever.py` - Text memory retrieval now cross-user for guild_public
+- `src/memory/images/narrator.py` - Image memory context now cross-user for guild_public
+- `src/memory/images/clusterer.py` - Build cluster listing now cross-user for guild_public
+
+### Technical Details
+- No new dependencies
+- No new environment variables
+- No database migrations required
+- Privacy model unchanged: DMs and restricted channels remain user-scoped
+
+---
+
 ## [0.9.8] - 2025-12-27
 
 ### Changed
@@ -282,6 +304,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.9 | 2025-12-28 | Fix cross-user guild_public memory sharing |
 | 0.9.8 | 2025-12-27 | Hard ban on trailing questions |
 | 0.9.7 | 2025-12-27 | Fix image processing errors on Pixel photos |
 | 0.9.6 | 2025-12-27 | Reduce trailing questions in responses |
@@ -331,7 +354,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.8...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.9...HEAD
+[0.9.9]: https://github.com/mindfulent/slashAI/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/mindfulent/slashAI/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/mindfulent/slashAI/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/mindfulent/slashAI/compare/v0.9.5...v0.9.6

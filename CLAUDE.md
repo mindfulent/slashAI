@@ -87,7 +87,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | Constant | Value | Location |
 |----------|-------|----------|
 | `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py:22` |
-| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:110` |
+| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:115` |
 | `extraction_message_threshold` | 5 exchanges | `memory/config.py:21` |
 | `similarity_threshold` | 0.3 | `memory/config.py:18` |
 | `cluster_assignment_threshold` | 0.72 | `memory/config.py:74` |
@@ -119,6 +119,11 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 **MCP server lifespan:** Bot starts on server init, has 30s connection timeout
 
 **Memory system rollback:** Set `MEMORY_ENABLED=false` to fall back to v0.9.0 behavior (no memory)
+
+**Release workflow:** When cutting a new release, always update:
+1. `CHANGELOG.md` - Add version entry with date and changes
+2. `docs/MEMORY_*.md` - Update version numbers if memory-related
+3. Create GitHub release with `gh release create vX.Y.Z`
 
 ## Database Migrations
 
