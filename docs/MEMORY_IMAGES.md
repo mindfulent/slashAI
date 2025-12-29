@@ -1379,12 +1379,14 @@ slashai-images/
 
 Image observations inherit the same channel-based privacy model as text memories:
 
-| Privacy Level | Assigned When | Observations Visible In |
-|---------------|---------------|-------------------------|
-| `dm` | Image shared in DM | DMs only |
-| `channel_restricted` | Image in role-gated channel | Same channel only |
-| `guild_public` | Image in public channel | Any channel in same guild |
-| `global` | N/A (images are never auto-promoted) | Everywhere |
+| Privacy Level | Assigned When | Observations Visible In | Cross-User |
+|---------------|---------------|-------------------------|------------|
+| `dm` | Image shared in DM | DMs only | No |
+| `channel_restricted` | Image in role-gated channel | Same channel only | No |
+| `guild_public` | Image in public channel | Any channel in same guild | **Yes** |
+| `global` | N/A (images are never auto-promoted) | Everywhere | No |
+
+**Cross-user sharing**: `guild_public` image observations and build clusters are shared across all users in the same guild. When User A asks about builds, they can see User B's publicly-shared build progress. This enables shared knowledge about community builds and projects.
 
 **Key difference from text**: Images are **never** promoted to `global` automatically. Even explicit facts like "this is my IGN" shown in a screenshot stay at their channel privacy level.
 
@@ -1421,19 +1423,21 @@ async def _update_cluster_privacy(self, cluster_id: int):
 ### 9.3 Retrieval Privacy Filter
 
 ```sql
--- Example: Retrieving build context in a public channel
+-- Example: Retrieving build context in a public channel (cross-user)
+-- User's global clusters + ANY user's guild_public clusters from same guild
 SELECT bc.*, COUNT(io.id) as observation_count
 FROM build_clusters bc
 LEFT JOIN image_observations io ON io.build_cluster_id = bc.id
-WHERE bc.user_id = $1
-  AND bc.status = 'active'
+WHERE bc.status = 'active'
   AND (
-    bc.privacy_level IN ('guild_public', 'global')
-    AND bc.origin_guild_id = $2
+    (bc.user_id = $1 AND bc.privacy_level = 'global')
+    OR (bc.privacy_level = 'guild_public' AND bc.origin_guild_id = $2)
   )
 GROUP BY bc.id
 ORDER BY bc.last_observation_at DESC;
 ```
+
+Note: The query no longer filters by `user_id` for `guild_public` content, enabling cross-user visibility of publicly-shared builds within the same guild.
 
 ---
 

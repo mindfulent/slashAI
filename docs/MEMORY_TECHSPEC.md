@@ -127,12 +127,14 @@ The v0.9.1 memory system will:
 
 See [MEMORY_PRIVACY.md](./MEMORY_PRIVACY.md) for full details. Key points:
 
-| Privacy Level | Assigned When | Retrievable In |
-|---------------|---------------|----------------|
-| `dm` | Conversation in DM | DMs only |
-| `channel_restricted` | Role-gated channel | Same channel only |
-| `guild_public` | Public channel | Any channel in same guild |
-| `global` | Explicit, non-sensitive facts | Anywhere |
+| Privacy Level | Assigned When | Retrievable In | Cross-User |
+|---------------|---------------|----------------|------------|
+| `dm` | Conversation in DM | DMs only | No |
+| `channel_restricted` | Role-gated channel | Same channel only | No |
+| `guild_public` | Public channel | Any channel in same guild | **Yes** |
+| `global` | Explicit, non-sensitive facts | Anywhere | No |
+
+**Cross-user sharing**: `guild_public` memories are shared across all users in the same guild. When User A asks about something User B discussed publicly, they can access those memories. This enables shared guild knowledge (e.g., community members, build projects, server events).
 
 ---
 
@@ -635,44 +637,52 @@ class MemoryRetriever:
         self, user_id: int, embedding: list[float],
         context_privacy: PrivacyLevel, channel: discord.abc.Messageable, top_k: int
     ) -> tuple[str, list]:
-        """Build SQL query with privacy filtering."""
-        
+        """Build SQL query with privacy filtering.
+
+        Privacy rules:
+        - DM context: User's own memories only
+        - Restricted channel: User's global/channel_restricted + ANY user's guild_public
+        - Public channel: User's global + ANY user's guild_public (cross-user sharing)
+        """
+
         base_query = """
-            SELECT 
+            SELECT
                 id, topic_summary, raw_dialogue, memory_type, privacy_level,
                 1 - (embedding <=> $1::vector) as similarity, updated_at
             FROM memories
-            WHERE user_id = $2
-              AND 1 - (embedding <=> $1::vector) > $3
+            WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})
             ORDER BY embedding <=> $1::vector
             LIMIT $4
         """
-        
+
         if context_privacy == PrivacyLevel.DM:
-            privacy_filter = "TRUE"
+            # DM: only user's own memories
+            privacy_filter = "user_id = $2"
             params = [embedding, user_id, self.config.similarity_threshold, top_k]
-            
+
         elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
+            # Restricted: user's global + ANY user's guild_public + user's channel_restricted
             guild_id = channel.guild.id
             channel_id = channel.id
             privacy_filter = """
-                privacy_level = 'global'
+                (user_id = $2 AND privacy_level = 'global')
                 OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
-                OR (privacy_level = 'channel_restricted' AND origin_channel_id = $6)
+                OR (user_id = $2 AND privacy_level = 'channel_restricted' AND origin_channel_id = $6)
             """
-            params = [embedding, user_id, self.config.similarity_threshold, 
+            params = [embedding, user_id, self.config.similarity_threshold,
                       top_k, guild_id, channel_id]
-            
+
         else:  # GUILD_PUBLIC
+            # Public: user's global + ANY user's guild_public (cross-user sharing)
             guild_id = channel.guild.id
             privacy_filter = """
-                privacy_level = 'global'
+                (user_id = $2 AND privacy_level = 'global')
                 OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
             """
             params = [embedding, user_id, self.config.similarity_threshold,
                       top_k, guild_id]
-        
+
         return base_query.format(privacy_filter=privacy_filter), params
     
     async def _embed(self, text: str, input_type: str = "document") -> list[float]:

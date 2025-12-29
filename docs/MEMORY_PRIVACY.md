@@ -33,12 +33,14 @@ Without privacy controls, slashAI could inadvertently:
 
 ## 2. Privacy Threat Scenarios
 
-| Scenario | Risk | Example |
-|----------|------|---------|
-| **DM Leakage** | User shares personal info in DM, bot references it publicly | User: "I'm stressed about exams" in DM → Bot: "How are your exams going?" in #general |
-| **Admin Channel Leakage** | Mod discusses user warning, bot mentions it elsewhere | Admin: "Watching UserX for toxicity" in #mod-only → Bot references in #general |
-| **Cross-Guild Leakage** | Server A memories appear in Server B | User's Server A project details appear when chatting in Server B |
-| **Cross-User Leakage** | User A's memories retrieved for User B | Already prevented by user-scoped storage |
+| Scenario | Risk | Example | Mitigation |
+|----------|------|---------|------------|
+| **DM Leakage** | User shares personal info in DM, bot references it publicly | User: "I'm stressed about exams" in DM → Bot: "How are your exams going?" in #general | `dm` privacy level - never surfaces outside DMs |
+| **Admin Channel Leakage** | Mod discusses user warning, bot mentions it elsewhere | Admin: "Watching UserX for toxicity" in #mod-only → Bot references in #general | `channel_restricted` privacy level |
+| **Cross-Guild Leakage** | Server A memories appear in Server B | User's Server A project details appear when chatting in Server B | `origin_guild_id` filtering |
+| **Cross-User for Private** | User A's DM memories visible to User B | User A's personal struggles visible to User B | `dm` and `channel_restricted` are user-scoped |
+
+**Note on cross-user visibility**: `guild_public` memories are intentionally shared across users in the same guild. This enables shared knowledge about community members, builds, and events. Only `dm` and `channel_restricted` memories remain strictly user-scoped.
 
 ---
 
@@ -46,12 +48,12 @@ Without privacy controls, slashAI could inadvertently:
 
 ### 3.1 Level Definitions
 
-| Level | Description | Assigned When | Example Content |
-|-------|-------------|---------------|-----------------|
-| `dm` | Private to user only | Conversation in DM or Group DM | Personal struggles, private questions |
-| `channel_restricted` | Same channel only | Role-gated channel (@everyone can't view) | Mod discussions, admin planning |
-| `guild_public` | Any channel in same guild | Public channel in a guild | General Minecraft questions |
-| `global` | Anywhere, any server | Explicit, non-sensitive user facts | IGN, timezone, language preferences |
+| Level | Description | Assigned When | Cross-User | Example Content |
+|-------|-------------|---------------|------------|-----------------|
+| `dm` | Private to user only | Conversation in DM or Group DM | No | Personal struggles, private questions |
+| `channel_restricted` | Same channel only | Role-gated channel (@everyone can't view) | No | Mod discussions, admin planning |
+| `guild_public` | Any channel in same guild | Public channel in a guild | **Yes** | Community members, builds, events |
+| `global` | Anywhere, any server | Explicit, non-sensitive user facts | No | IGN, timezone, language preferences |
 
 ### 3.2 Retrieval Matrix
 
@@ -59,11 +61,14 @@ What memories can be surfaced in each context:
 
 | Current Context | `dm` | `channel_restricted` | `guild_public` | `global` |
 |-----------------|------|---------------------|----------------|----------|
-| **DM** | ✅ | ✅ | ✅ | ✅ |
-| **Restricted Channel** | ❌ | ✅ (same channel) | ✅ (same guild) | ✅ |
-| **Public Channel** | ❌ | ❌ | ✅ (same guild) | ✅ |
+| **DM** | ✅ Own only | ✅ Own only | ✅ Own only | ✅ Own only |
+| **Restricted Channel** | ❌ | ✅ Own (same channel) | ✅ **Any user** (same guild) | ✅ Own only |
+| **Public Channel** | ❌ | ❌ | ✅ **Any user** (same guild) | ✅ Own only |
 
-**Key insight**: In a DM, the user is the only viewer, so all their memories are safe to surface.
+**Key insights**:
+- In a DM, the user is the only viewer, so all their own memories are safe to surface.
+- `guild_public` memories are shared across all users in the same guild, enabling community knowledge.
+- `global` memories are user-scoped (your IGN doesn't show up when someone else asks).
 
 ---
 
@@ -238,47 +243,49 @@ def _is_global_safe(memory: 'ExtractedMemory') -> bool:
 
 ### 6.1 SQL Query Patterns
 
-**DM Context (all memories visible)**:
+**DM Context (user's own memories only)**:
 ```sql
 SELECT id, topic_summary, raw_dialogue, memory_type, privacy_level,
        1 - (embedding <=> $1::vector) as similarity
 FROM memories
-WHERE user_id = $2
+WHERE user_id = $2  -- Only user's own memories in DMs
   AND 1 - (embedding <=> $1::vector) > $3
 ORDER BY embedding <=> $1::vector
 LIMIT $4;
 ```
 
-**Restricted Channel Context**:
+**Restricted Channel Context (cross-user for guild_public)**:
 ```sql
+-- User's global + ANY user's guild_public + user's channel_restricted
 SELECT id, topic_summary, raw_dialogue, memory_type, privacy_level,
        1 - (embedding <=> $1::vector) as similarity
 FROM memories
-WHERE user_id = $2
-  AND 1 - (embedding <=> $1::vector) > $3
+WHERE 1 - (embedding <=> $1::vector) > $3
   AND (
-    privacy_level = 'global'
+    (user_id = $2 AND privacy_level = 'global')
     OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
-    OR (privacy_level = 'channel_restricted' AND origin_channel_id = $6)
+    OR (user_id = $2 AND privacy_level = 'channel_restricted' AND origin_channel_id = $6)
   )
 ORDER BY embedding <=> $1::vector
 LIMIT $4;
 ```
 
-**Public Channel Context**:
+**Public Channel Context (cross-user for guild_public)**:
 ```sql
+-- User's global + ANY user's guild_public from same guild
 SELECT id, topic_summary, raw_dialogue, memory_type, privacy_level,
        1 - (embedding <=> $1::vector) as similarity
 FROM memories
-WHERE user_id = $2
-  AND 1 - (embedding <=> $1::vector) > $3
+WHERE 1 - (embedding <=> $1::vector) > $3
   AND (
-    privacy_level = 'global'
+    (user_id = $2 AND privacy_level = 'global')
     OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
   )
 ORDER BY embedding <=> $1::vector
 LIMIT $4;
 ```
+
+**Note**: The `guild_public` condition no longer includes `user_id`, enabling cross-user retrieval within the same guild. This allows shared knowledge about community members, builds, and events to be accessible to everyone in the guild.
 
 ### 6.2 Index for Privacy Filtering
 
