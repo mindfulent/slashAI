@@ -374,21 +374,25 @@ class BuildClusterer:
         status: Optional[str] = None,
         limit: int = 10,
     ) -> list[dict]:
-        """Get clusters for a user with privacy filtering."""
-        # Build privacy filter
+        """Get clusters with privacy filtering - cross-user for guild_public."""
+        # Build privacy filter - cross-user for guild_public
         if privacy_level == "dm":
-            privacy_filter = "TRUE"
+            # DM: only user's own clusters
+            privacy_filter = "user_id = $1"
             params = [user_id, limit]
         elif privacy_level == "channel_restricted":
+            # Restricted: user's global + any user's guild_public + user's channel_restricted
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                OR (privacy_level = 'channel_restricted' AND origin_guild_id = $3)
+                (user_id = $1 AND privacy_level = 'global')
+                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
+                OR (user_id = $1 AND privacy_level = 'channel_restricted' AND origin_guild_id = $3)
             """
             params = [user_id, limit, guild_id]
         else:
+            # Guild public: user's global + any user's guild_public from same guild
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                AND origin_guild_id = $3
+                (user_id = $1 AND privacy_level = 'global')
+                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
             """
             params = [user_id, limit, guild_id]
 
@@ -401,7 +405,7 @@ class BuildClusterer:
                    observation_count, status, privacy_level,
                    first_observation_at, last_observation_at
             FROM build_clusters
-            WHERE user_id = $1 AND ({privacy_filter}) {status_filter}
+            WHERE ({privacy_filter}) {status_filter}
             ORDER BY last_observation_at DESC
             LIMIT $2
         """

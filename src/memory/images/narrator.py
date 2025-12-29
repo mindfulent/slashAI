@@ -177,20 +177,24 @@ Be specific about what changed between observations. Celebrate progress!
 
         Returns formatted markdown string suitable for system prompt injection.
         """
-        # Build privacy filter
+        # Build privacy filter - cross-user for guild_public
         if privacy_level == "dm":
-            privacy_filter = "TRUE"
+            # DM: only user's own clusters
+            privacy_filter = "user_id = $1"
             params = [user_id, max_clusters]
         elif privacy_level == "channel_restricted":
+            # Restricted: user's global + any user's guild_public + user's channel_restricted
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                OR (privacy_level = 'channel_restricted' AND origin_guild_id = $3)
+                (user_id = $1 AND privacy_level = 'global')
+                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
+                OR (user_id = $1 AND privacy_level = 'channel_restricted' AND origin_guild_id = $3)
             """
             params = [user_id, max_clusters, guild_id]
         else:
+            # Guild public: user's global + any user's guild_public from same guild
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                AND origin_guild_id = $3
+                (user_id = $1 AND privacy_level = 'global')
+                OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
             """
             params = [user_id, max_clusters, guild_id]
 
@@ -198,7 +202,7 @@ Be specific about what changed between observations. Celebrate progress!
             SELECT id, auto_name, user_name, description, observation_count,
                    first_observation_at, last_observation_at, status
             FROM build_clusters
-            WHERE user_id = $1 AND ({privacy_filter})
+            WHERE {privacy_filter}
             ORDER BY last_observation_at DESC
             LIMIT $2
         """
@@ -248,20 +252,24 @@ Be specific about what changed between observations. Celebrate progress!
 
         Returns dict with observation details or None.
         """
-        # Build privacy filter
+        # Build privacy filter - cross-user for guild_public
         if privacy_level == "dm":
-            privacy_filter = "TRUE"
+            # DM: only user's own observations
+            privacy_filter = "io.user_id = $1"
             params = [user_id]
         elif privacy_level == "channel_restricted":
+            # Restricted: user's global + any user's guild_public + user's channel_restricted
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                OR (privacy_level = 'channel_restricted' AND guild_id = $2)
+                (io.user_id = $1 AND io.privacy_level = 'global')
+                OR (io.privacy_level = 'guild_public' AND io.guild_id = $2)
+                OR (io.user_id = $1 AND io.privacy_level = 'channel_restricted' AND io.guild_id = $2)
             """
             params = [user_id, guild_id]
         else:
+            # Guild public: user's global + any user's guild_public from same guild
             privacy_filter = """
-                privacy_level IN ('global', 'guild_public')
-                AND guild_id = $2
+                (io.user_id = $1 AND io.privacy_level = 'global')
+                OR (io.privacy_level = 'guild_public' AND io.guild_id = $2)
             """
             params = [user_id, guild_id]
 
@@ -269,7 +277,7 @@ Be specific about what changed between observations. Celebrate progress!
             SELECT io.*, bc.auto_name as cluster_name
             FROM image_observations io
             LEFT JOIN build_clusters bc ON io.build_cluster_id = bc.id
-            WHERE io.user_id = $1 AND ({privacy_filter})
+            WHERE {privacy_filter}
             ORDER BY io.captured_at DESC
             LIMIT 1
         """
