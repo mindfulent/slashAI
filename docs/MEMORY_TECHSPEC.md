@@ -4,9 +4,9 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9.1-draft |
-| Last Updated | 2025-12-25 |
-| Status | Draft |
+| Version | 0.9.8 |
+| Last Updated | 2025-12-28 |
+| Status | Released |
 | Author | Slash + Claude |
 | References | [RMM Paper (Tan et al., 2025)](https://arxiv.org/abs/2503.08026) |
 | Related Docs | [MEMORY_PRIVACY.md](./MEMORY_PRIVACY.md) |

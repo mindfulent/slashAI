@@ -4,9 +4,9 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9.1 |
-| Last Updated | 2025-12-25 |
-| Status | Draft |
+| Version | 0.9.8 |
+| Last Updated | 2025-12-28 |
+| Status | Released |
 | Author | Slash + Claude |
 | Parent Doc | [MEMORY_TECHSPEC.md](./MEMORY_TECHSPEC.md) |
 
