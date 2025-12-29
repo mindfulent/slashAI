@@ -122,8 +122,9 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 **Release workflow:** When cutting a new release, always update:
 1. `CHANGELOG.md` - Add version entry with date and changes
-2. `docs/MEMORY_*.md` - Update version numbers if memory-related
-3. Create GitHub release with `gh release create vX.Y.Z`
+2. `README.md` - Update "Current Version" at top
+3. `docs/MEMORY_*.md` - Update version numbers if memory-related
+4. Create GitHub release with `gh release create vX.Y.Z`
 
 ## Database Migrations
 
