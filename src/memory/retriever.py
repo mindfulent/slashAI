@@ -83,7 +83,7 @@ class MemoryRetriever:
         embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
         if context_privacy == PrivacyLevel.DM:
-            # DMs can see everything
+            # DMs can see all of user's own memories
             eligible_memories = await self.db.fetch(
                 "SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories WHERE user_id = $1",
                 user_id
@@ -94,32 +94,33 @@ class MemoryRetriever:
                 embedding_str, user_id
             )
         elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
+            # User's global + ANY user's guild_public + user's channel_restricted
             eligible_memories = await self.db.fetch(
                 """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
-                   WHERE user_id = $1 AND (privacy_level = 'global'
+                   WHERE (user_id = $1 AND privacy_level = 'global')
                    OR (privacy_level = 'guild_public' AND origin_guild_id = $2)
-                   OR (privacy_level = 'channel_restricted' AND origin_channel_id = $3))""",
+                   OR (user_id = $1 AND privacy_level = 'channel_restricted' AND origin_channel_id = $3)""",
                 user_id, guild_id, channel_id
             )
             similarity_check = await self.db.fetch(
                 """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
-                   FROM memories WHERE user_id = $2 AND (privacy_level = 'global'
+                   FROM memories WHERE (user_id = $2 AND privacy_level = 'global')
                    OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
-                   OR (privacy_level = 'channel_restricted' AND origin_channel_id = $4))
+                   OR (user_id = $2 AND privacy_level = 'channel_restricted' AND origin_channel_id = $4)
                    ORDER BY embedding <=> $1::vector LIMIT 5""",
                 embedding_str, user_id, guild_id, channel_id
             )
-        else:  # GUILD_PUBLIC - exclude DMs entirely
+        else:  # GUILD_PUBLIC - user's global + ANY user's guild_public from same guild
             eligible_memories = await self.db.fetch(
                 """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
-                   WHERE user_id = $1 AND (privacy_level = 'global'
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2))""",
+                   WHERE (user_id = $1 AND privacy_level = 'global')
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2)""",
                 user_id, guild_id
             )
             similarity_check = await self.db.fetch(
                 """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
-                   FROM memories WHERE user_id = $2 AND (privacy_level = 'global'
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3))
+                   FROM memories WHERE (user_id = $2 AND privacy_level = 'global')
+                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
                    ORDER BY embedding <=> $1::vector LIMIT 5""",
                 embedding_str, user_id, guild_id
             )
@@ -178,26 +179,25 @@ class MemoryRetriever:
                 id, topic_summary, raw_dialogue, memory_type, privacy_level,
                 1 - (embedding <=> $1::vector) as similarity, updated_at
             FROM memories
-            WHERE user_id = $2
-              AND 1 - (embedding <=> $1::vector) > $3
+            WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})
             ORDER BY embedding <=> $1::vector
             LIMIT $4
         """
 
         if context_privacy == PrivacyLevel.DM:
-            # DM context: all memories visible (user is only viewer)
-            privacy_filter = "TRUE"
+            # DM context: all user's memories visible (user is only viewer)
+            privacy_filter = "user_id = $2"
             params = [embedding_str, user_id, self.config.similarity_threshold, top_k]
 
         elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
-            # Restricted channel: global + same-guild public + same-channel restricted
+            # Restricted channel: user's global + ANY user's guild_public + user's channel_restricted
             guild_id = channel.guild.id
             channel_id = channel.id
             privacy_filter = """
-                privacy_level = 'global'
+                (user_id = $2 AND privacy_level = 'global')
                 OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
-                OR (privacy_level = 'channel_restricted' AND origin_channel_id = $6)
+                OR (user_id = $2 AND privacy_level = 'channel_restricted' AND origin_channel_id = $6)
             """
             params = [
                 embedding_str,
@@ -209,10 +209,10 @@ class MemoryRetriever:
             ]
 
         else:  # GUILD_PUBLIC
-            # Public channel: global + same-guild public
+            # Public channel: user's global + ANY user's guild_public from same guild
             guild_id = channel.guild.id
             privacy_filter = """
-                privacy_level = 'global'
+                (user_id = $2 AND privacy_level = 'global')
                 OR (privacy_level = 'guild_public' AND origin_guild_id = $5)
             """
             params = [
