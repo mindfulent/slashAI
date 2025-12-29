@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.9.8 |
+| Version | 0.9.9 |
 | Last Updated | 2025-12-28 |
 | Status | Released |
 | Author | Slash + Claude |
