@@ -28,13 +28,14 @@ The bot owner can now trigger Discord actions directly through chat conversation
   - "Read the last 10 messages from #announcements"
   - "Delete my last message in that channel"
 
-- **Available Tools** (same as MCP server):
+- **Available Tools** (same as MCP server, plus one new):
   - `send_message` - Post to any accessible channel
   - `edit_message` - Edit bot's previous messages
   - `delete_message` - Delete bot's messages
   - `read_messages` - Fetch channel history
   - `list_channels` - List available channels
   - `get_channel_info` - Get channel metadata
+  - `describe_message_image` - Fetch and describe images from past messages (NEW)
 
 - **Security Model**:
   - Tools are **only enabled for the owner** (configured via `OWNER_ID`)
@@ -50,14 +51,16 @@ The bot owner can now trigger Discord actions directly through chat conversation
 
 #### Files Modified
 - `src/claude_client.py`:
-  - Added `DISCORD_TOOLS` constant with Anthropic-format tool schemas
+  - Added `DISCORD_TOOLS` constant with 7 Anthropic-format tool schemas
   - Added `bot` and `owner_id` parameters to `ClaudeClient.__init__()`
   - Implemented agentic loop in `chat()` method
   - Added `_execute_tool()` helper for tool execution
+  - `describe_message_image` makes a separate Claude Vision API call
   - Updated system prompt with "Discord Actions (Owner Only)" section
 - `src/discord_bot.py`:
   - Added `OWNER_ID` environment variable loading
   - Pass `bot=self` and `owner_id` to ClaudeClient
+  - Added `get_message_image()` method to fetch image attachments
 
 #### New Documentation
 - `docs/AGENTIC_TOOLS_PLAN.md` - Design document for this feature

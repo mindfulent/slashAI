@@ -62,6 +62,7 @@ The bot owner can trigger Discord actions directly through chat:
 - Ask the bot to "post in #announcements" via DM
 - Request message edits or deletions
 - Read messages from other channels for context
+- Describe images from past messages (fetches and analyzes via Vision API)
 - All actions require explicit owner request (never automatic)
 
 Set `OWNER_ID` environment variable to your Discord user ID to enable.
