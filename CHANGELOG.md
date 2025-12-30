@@ -16,6 +16,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.10] - 2025-12-30
+
+### Added
+
+#### Memory Attribution System
+- Memories now include clear attribution showing WHO each memory belongs to
+- When retrieving memories from multiple users, each person's context is grouped separately
+- Display names are resolved in real-time via Discord API (handles name changes automatically)
+- Added debug logging showing retrieved memories with user_id and similarity scores (Phase 1.5)
+
+#### Pronoun-Neutral Memory Format
+- Memory summaries are now extracted in pronoun-neutral format
+- Old: "User's IGN is slashdaemon", "User built a creeper farm"
+- New: "IGN: slashdaemon", "Built creeper farm"
+- Prevents ambiguity when memories from multiple users are retrieved together
+
+#### New CLI Tools (`scripts/`)
+- `migrate_memory_format.py` - One-time migration to convert existing memories to new format
+  - Dry-run mode by default (safe to test)
+  - Uses Claude Haiku for fast, accurate reformatting
+  - Batch processing with rate limiting
+- `memory_inspector.py` - Debug tool for the memory system
+  - List memories with filters (user, privacy level, guild)
+  - Show system statistics
+  - Inspect individual memories
+  - Search by content
+  - Export to JSON with `--all` flag for complete backups
+
+### Fixed
+
+#### Cross-User Memory Confusion (Rain/SlashDaemon Incident)
+- When Rain asked "what do you remember about me?", slashAI incorrectly attributed SlashDaemon's memories to Rain
+- Root cause: `_format_memories()` didn't indicate WHO each memory belonged to
+- Now memories are formatted with clear sections:
+  - "Your History With This User" for the current user's memories
+  - "Public Knowledge From This Server" with each person's memories grouped under their display name
+
+### Technical Details
+
+#### Files Modified
+- `src/memory/retriever.py` - Added `user_id` to `RetrievedMemory` dataclass and SQL queries
+- `src/claude_client.py` - Updated `_format_memories()` with attribution logic; added `_resolve_display_name()`
+- `src/memory/extractor.py` - Updated extraction prompt for pronoun-neutral format
+
+#### New Files
+- `scripts/migrate_memory_format.py` - Migration script for existing memories
+- `scripts/memory_inspector.py` - Debug CLI tool
+
+#### No Breaking Changes
+- No database schema changes required
+- Existing memories continue to work (just lack attribution until migrated)
+- New format only affects newly extracted memories
+
+#### Migration Steps
+1. Deploy code changes (Phase 1+2 take effect immediately)
+2. **Create backup before migration** (required):
+   ```bash
+   DATABASE_URL=... python scripts/memory_inspector.py export --all -o backups/memories_pre_migration.json
+   ```
+3. Run migration script in dry-run mode to preview changes:
+   ```bash
+   DATABASE_URL=... ANTHROPIC_API_KEY=... python scripts/migrate_memory_format.py
+   ```
+4. Review output, then apply:
+   ```bash
+   DATABASE_URL=... ANTHROPIC_API_KEY=... python scripts/migrate_memory_format.py --apply
+   ```
+
+---
+
 ## [0.9.9] - 2025-12-28
 
 ### Fixed
@@ -304,6 +374,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.10 | 2025-12-30 | Memory attribution system and pronoun-neutral format |
 | 0.9.9 | 2025-12-28 | Fix cross-user guild_public memory sharing |
 | 0.9.8 | 2025-12-27 | Hard ban on trailing questions |
 | 0.9.7 | 2025-12-27 | Fix image processing errors on Pixel photos |
@@ -354,7 +425,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.9...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.10...HEAD
+[0.9.10]: https://github.com/mindfulent/slashAI/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/mindfulent/slashAI/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/mindfulent/slashAI/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/mindfulent/slashAI/compare/v0.9.6...v0.9.7

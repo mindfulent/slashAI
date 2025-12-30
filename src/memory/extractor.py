@@ -22,20 +22,36 @@ Given a conversation between a User and Assistant (slashAI), extract memorable f
 
 ## Output Format
 Return a JSON object with the key "extracted_memories". Each memory has:
-- `summary`: A concise fact or topic (1-2 sentences max)
+- `summary`: A concise fact or topic in PRONOUN-NEUTRAL format (see below)
 - `type`: One of "semantic" (persistent fact) or "episodic" (conversation event)
 - `raw_dialogue`: The exact conversation snippet that supports this memory
 - `confidence`: 0.0-1.0 indicating certainty (1.0 = explicitly stated, 0.5 = inferred)
 - `global_safe`: Whether this memory is safe to surface in ANY context (see rules below)
 
+## CRITICAL: Pronoun-Neutral Summary Format
+
+Write summaries in a pronoun-neutral way. DO NOT use "User's", "They", "Their", etc.
+
+Format rules:
+- Use "IGN: value" NOT "User's IGN is value"
+- Use "Built X" NOT "User built X"
+- Use "Pronouns: they/them" NOT "User prefers they/them"
+- Use "Interested in X" NOT "User is interested in X"
+- Use "Timezone: PST" NOT "User is in PST"
+- Use action phrases like "Built", "Works on", "Prefers", "Knows"
+
+This is important because memories from different users may be retrieved together,
+and generic "User" references become ambiguous.
+
 ## What to Extract
 
-### Semantic (persistent facts about the user):
-- Minecraft-related: IGN, server preferences, favorite mods, playstyle, builds
-- Personal: timezone, expertise level, technical background
-- Preferences: communication style, detail level, response format
+### Semantic (persistent facts):
+- Identifiers: IGN, timezone, pronouns, location
+- Minecraft-related: server preferences, favorite mods, playstyle, builds
+- Personal: expertise level, technical background
+- Preferences: communication style, detail level
 
-### Episodic (notable conversation events):
+### Episodic (notable events):
 - Problems solved: debugging sessions, build help, mod troubleshooting
 - Projects discussed: farms, bases, automation systems
 - Recommendations given: mods suggested, techniques explained
@@ -82,21 +98,21 @@ OUTPUT:
 {{
   "extracted_memories": [
     {{
-      "summary": "User's Minecraft IGN is CreeperSlayer99",
+      "summary": "IGN: CreeperSlayer99",
       "type": "semantic",
       "raw_dialogue": "User: btw my IGN is CreeperSlayer99 if you see me on the server",
       "confidence": 1.0,
       "global_safe": true
     }},
     {{
-      "summary": "User built an ilmango creeper farm design and debugged a light leak issue",
+      "summary": "Built ilmango creeper farm, debugged light leak issue",
       "type": "episodic",
       "raw_dialogue": "User: hey, my creeper farm isn't working. I built the ilmango design...\\nUser: fixed it, getting way better rates now.",
       "confidence": 1.0,
       "global_safe": false
     }},
     {{
-      "summary": "User is familiar with technical Minecraft (knows ilmango, understands spawn mechanics)",
+      "summary": "Familiar with technical Minecraft (ilmango designs, spawn mechanics)",
       "type": "semantic",
       "raw_dialogue": "User: I built the ilmango design... I'm at Y=200, AFKing about 130 blocks away",
       "confidence": 0.8,

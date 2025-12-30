@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.9
+**Current Version:** 0.9.10
 
 ## Overview
 
@@ -218,6 +218,9 @@ slashAI/
 │   ├── 005_create_build_clusters.sql
 │   ├── 006_create_image_observations.sql
 │   └── 007_create_image_moderation_and_indexes.sql
+├── scripts/                # CLI tools (v0.9.10+)
+│   ├── migrate_memory_format.py  # Convert memories to pronoun-neutral format
+│   └── memory_inspector.py       # Debug and inspect memory system
 ├── docs/
 │   ├── ARCHITECTURE.md         # High-level architecture overview
 │   ├── MEMORY_TECHSPEC.md      # Text memory specification

@@ -165,6 +165,26 @@ When a user posts an image:
 4. **Clustering** - Observation assigned to or creates a build cluster based on embedding similarity
 5. **Narration** - On demand, generates progression narratives for build clusters
 
+## CLI Tools (v0.9.10+)
+
+The `scripts/` directory contains debugging and maintenance tools:
+
+```bash
+# Memory Inspector - Debug and query the memory system
+python scripts/memory_inspector.py list --user-id 123456789          # List user's memories
+python scripts/memory_inspector.py list --user-id 123456789 -v       # Verbose output
+python scripts/memory_inspector.py stats                              # System statistics
+python scripts/memory_inspector.py inspect --memory-id 42             # Inspect specific memory
+python scripts/memory_inspector.py search -q "creeper farm"           # Search by content
+python scripts/memory_inspector.py export --user-id 123 -o out.json   # Export to JSON
+python scripts/memory_inspector.py export --all -o backup.json        # Backup ALL memories
+
+# Memory Migration - Convert old "User's X" format to pronoun-neutral format
+# IMPORTANT: Always backup first with `export --all` before running with --apply
+python scripts/migrate_memory_format.py                               # Dry run (preview)
+python scripts/migrate_memory_format.py --apply                       # Apply changes
+```
+
 ## Troubleshooting
 
 **Bot doesn't respond to mentions:**

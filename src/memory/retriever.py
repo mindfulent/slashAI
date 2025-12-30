@@ -25,6 +25,7 @@ class RetrievedMemory:
     """A memory retrieved from the database."""
 
     id: int
+    user_id: int  # Discord user ID who owns this memory
     summary: str
     raw_dialogue: str
     memory_type: str
@@ -142,9 +143,10 @@ class MemoryRetriever:
                 "UPDATE memories SET last_accessed_at = NOW() WHERE id = ANY($1)", ids
             )
 
-        return [
+        memories = [
             RetrievedMemory(
                 id=r["id"],
+                user_id=r["user_id"],
                 summary=r["topic_summary"],
                 raw_dialogue=r["raw_dialogue"],
                 memory_type=r["memory_type"],
@@ -154,6 +156,20 @@ class MemoryRetriever:
             )
             for r in rows
         ]
+
+        # Log final retrieval results with attribution (Phase 1.5 debug logging)
+        if memories:
+            query_preview = query[:50] + "..." if len(query) > 50 else query
+            logger.debug(
+                f"Retrieved {len(memories)} memories for query '{query_preview}':\n" +
+                "\n".join(
+                    f"  - Memory {m.id} (user_id={m.user_id}, similarity={m.similarity:.3f}): "
+                    f"{m.summary[:60]}{'...' if len(m.summary) > 60 else ''}"
+                    for m in memories
+                )
+            )
+
+        return memories
 
     def _build_privacy_query(
         self,
@@ -176,7 +192,7 @@ class MemoryRetriever:
 
         base_query = """
             SELECT
-                id, topic_summary, raw_dialogue, memory_type, privacy_level,
+                id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
                 1 - (embedding <=> $1::vector) as similarity, updated_at
             FROM memories
             WHERE 1 - (embedding <=> $1::vector) > $3

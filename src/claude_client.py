@@ -194,7 +194,12 @@ class ClaudeClient:
         if self.memory and channel:
             memories = await self.memory.retrieve(int(user_id), content, channel)
             if memories:
-                memory_context = self._format_memories(memories)
+                guild = getattr(channel, 'guild', None)
+                memory_context = self._format_memories(
+                    memories,
+                    current_user_id=int(user_id),
+                    guild=guild,
+                )
 
         # Build message content (multimodal if images present)
         if images:
@@ -242,23 +247,79 @@ class ClaudeClient:
 
         return response_text
 
-    def _format_memories(self, memories: list["RetrievedMemory"]) -> str:
-        """Format retrieved memories for injection into system prompt."""
+    def _format_memories(
+        self,
+        memories: list["RetrievedMemory"],
+        current_user_id: int,
+        guild: Optional[discord.Guild] = None,
+    ) -> str:
+        """
+        Format retrieved memories for injection into system prompt.
+
+        Memories are grouped by ownership to make attribution clear:
+        - User's own memories appear under "Your History"
+        - Other users' public memories are grouped by their display name
+
+        Args:
+            memories: List of retrieved memories
+            current_user_id: Discord user ID of the person chatting
+            guild: Discord guild for resolving user IDs to display names
+        """
         if not memories:
             return ""
 
+        # Separate own memories from others' public memories
+        own_memories = [m for m in memories if m.user_id == current_user_id]
+        others_memories = [m for m in memories if m.user_id != current_user_id]
+
+        # Group others' memories by user_id
+        by_user: dict[int, list] = defaultdict(list)
+        for m in others_memories:
+            by_user[m.user_id].append(m)
+
         lines = ["## Relevant Context From Past Conversations"]
-        for i, mem in enumerate(memories, 1):
-            lines.append(f"\n### Memory {i} ({mem.memory_type})")
-            lines.append(f"**Summary**: {mem.summary}")
-            lines.append(f"**Context**:\n{mem.raw_dialogue}")
+
+        # Format own memories
+        if own_memories:
+            lines.append("\n### Your History With This User")
+            for mem in own_memories:
+                lines.append(f"- {mem.summary}")
+                if mem.raw_dialogue:
+                    # Include a brief context snippet
+                    snippet = mem.raw_dialogue[:200] + "..." if len(mem.raw_dialogue) > 200 else mem.raw_dialogue
+                    lines.append(f"  *Context: {snippet}*")
+
+        # Format others' public memories
+        if others_memories:
+            lines.append("\n### Public Knowledge From This Server")
+            for user_id, user_memories in by_user.items():
+                # Resolve user_id to display name
+                display_name = self._resolve_display_name(user_id, guild)
+                lines.append(f"\n#### {display_name}'s shared context")
+                for mem in user_memories:
+                    lines.append(f"- {mem.summary}")
 
         lines.append("\n---")
         lines.append(
-            "Use this context naturally if relevant. "
-            "Don't explicitly mention 'remembering' unless asked."
+            "Use this context naturally. Attribute information correctly—"
+            "don't confuse one person's facts with another's."
         )
         return "\n".join(lines)
+
+    def _resolve_display_name(
+        self, user_id: int, guild: Optional[discord.Guild]
+    ) -> str:
+        """
+        Resolve a Discord user ID to their current display name.
+
+        Falls back gracefully if the user can't be found.
+        """
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                return member.display_name
+        # Fallback for users who left or DM context
+        return f"User {user_id}"
 
     def _build_multimodal_content(
         self, text: str, images: list[tuple[bytes, str]]
