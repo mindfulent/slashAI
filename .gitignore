@@ -22,3 +22,6 @@ nul
 
 # Claude Code local settings
 .claude/
+
+# Database backups (contain user data)
+backups/
