@@ -318,6 +318,9 @@ class ClaudeClient:
         # Token usage tracking
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        # Prompt caching stats
+        self.total_cache_creation_tokens = 0
+        self.total_cache_read_tokens = 0
 
     def _get_conversation_key(self, user_id: str, channel_id: str) -> tuple[str, str]:
         """Get the key for storing conversation history."""
@@ -372,10 +375,20 @@ class ClaudeClient:
         # Add user message to history (text only for history storage)
         conversation.add_message("user", content or "[image]")
 
-        # Build system prompt with memory context
-        system = self.system_prompt
+        # Build system prompt with caching
+        # Base prompt is cached (stable across calls), memory context is not (dynamic)
+        system = [
+            {
+                "type": "text",
+                "text": self.system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
         if memory_context:
-            system = f"{self.system_prompt}\n\n{memory_context}"
+            system.append({
+                "type": "text",
+                "text": memory_context
+            })
 
         # Build messages list, replacing last message with multimodal if needed
         messages = conversation.get_messages()
@@ -409,9 +422,13 @@ class ClaudeClient:
 
             response = await self.client.messages.create(**api_kwargs)
 
-            # Track token usage
+            # Track token usage (including cache stats)
             self.total_input_tokens += response.usage.input_tokens
             self.total_output_tokens += response.usage.output_tokens
+            if hasattr(response.usage, 'cache_creation_input_tokens'):
+                self.total_cache_creation_tokens += response.usage.cache_creation_input_tokens or 0
+            if hasattr(response.usage, 'cache_read_input_tokens'):
+                self.total_cache_read_tokens += response.usage.cache_read_input_tokens or 0
 
             # Check if we have tool use blocks
             tool_use_blocks = [
@@ -724,12 +741,22 @@ class ClaudeClient:
         response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
-            system=self.system_prompt,
+            system=[
+                {
+                    "type": "text",
+                    "text": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"}
+                }
+            ],
             messages=[{"role": "user", "content": content}],
         )
 
         self.total_input_tokens += response.usage.input_tokens
         self.total_output_tokens += response.usage.output_tokens
+        if hasattr(response.usage, 'cache_creation_input_tokens'):
+            self.total_cache_creation_tokens += response.usage.cache_creation_input_tokens or 0
+        if hasattr(response.usage, 'cache_read_input_tokens'):
+            self.total_cache_read_tokens += response.usage.cache_read_input_tokens or 0
 
         return response.content[0].text
 
@@ -740,12 +767,22 @@ class ClaudeClient:
             self._conversations[key].clear()
 
     def get_usage_stats(self) -> dict:
-        """Get token usage statistics."""
+        """Get token usage statistics including cache performance."""
         # Pricing: $3/M input, $15/M output
+        # Cache: 25% of base price for writes, 10% for reads
         input_cost = (self.total_input_tokens / 1_000_000) * 3
         output_cost = (self.total_output_tokens / 1_000_000) * 15
+        cache_write_cost = (self.total_cache_creation_tokens / 1_000_000) * 3 * 0.25
+        cache_read_cost = (self.total_cache_read_tokens / 1_000_000) * 3 * 0.10
+
+        # Calculate savings from cache reads (vs paying full price)
+        cache_savings = (self.total_cache_read_tokens / 1_000_000) * 3 * 0.90
+
         return {
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
-            "estimated_cost_usd": round(input_cost + output_cost, 4),
+            "cache_creation_tokens": self.total_cache_creation_tokens,
+            "cache_read_tokens": self.total_cache_read_tokens,
+            "estimated_cost_usd": round(input_cost + output_cost + cache_write_cost + cache_read_cost, 4),
+            "cache_savings_usd": round(cache_savings, 4),
         }
