@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.10
+**Current Version:** 0.9.11
 
 ## Overview
 
@@ -32,6 +32,19 @@ slashAI operates in two complementary modes:
 - **LLM-based extraction** - Automatic topic extraction after 5 message exchanges
 - **Semantic search** - Voyage AI embeddings with pgvector for relevant memory retrieval
 - **ADD/MERGE logic** - Intelligently updates existing memories vs creating new ones
+- **Memory attribution** (v0.9.10+) - Clear indication of WHO each memory belongs to
+- **Pronoun-neutral format** (v0.9.10+) - Memories stored without assumed pronouns
+
+### Memory Management (v0.9.11+)
+Users can view and manage their memories via Discord slash commands:
+- `/memories list` - Browse stored memories with pagination and privacy filters
+- `/memories search <query>` - Search memories by text
+- `/memories mentions` - See public memories from others that mention you
+- `/memories view <id>` - View full memory details
+- `/memories delete <id>` - Remove a memory (with confirmation)
+- `/memories stats` - View memory statistics
+
+All command responses are private (ephemeral). Users can only delete their own memories.
 
 ### Image Memory (v0.9.2+)
 - **Build tracking** - Recognizes and tracks Minecraft build projects over time
@@ -195,6 +208,10 @@ slashAI/
 │   ├── discord_bot.py      # Discord client, event handlers, chatbot logic
 │   ├── mcp_server.py       # MCP server with tool definitions
 │   ├── claude_client.py    # Anthropic API wrapper, conversation management
+│   ├── commands/           # Discord slash commands (v0.9.11+)
+│   │   ├── __init__.py
+│   │   ├── memory_commands.py  # /memories command group
+│   │   └── views.py            # Pagination and confirmation UIs
 │   └── memory/             # Memory system (v0.9.1+)
 │       ├── __init__.py
 │       ├── config.py       # Memory configuration
@@ -217,16 +234,19 @@ slashAI/
 │   ├── 004_add_indexes.sql
 │   ├── 005_create_build_clusters.sql
 │   ├── 006_create_image_observations.sql
-│   └── 007_create_image_moderation_and_indexes.sql
+│   ├── 007_create_image_moderation_and_indexes.sql
+│   └── 008_add_deletion_log.sql
 ├── scripts/                # CLI tools (v0.9.10+)
 │   ├── migrate_memory_format.py  # Convert memories to pronoun-neutral format
 │   └── memory_inspector.py       # Debug and inspect memory system
 ├── docs/
-│   ├── ARCHITECTURE.md         # High-level architecture overview
-│   ├── MEMORY_TECHSPEC.md      # Text memory specification
-│   ├── MEMORY_PRIVACY.md       # Privacy model documentation
-│   ├── MEMORY_IMAGES.md        # Image memory specification
-│   └── PRD.md                  # Product requirements document
+│   ├── ARCHITECTURE.md             # High-level architecture overview
+│   ├── MEMORY_TECHSPEC.md          # Text memory specification
+│   ├── MEMORY_PRIVACY.md           # Privacy model documentation
+│   ├── MEMORY_IMAGES.md            # Image memory specification
+│   ├── MEMORY_ATTRIBUTION_PLAN.md  # v0.9.10 attribution design
+│   ├── MEMORY_MANAGEMENT_PLAN.md   # v0.9.11 slash commands design
+│   └── PRD.md                      # Product requirements document
 ├── .do/
 │   └── app.yaml            # DigitalOcean App Platform config
 ├── .env.example            # Environment variable template
