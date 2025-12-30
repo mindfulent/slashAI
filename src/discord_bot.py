@@ -698,6 +698,33 @@ class DiscordBot(commands.Bot):
 
         return info
 
+    async def get_message_image(
+        self, channel_id: int, message_id: int
+    ) -> tuple[bytes, str] | None:
+        """
+        Fetch an image attachment from a specific message.
+
+        Args:
+            channel_id: The channel containing the message
+            message_id: The message ID to fetch
+
+        Returns:
+            Tuple of (image_bytes, media_type) or None if no image found
+        """
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+
+        message = await channel.fetch_message(message_id)
+
+        # Find first image attachment
+        for attachment in message.attachments:
+            if attachment.content_type and attachment.content_type.startswith("image/"):
+                image_bytes = await attachment.read()
+                return (image_bytes, attachment.content_type)
+
+        return None
+
 
 async def main():
     """Run the bot standalone (chatbot mode)."""

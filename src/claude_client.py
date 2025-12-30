@@ -129,6 +129,29 @@ DISCORD_TOOLS = [
             "required": ["channel_id"]
         }
     },
+    {
+        "name": "describe_message_image",
+        "description": "Fetch and describe an image attachment from a Discord message. Use this when you need to see/analyze an image from a past message.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID containing the message"
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": "The ID of the message with the image attachment"
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "What to analyze or describe about the image (e.g., 'Describe this image', 'What Minecraft structures are shown?')",
+                    "default": "Describe this image in detail."
+                }
+            },
+            "required": ["channel_id", "message_id"]
+        }
+    },
 ]
 
 # Default system prompt for the chatbot
@@ -231,6 +254,7 @@ When Slash (the owner) requests it, you can take actions in Discord:
 - Edit or delete your previous messages
 - Read recent messages from channels
 - List available channels and get channel info
+- Describe images from past messages (use describe_message_image with a message ID)
 
 Only use these tools when explicitly asked. Never take actions without a clear request.
 If you don't know a channel ID, use list_channels first to find it.
@@ -238,7 +262,6 @@ If you don't know a channel ID, use list_channels first to find it.
 ### What You Cannot Do
 - Search the internet or access external URLs
 - Execute code or interact with Minecraft servers directly
-- See images from earlier in the conversation (only the current message)
 - Perfectly recall everything—memory is selective, not total
 """
 
@@ -526,6 +549,48 @@ class ClaudeClient:
                     int(tool_input["channel_id"])
                 )
                 return "\n".join(f"{k}: {v}" for k, v in info.items())
+
+            elif tool_name == "describe_message_image":
+                # Fetch the image from Discord
+                result = await self.bot.get_message_image(
+                    int(tool_input["channel_id"]),
+                    int(tool_input["message_id"])
+                )
+                if result is None:
+                    return "No image attachment found in that message."
+
+                image_bytes, media_type = result
+                prompt = tool_input.get("prompt", "Describe this image in detail.")
+
+                # Make a separate Claude Vision call to describe the image
+                image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+                vision_response = await self.client.messages.create(
+                    model=self.model,
+                    max_tokens=1024,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": image_b64,
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt
+                            }
+                        ]
+                    }]
+                )
+
+                # Track token usage for this vision call
+                self.total_input_tokens += vision_response.usage.input_tokens
+                self.total_output_tokens += vision_response.usage.output_tokens
+
+                return vision_response.content[0].text
 
             else:
                 return f"Unknown tool: {tool_name}"
