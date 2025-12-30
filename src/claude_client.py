@@ -15,11 +15,121 @@ import discord
 from anthropic import AsyncAnthropic
 
 if TYPE_CHECKING:
+    from discord_bot import DiscordBot
     from memory import MemoryManager
     from memory.retriever import RetrievedMemory
 
 # Claude Sonnet 4.5 model ID
 MODEL_ID = "claude-sonnet-4-5-20250929"
+
+# Discord tools for agentic actions (owner-only)
+DISCORD_TOOLS = [
+    {
+        "name": "send_message",
+        "description": "Send a message to a Discord channel. Use this when asked to post something in a specific channel.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID to send the message to"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The message content to send (max 2000 characters)"
+                }
+            },
+            "required": ["channel_id", "content"]
+        }
+    },
+    {
+        "name": "edit_message",
+        "description": "Edit one of your previous messages in a Discord channel.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID containing the message"
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": "The ID of the message to edit"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "The new content for the message"
+                }
+            },
+            "required": ["channel_id", "message_id", "content"]
+        }
+    },
+    {
+        "name": "delete_message",
+        "description": "Delete one of your previous messages from a Discord channel.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID containing the message"
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": "The ID of the message to delete"
+                }
+            },
+            "required": ["channel_id", "message_id"]
+        }
+    },
+    {
+        "name": "read_messages",
+        "description": "Read recent messages from a Discord channel. Useful for getting context about what's being discussed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID to read from"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of messages to fetch (default 10, max 100)",
+                    "default": 10
+                }
+            },
+            "required": ["channel_id"]
+        }
+    },
+    {
+        "name": "list_channels",
+        "description": "List all text channels the bot has access to. Returns channel IDs and names.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "guild_id": {
+                    "type": "string",
+                    "description": "Optional guild ID to filter channels (lists all if not provided)"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_channel_info",
+        "description": "Get detailed information about a Discord channel including name, topic, and member count.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel_id": {
+                    "type": "string",
+                    "description": "The Discord channel ID"
+                }
+            },
+            "required": ["channel_id"]
+        }
+    },
+]
 
 # Default system prompt for the chatbot
 DEFAULT_SYSTEM_PROMPT = """You are slashAI, an AI assistant modeled after your creator, Slash.
@@ -115,6 +225,16 @@ You can see and interpret images shared in the current message:
 - Answer questions about images
 - Works for any image format Discord supports
 
+### Discord Actions (Owner Only)
+When Slash (the owner) requests it, you can take actions in Discord:
+- Send messages to any channel you have access to
+- Edit or delete your previous messages
+- Read recent messages from channels
+- List available channels and get channel info
+
+Only use these tools when explicitly asked. Never take actions without a clear request.
+If you don't know a channel ID, use list_channels first to find it.
+
 ### What You Cannot Do
 - Search the internet or access external URLs
 - Execute code or interact with Minecraft servers directly
@@ -157,11 +277,15 @@ class ClaudeClient:
         memory_manager: Optional["MemoryManager"] = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         model: str = MODEL_ID,
+        bot: Optional["DiscordBot"] = None,
+        owner_id: Optional[str] = None,
     ):
         self.client = AsyncAnthropic(api_key=api_key)
         self.memory = memory_manager
         self.system_prompt = system_prompt
         self.model = model
+        self.bot = bot  # Discord bot for tool execution
+        self.owner_id = owner_id  # Owner's Discord user ID (tools only enabled for owner)
         # Conversation history keyed by (user_id, channel_id)
         self._conversations: dict[tuple[str, str], ConversationHistory] = defaultdict(
             ConversationHistory
@@ -185,6 +309,8 @@ class ClaudeClient:
     ) -> str:
         """
         Send a message and get a response from Claude.
+
+        Supports agentic tool use for owner-only Discord actions.
 
         Args:
             user_id: Discord user ID
@@ -232,22 +358,93 @@ class ClaudeClient:
             # Replace the last user message with multimodal content
             messages[-1] = {"role": "user", "content": message_content}
 
-        # Make API request
-        response = await self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
+        # Check if tools should be enabled (owner only)
+        tools_enabled = (
+            self.bot is not None
+            and self.owner_id is not None
+            and user_id == self.owner_id
         )
 
-        # Track token usage
-        self.total_input_tokens += response.usage.input_tokens
-        self.total_output_tokens += response.usage.output_tokens
+        # Agentic loop - continue until we get a final text response
+        max_iterations = 10  # Safety limit to prevent infinite loops
+        iteration = 0
 
-        # Extract response text
-        response_text = response.content[0].text
+        while iteration < max_iterations:
+            iteration += 1
 
-        # Add assistant response to history
+            # Make API request
+            api_kwargs = {
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": messages,
+            }
+            if tools_enabled:
+                api_kwargs["tools"] = DISCORD_TOOLS
+
+            response = await self.client.messages.create(**api_kwargs)
+
+            # Track token usage
+            self.total_input_tokens += response.usage.input_tokens
+            self.total_output_tokens += response.usage.output_tokens
+
+            # Check if we have tool use blocks
+            tool_use_blocks = [
+                block for block in response.content
+                if block.type == "tool_use"
+            ]
+
+            if not tool_use_blocks:
+                # No tool use - extract text and return
+                text_blocks = [
+                    block for block in response.content
+                    if block.type == "text"
+                ]
+                response_text = text_blocks[0].text if text_blocks else ""
+                break
+
+            # Execute tools and collect results
+            # First, add assistant's response (with tool calls) to messages
+            messages.append({
+                "role": "assistant",
+                "content": [
+                    {"type": block.type, **block.model_dump(exclude={"type"})}
+                    for block in response.content
+                ]
+            })
+
+            # Execute each tool and build tool results
+            tool_results = []
+            for tool_block in tool_use_blocks:
+                result = await self._execute_tool(
+                    tool_block.name,
+                    tool_block.input
+                )
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_block.id,
+                    "content": result,
+                })
+
+            # Add tool results to messages
+            messages.append({
+                "role": "user",
+                "content": tool_results,
+            })
+
+            # Check stop reason - if end_turn, Claude is done
+            if response.stop_reason == "end_turn":
+                text_blocks = [
+                    block for block in response.content
+                    if block.type == "text"
+                ]
+                response_text = text_blocks[0].text if text_blocks else ""
+                break
+        else:
+            # Hit max iterations - return what we have
+            response_text = "[Tool execution limit reached]"
+
+        # Add assistant response to history (text only)
         conversation.add_message("assistant", response_text)
 
         # Track message for memory extraction
@@ -257,6 +454,84 @@ class ClaudeClient:
             )
 
         return response_text
+
+    async def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
+        """
+        Execute a Discord tool and return the result.
+
+        Args:
+            tool_name: Name of the tool to execute
+            tool_input: Tool input parameters
+
+        Returns:
+            String result of the tool execution
+        """
+        if self.bot is None:
+            return "Error: Discord bot not available"
+
+        try:
+            if tool_name == "send_message":
+                message = await self.bot.send_message(
+                    int(tool_input["channel_id"]),
+                    tool_input["content"]
+                )
+                return f"Message sent successfully. Message ID: {message.id}"
+
+            elif tool_name == "edit_message":
+                await self.bot.edit_message(
+                    int(tool_input["channel_id"]),
+                    int(tool_input["message_id"]),
+                    tool_input["content"]
+                )
+                return f"Message {tool_input['message_id']} edited successfully"
+
+            elif tool_name == "delete_message":
+                await self.bot.delete_message(
+                    int(tool_input["channel_id"]),
+                    int(tool_input["message_id"])
+                )
+                return f"Message {tool_input['message_id']} deleted successfully"
+
+            elif tool_name == "read_messages":
+                limit = min(tool_input.get("limit", 10), 100)
+                messages = await self.bot.read_messages(
+                    int(tool_input["channel_id"]),
+                    limit
+                )
+                if not messages:
+                    return "No messages found in this channel"
+                formatted = []
+                for msg in messages:
+                    timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    formatted.append(
+                        f"[{timestamp}] (ID: {msg.id}) {msg.author.name}: {msg.content}"
+                    )
+                return "\n".join(formatted)
+
+            elif tool_name == "list_channels":
+                guild_id = tool_input.get("guild_id")
+                channels = await self.bot.list_channels(
+                    int(guild_id) if guild_id else None
+                )
+                if not channels:
+                    return "No channels found"
+                formatted = []
+                for ch in channels:
+                    guild_name = ch.guild.name if ch.guild else "Unknown"
+                    formatted.append(f"[{ch.id}] #{ch.name} (in {guild_name})")
+                return "\n".join(formatted)
+
+            elif tool_name == "get_channel_info":
+                info = await self.bot.get_channel_info(
+                    int(tool_input["channel_id"])
+                )
+                return "\n".join(f"{k}: {v}" for k, v in info.items())
+
+            else:
+                return f"Unknown tool: {tool_name}"
+
+        except Exception as e:
+            return f"Error executing {tool_name}: {str(e)}"
 
     def _format_memories(
         self,

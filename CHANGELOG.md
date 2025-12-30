@@ -16,6 +16,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.12] - 2025-12-30
+
+### Added
+
+#### Agentic Discord Tools (Owner Only)
+The bot owner can now trigger Discord actions directly through chat conversations:
+
+- **Tool Use in Chat** - Claude can call Discord tools when the owner requests actions
+  - "Post 'Hello everyone!' in #general"
+  - "Read the last 10 messages from #announcements"
+  - "Delete my last message in that channel"
+
+- **Available Tools** (same as MCP server):
+  - `send_message` - Post to any accessible channel
+  - `edit_message` - Edit bot's previous messages
+  - `delete_message` - Delete bot's messages
+  - `read_messages` - Fetch channel history
+  - `list_channels` - List available channels
+  - `get_channel_info` - Get channel metadata
+
+- **Security Model**:
+  - Tools are **only enabled for the owner** (configured via `OWNER_ID`)
+  - Other users chat normally with no tool access
+  - Tool calls require explicit user request (never automatic)
+  - Agentic loop with 10-iteration safety limit
+
+#### New Environment Variable
+- `OWNER_ID` - Discord user ID allowed to trigger agentic actions
+  - Leave empty to disable tool use entirely (falls back to v0.9.11 behavior)
+
+### Technical Details
+
+#### Files Modified
+- `src/claude_client.py`:
+  - Added `DISCORD_TOOLS` constant with Anthropic-format tool schemas
+  - Added `bot` and `owner_id` parameters to `ClaudeClient.__init__()`
+  - Implemented agentic loop in `chat()` method
+  - Added `_execute_tool()` helper for tool execution
+  - Updated system prompt with "Discord Actions (Owner Only)" section
+- `src/discord_bot.py`:
+  - Added `OWNER_ID` environment variable loading
+  - Pass `bot=self` and `owner_id` to ClaudeClient
+
+#### New Documentation
+- `docs/AGENTIC_TOOLS_PLAN.md` - Design document for this feature
+
+#### No Breaking Changes
+- No database migrations required
+- Feature is opt-in via `OWNER_ID` environment variable
+- Without `OWNER_ID`, behavior is identical to v0.9.11
+
+---
+
 ## [0.9.11] - 2025-12-30
 
 ### Added
@@ -448,6 +501,8 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.12 | 2025-12-30 | Agentic Discord tools for owner-only chat actions |
+| 0.9.11 | 2025-12-30 | Memory management slash commands |
 | 0.9.10 | 2025-12-30 | Memory attribution system and pronoun-neutral format |
 | 0.9.9 | 2025-12-28 | Fix cross-user guild_public memory sharing |
 | 0.9.8 | 2025-12-27 | Hard ban on trailing questions |
@@ -499,7 +554,9 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.10...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.12...HEAD
+[0.9.12]: https://github.com/mindfulent/slashAI/compare/v0.9.11...v0.9.12
+[0.9.11]: https://github.com/mindfulent/slashAI/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/mindfulent/slashAI/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/mindfulent/slashAI/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/mindfulent/slashAI/compare/v0.9.7...v0.9.8

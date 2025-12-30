@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.11
+**Current Version:** 0.9.12
 
 ## Overview
 
@@ -14,6 +14,8 @@ slashAI operates in two complementary modes:
 
 1. **Discord Chatbot** - Mention `@slashAI` or DM the bot to have natural conversations powered by Claude Sonnet 4.5
 2. **MCP Server** - Expose Discord operations as tools that Claude Code can invoke directly
+
+The bot owner can also trigger Discord actions directly through chat (v0.9.12+).
 
 ## Features
 
@@ -54,6 +56,15 @@ All command responses are private (ephemeral). Users can only delete their own m
 - **Progression narratives** - Generates stories about a user's build journey
 - **Content moderation** - Active moderation for policy violations
 - **Persistent storage** - DigitalOcean Spaces for permanent image storage
+
+### Agentic Tools (v0.9.12+)
+The bot owner can trigger Discord actions directly through chat:
+- Ask the bot to "post in #announcements" via DM
+- Request message edits or deletions
+- Read messages from other channels for context
+- All actions require explicit owner request (never automatic)
+
+Set `OWNER_ID` environment variable to your Discord user ID to enable.
 
 ### MCP Server Mode
 - **`send_message`** - Post messages to any channel the bot can access
@@ -156,6 +167,7 @@ Then in Claude Code:
 | `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
 | `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
 | `MOD_CHANNEL_ID` | No | Discord channel ID for moderation alerts |
+| `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions (v0.9.12+) |
 
 ### Customizing the Personality
 

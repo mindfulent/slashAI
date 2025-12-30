@@ -107,6 +107,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `DO_SPACES_BUCKET` | For images | Spaces bucket name (default: slashai-images) |
 | `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
 | `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
+| `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions |
 
 ## Development Notes
 

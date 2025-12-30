@@ -211,12 +211,14 @@ class DiscordBot(commands.Bot):
         memory_enabled = os.getenv("MEMORY_ENABLED", "false").lower() == "true"
         voyage_key = os.getenv("VOYAGE_API_KEY")
         image_memory_enabled = os.getenv("IMAGE_MEMORY_ENABLED", "false").lower() == "true"
+        owner_id = os.getenv("OWNER_ID")  # Discord user ID for agentic tools
 
         logger.info(f"Setup: ANTHROPIC_API_KEY={'set' if api_key else 'missing'}")
         logger.info(f"Setup: DATABASE_URL={'set' if database_url else 'missing'}")
         logger.info(f"Setup: MEMORY_ENABLED={memory_enabled}")
         logger.info(f"Setup: VOYAGE_API_KEY={'set' if voyage_key else 'missing'}")
         logger.info(f"Setup: IMAGE_MEMORY_ENABLED={image_memory_enabled}")
+        logger.info(f"Setup: OWNER_ID={'set' if owner_id else 'not set (tools disabled)'}")
 
         if api_key and database_url and memory_enabled:
             # Initialize memory system
@@ -227,7 +229,10 @@ class DiscordBot(commands.Bot):
                 anthropic_client = AsyncAnthropic(api_key=api_key)
                 memory_manager = MemoryManager(self.db_pool, anthropic_client)
                 self.claude_client = ClaudeClient(
-                    api_key, memory_manager=memory_manager
+                    api_key,
+                    memory_manager=memory_manager,
+                    bot=self,
+                    owner_id=owner_id,
                 )
                 logger.info("Memory system initialized successfully")
 
@@ -247,11 +252,13 @@ class DiscordBot(commands.Bot):
                 logger.error(f"Failed to initialize memory system: {e}", exc_info=True)
                 logger.warning("Falling back to v0.9.0 behavior (no memory)")
                 if api_key:
-                    self.claude_client = ClaudeClient(api_key)
+                    self.claude_client = ClaudeClient(
+                        api_key, bot=self, owner_id=owner_id
+                    )
         elif api_key:
             # Fallback: no memory system
             logger.info("Memory system disabled, using basic Claude client")
-            self.claude_client = ClaudeClient(api_key)
+            self.claude_client = ClaudeClient(api_key, bot=self, owner_id=owner_id)
         else:
             logger.warning("No ANTHROPIC_API_KEY, chatbot disabled")
 
