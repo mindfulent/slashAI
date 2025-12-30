@@ -16,6 +16,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.13] - 2025-12-30
+
+### Added
+
+#### Prompt Caching for System Prompt
+- **Anthropic prompt caching** enabled for the base system prompt (~1,100 tokens)
+- Cache reduces input token costs by ~15-20% on cache hits
+- Faster response times when cache is active
+
+#### Cache Statistics Tracking
+- New tracking counters: `cache_creation_tokens`, `cache_read_tokens`
+- Updated `get_usage_stats()` returns cache metrics:
+  - `cache_creation_tokens` - Tokens written to cache
+  - `cache_read_tokens` - Tokens read from cache (savings)
+  - `cache_savings_usd` - Estimated money saved from cache hits
+
+### Technical Details
+
+#### How It Works
+- Base system prompt is wrapped with `cache_control: {"type": "ephemeral"}`
+- Memory context (dynamic per-request) is appended separately and NOT cached
+- Cache expires after 5 minutes of inactivity per conversation
+- Cache is per-user/channel (not shared across conversations)
+
+#### Files Modified
+- `src/claude_client.py`:
+  - System prompt now sent as array with cache_control block
+  - Added `total_cache_creation_tokens` and `total_cache_read_tokens` counters
+  - Updated both `chat()` and `chat_single()` methods
+  - Enhanced `get_usage_stats()` with cache pricing calculations
+
+#### Cache Pricing (Claude Sonnet 4.5)
+- Cache write: 25% of base input price ($0.75/M tokens)
+- Cache read: 10% of base input price ($0.30/M tokens)
+- Savings: 90% on cached tokens when hit
+
+#### No Breaking Changes
+- No database migrations required
+- No new environment variables
+- Fully backwards compatible
+
+---
+
 ## [0.9.12] - 2025-12-30
 
 ### Added
@@ -504,6 +547,7 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.13 | 2025-12-30 | Prompt caching for system prompt (15-20% cost reduction) |
 | 0.9.12 | 2025-12-30 | Agentic Discord tools for owner-only chat actions |
 | 0.9.11 | 2025-12-30 | Memory management slash commands |
 | 0.9.10 | 2025-12-30 | Memory attribution system and pronoun-neutral format |
@@ -557,7 +601,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.12...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.13...HEAD
+[0.9.13]: https://github.com/mindfulent/slashAI/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/mindfulent/slashAI/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/mindfulent/slashAI/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/mindfulent/slashAI/compare/v0.9.9...v0.9.10

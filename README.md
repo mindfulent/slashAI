@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.12
+**Current Version:** 0.9.13
 
 ## Overview
 
@@ -315,6 +315,13 @@ doctl apps update <app-id> --spec .do/app.yaml
 - Output: $15.00 per million tokens
 - Typical message: ~500 input tokens, ~200 output tokens
 - **Cost per message**: ~$0.0045 (~$4.50 per 1,000 messages)
+
+### Prompt Caching (v0.9.13+)
+The base system prompt (~1,100 tokens) is cached using Anthropic's prompt caching:
+- Cache write: 25% of input price ($0.75/M tokens)
+- Cache read: 10% of input price ($0.30/M tokens)
+- **Effective savings**: 15-20% reduction in input token costs on cache hits
+- Cache expires after 5 minutes of inactivity per conversation
 
 ### DigitalOcean App Platform
 - Worker (apps-s-1vcpu-0.5gb): ~$5/month
