@@ -141,6 +141,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 \i migrations/005_create_build_clusters.sql
 \i migrations/006_create_image_observations.sql
 \i migrations/007_create_image_moderation_and_indexes.sql
+
+-- Memory management (v0.9.11)
+\i migrations/008_add_deletion_log.sql
 ```
 
 ## Memory Privacy Model
@@ -185,6 +188,24 @@ python scripts/migrate_memory_format.py                               # Dry run 
 python scripts/migrate_memory_format.py --apply                       # Apply changes
 ```
 
+## Discord Slash Commands (v0.9.11+)
+
+Users can manage their memories directly through Discord slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/memories list [page] [privacy]` | List your memories with pagination |
+| `/memories search <query> [page]` | Search your memories by text |
+| `/memories mentions [page]` | View others' public memories that mention you |
+| `/memories view <memory_id>` | View full details of a memory |
+| `/memories delete <memory_id>` | Delete one of your memories (with confirmation) |
+| `/memories stats` | View your memory statistics |
+
+**Privacy features:**
+- All responses are ephemeral (only visible to you)
+- You can only delete your own memories
+- Mentions shows read-only view of others' guild_public memories
+
 ## Troubleshooting
 
 **Bot doesn't respond to mentions:**
@@ -205,6 +226,12 @@ python scripts/migrate_memory_format.py --apply                       # Apply ch
 **Images not being processed:**
 - Requires `IMAGE_MEMORY_ENABLED=true` plus DO Spaces credentials
 - Check image size (max 10MB) and format (png, jpg, jpeg, gif, webp)
+
+**Slash commands not appearing:**
+- Commands sync on bot startup (check logs for "Synced X slash command(s)")
+- May take up to 1 hour for Discord to propagate globally
+- Requires `MEMORY_ENABLED=true` (commands only load with memory system)
+- Try `/memories` in Discord to see if the command group is registered
 
 ## Claude Code MCP Configuration
 

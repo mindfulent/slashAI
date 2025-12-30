@@ -219,3 +219,284 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Memory extraction failed for user={user_id}: {e}", exc_info=True)
             # Don't reset session on failure - will retry next threshold
+
+    # =========================================================================
+    # Memory Management Commands (v0.9.11)
+    # =========================================================================
+
+    async def list_user_memories(
+        self,
+        user_id: int,
+        privacy_filter: Optional[str] = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """
+        List memories for a user with pagination.
+
+        Args:
+            user_id: Discord user ID
+            privacy_filter: Optional privacy level filter (dm, channel_restricted, guild_public, global)
+            limit: Max memories to return
+            offset: Offset for pagination
+
+        Returns:
+            Tuple of (memories list, total count)
+        """
+        # Build query with optional privacy filter
+        if privacy_filter and privacy_filter != "all":
+            count_query = """
+                SELECT COUNT(*) FROM memories
+                WHERE user_id = $1 AND privacy_level = $2
+            """
+            data_query = """
+                SELECT id, topic_summary, memory_type, privacy_level,
+                       confidence, created_at, updated_at, last_accessed_at
+                FROM memories
+                WHERE user_id = $1 AND privacy_level = $2
+                ORDER BY updated_at DESC
+                LIMIT $3 OFFSET $4
+            """
+            total = await self.db.fetchval(count_query, user_id, privacy_filter)
+            rows = await self.db.fetch(data_query, user_id, privacy_filter, limit, offset)
+        else:
+            count_query = "SELECT COUNT(*) FROM memories WHERE user_id = $1"
+            data_query = """
+                SELECT id, topic_summary, memory_type, privacy_level,
+                       confidence, created_at, updated_at, last_accessed_at
+                FROM memories
+                WHERE user_id = $1
+                ORDER BY updated_at DESC
+                LIMIT $2 OFFSET $3
+            """
+            total = await self.db.fetchval(count_query, user_id)
+            rows = await self.db.fetch(data_query, user_id, limit, offset)
+
+        memories = [dict(row) for row in rows]
+        logger.debug(f"Listed {len(memories)}/{total} memories for user={user_id}")
+        return memories, total
+
+    async def search_user_memories(
+        self,
+        user_id: int,
+        query: str,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """
+        Search memories for a user by text.
+
+        Args:
+            user_id: Discord user ID
+            query: Search term
+            limit: Max memories to return
+            offset: Offset for pagination
+
+        Returns:
+            Tuple of (memories list, total count)
+        """
+        search_pattern = f"%{query}%"
+
+        count_query = """
+            SELECT COUNT(*) FROM memories
+            WHERE user_id = $1
+              AND (topic_summary ILIKE $2 OR raw_dialogue ILIKE $2)
+        """
+        data_query = """
+            SELECT id, topic_summary, memory_type, privacy_level,
+                   confidence, updated_at
+            FROM memories
+            WHERE user_id = $1
+              AND (topic_summary ILIKE $2 OR raw_dialogue ILIKE $2)
+            ORDER BY updated_at DESC
+            LIMIT $3 OFFSET $4
+        """
+
+        total = await self.db.fetchval(count_query, user_id, search_pattern)
+        rows = await self.db.fetch(data_query, user_id, search_pattern, limit, offset)
+
+        memories = [dict(row) for row in rows]
+        logger.debug(f"Search '{query}' returned {len(memories)}/{total} for user={user_id}")
+        return memories, total
+
+    async def find_mentions(
+        self,
+        user_id: int,
+        guild_id: int,
+        identifiers: list[str],
+        limit: int = 10,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """
+        Find public memories from other users that mention this user.
+
+        Args:
+            user_id: Discord user ID of the requesting user
+            guild_id: Guild ID to search within
+            identifiers: List of identifiers to search for (username, display name, IGN)
+            limit: Max memories to return
+            offset: Offset for pagination
+
+        Returns:
+            Tuple of (memories list, total count)
+        """
+        if not identifiers:
+            return [], 0
+
+        # Build OR conditions for each identifier
+        conditions = []
+        params = [guild_id, user_id]
+        param_idx = 3
+
+        for identifier in identifiers:
+            pattern = f"%{identifier}%"
+            conditions.append(f"(m.topic_summary ILIKE ${param_idx} OR m.raw_dialogue ILIKE ${param_idx})")
+            params.append(pattern)
+            param_idx += 1
+
+        where_clause = " OR ".join(conditions)
+
+        count_query = f"""
+            SELECT COUNT(*) FROM memories m
+            WHERE m.privacy_level = 'guild_public'
+              AND m.origin_guild_id = $1
+              AND m.user_id != $2
+              AND ({where_clause})
+        """
+
+        data_query = f"""
+            SELECT m.id, m.user_id, m.topic_summary, m.memory_type,
+                   m.privacy_level, m.updated_at
+            FROM memories m
+            WHERE m.privacy_level = 'guild_public'
+              AND m.origin_guild_id = $1
+              AND m.user_id != $2
+              AND ({where_clause})
+            ORDER BY m.updated_at DESC
+            LIMIT ${param_idx} OFFSET ${param_idx + 1}
+        """
+
+        params_count = params.copy()
+        params_data = params + [limit, offset]
+
+        total = await self.db.fetchval(count_query, *params_count)
+        rows = await self.db.fetch(data_query, *params_data)
+
+        memories = [dict(row) for row in rows]
+        logger.debug(f"Found {len(memories)}/{total} mentions for user={user_id} in guild={guild_id}")
+        return memories, total
+
+    async def get_memory(self, memory_id: int) -> Optional[dict]:
+        """
+        Get a single memory by ID.
+
+        Args:
+            memory_id: Memory ID
+
+        Returns:
+            Memory dict or None if not found
+        """
+        row = await self.db.fetchrow(
+            """
+            SELECT id, user_id, topic_summary, raw_dialogue, memory_type,
+                   privacy_level, confidence, origin_guild_id, origin_channel_id,
+                   source_count, created_at, updated_at, last_accessed_at
+            FROM memories
+            WHERE id = $1
+            """,
+            memory_id,
+        )
+        return dict(row) if row else None
+
+    async def delete_memory(self, memory_id: int, user_id: int) -> bool:
+        """
+        Delete a memory with ownership check.
+
+        Args:
+            memory_id: Memory ID to delete
+            user_id: User ID who is requesting deletion (must own the memory)
+
+        Returns:
+            True if deleted, False if not found or not owned
+        """
+        # Get memory first for audit logging
+        memory = await self.get_memory(memory_id)
+        if not memory or memory["user_id"] != user_id:
+            logger.warning(f"Delete failed: memory={memory_id} not found or not owned by user={user_id}")
+            return False
+
+        # Log deletion to audit table (if it exists)
+        try:
+            await self.db.execute(
+                """
+                INSERT INTO memory_deletion_log
+                    (memory_id, user_id, topic_summary, privacy_level)
+                VALUES ($1, $2, $3, $4)
+                """,
+                memory_id,
+                user_id,
+                memory["topic_summary"],
+                memory["privacy_level"],
+            )
+        except Exception as e:
+            # Audit table might not exist yet - that's OK
+            logger.debug(f"Audit log insert failed (table may not exist): {e}")
+
+        # Delete the memory
+        result = await self.db.execute(
+            "DELETE FROM memories WHERE id = $1 AND user_id = $2",
+            memory_id,
+            user_id,
+        )
+
+        deleted = result == "DELETE 1"
+        if deleted:
+            logger.info(f"Deleted memory={memory_id} for user={user_id}: {memory['topic_summary'][:50]}...")
+        return deleted
+
+    async def get_user_stats(self, user_id: int) -> dict:
+        """
+        Get memory statistics for a user.
+
+        Args:
+            user_id: Discord user ID
+
+        Returns:
+            Dict with stats: total, by_privacy, by_type, last_updated
+        """
+        # Get counts by privacy level
+        privacy_rows = await self.db.fetch(
+            """
+            SELECT privacy_level, COUNT(*) as count
+            FROM memories
+            WHERE user_id = $1
+            GROUP BY privacy_level
+            """,
+            user_id,
+        )
+
+        # Get counts by type
+        type_rows = await self.db.fetch(
+            """
+            SELECT memory_type, COUNT(*) as count
+            FROM memories
+            WHERE user_id = $1
+            GROUP BY memory_type
+            """,
+            user_id,
+        )
+
+        # Get last updated
+        last_updated = await self.db.fetchval(
+            "SELECT MAX(updated_at) FROM memories WHERE user_id = $1",
+            user_id,
+        )
+
+        total = sum(row["count"] for row in privacy_rows)
+
+        return {
+            "total": total,
+            "by_privacy": {row["privacy_level"]: row["count"] for row in privacy_rows},
+            "by_type": {row["memory_type"]: row["count"] for row in type_rows},
+            "last_updated": last_updated,
+        }

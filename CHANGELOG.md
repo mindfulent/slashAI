@@ -16,6 +16,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.11] - 2025-12-30
+
+### Added
+
+#### Memory Management Slash Commands
+Users can now view and manage their memories directly through Discord slash commands:
+
+- `/memories list [page] [privacy]` - List your memories with pagination
+  - Optional privacy filter: all, dm, channel_restricted, guild_public, global
+  - Shows memory ID, type, privacy level, summary, and last updated date
+
+- `/memories search <query> [page]` - Search your memories by text
+  - Searches both topic summaries and source dialogue
+  - Same pagination as list
+
+- `/memories mentions [page]` - View others' public memories that mention you
+  - Searches guild_public memories from other users
+  - Looks for your username, display name, and IGN
+  - Read-only (cannot delete others' memories)
+
+- `/memories view <memory_id>` - View full memory details
+  - Shows complete summary, source dialogue, and metadata
+  - Privacy level, confidence score, timestamps
+  - Delete button for your own memories
+
+- `/memories delete <memory_id>` - Delete one of your memories
+  - Confirmation dialog before deletion
+  - Only works on your own memories
+  - Deletion is logged for audit purposes
+
+- `/memories stats` - View your memory statistics
+  - Total memory count
+  - Breakdown by privacy level
+  - Breakdown by type (semantic/episodic)
+  - Last updated timestamp
+
+#### Privacy & Security Features
+- All command responses are **ephemeral** (only visible to you)
+- Ownership checks prevent deleting others' memories
+- Button interactions verify the user matches the command invoker
+- Mentions feature only shows guild_public memories from same server
+- Audit table logs all deletions for debugging/recovery
+
+#### New Database Migration
+- `migrations/008_add_deletion_log.sql` - Audit table for memory deletions
+
+### Technical Details
+
+#### New Files
+- `src/commands/__init__.py` - Commands package
+- `src/commands/memory_commands.py` - Slash command implementations
+- `src/commands/views.py` - Discord UI components (pagination, confirmation dialogs)
+- `migrations/008_add_deletion_log.sql` - Deletion audit table
+
+#### Modified Files
+- `src/memory/manager.py` - Added query methods for commands
+  - `list_user_memories()` - List with pagination and privacy filter
+  - `search_user_memories()` - Text search
+  - `find_mentions()` - Find others' public memories mentioning user
+  - `get_memory()` - Get single memory by ID
+  - `delete_memory()` - Delete with ownership check and audit logging
+  - `get_user_stats()` - Statistics summary
+- `src/discord_bot.py` - Load commands cog and sync command tree
+
+#### Migration Steps
+1. Deploy code changes
+2. Run migration to create audit table:
+   ```bash
+   psql $DATABASE_URL -f migrations/008_add_deletion_log.sql
+   ```
+3. Restart bot to sync slash commands to Discord
+
+---
+
 ## [0.9.10] - 2025-12-30
 
 ### Added

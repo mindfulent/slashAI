@@ -231,6 +231,14 @@ class DiscordBot(commands.Bot):
                 )
                 logger.info("Memory system initialized successfully")
 
+                # Load memory management slash commands (v0.9.11)
+                try:
+                    from commands.memory_commands import MemoryCommands
+                    await self.add_cog(MemoryCommands(self, self.db_pool, memory_manager))
+                    logger.info("Memory commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load memory commands: {e}", exc_info=True)
+
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
                     await self._setup_image_memory(anthropic_client)
@@ -275,6 +283,14 @@ class DiscordBot(commands.Bot):
         """Called when the bot has connected to Discord."""
         print(f"Logged in as {self.user} (ID: {self.user.id})")
         print(f"Connected to {len(self.guilds)} guild(s)")
+
+        # Sync slash commands to Discord (v0.9.11)
+        try:
+            synced = await self.tree.sync()
+            logger.info(f"Synced {len(synced)} slash command(s)")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}", exc_info=True)
+
         self._ready_event.set()
 
     def is_ready(self) -> bool:
