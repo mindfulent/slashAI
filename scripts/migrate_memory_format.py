@@ -70,7 +70,7 @@ async def reformat_summary(client: AsyncAnthropic, summary: str) -> str:
         return summary
 
     response = await client.messages.create(
-        model="claude-haiku-3-5-20241022",
+        model="claude-haiku-4-5-20251001",
         max_tokens=200,
         messages=[{"role": "user", "content": REFORMAT_PROMPT.format(summary=summary)}],
     )

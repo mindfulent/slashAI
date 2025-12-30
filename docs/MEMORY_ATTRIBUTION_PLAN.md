@@ -288,7 +288,7 @@ from "User's X" format to pronoun-neutral format.
 async def reformat_summary(client: AsyncAnthropic, summary: str) -> str:
     """Use Claude to reformat a single summary."""
     response = await client.messages.create(
-        model="claude-haiku-3-5-20241022",  # Fast and cheap for simple reformatting
+        model="claude-haiku-4-5-20251001",  # Fast and cheap for simple reformatting
         max_tokens=200,
         messages=[{
             "role": "user",
@@ -468,6 +468,46 @@ After implementation:
 3. **Pronouns respected**: When users share pronouns, they're captured and Claude uses them naturally
 4. **No data loss**: Migration preserves all existing memory facts
 5. **Debuggable**: We can inspect exactly what was retrieved and why for any conversation
+
+---
+
+## Migration Results (2025-12-30)
+
+### Dry Run Summary
+
+| Metric | Count |
+|--------|-------|
+| Total memories | 73 |
+| Would change | 29 (40%) |
+| Unchanged | 44 (60%) |
+| Errors | 0 |
+
+### Sample Transformations
+
+| Before | After |
+|--------|-------|
+| `User's name is SlashDaemon` | `Name: SlashDaemon` |
+| `User built a theater/performance space...` | `Built theater/performance space...` |
+| `User is a developer who works on...` | `Works on slashAI's codebase as a developer` |
+| `User's father's name is John...` | `Father's name: John` / `Mother's name: Laura` |
+| `User has technical expertise in...` | `Has technical expertise in...` |
+| `User's actual name/identity is Rain` | `Actual name/identity: Rain (Rain_Plays)` |
+
+### Backup Created
+
+- **File**: `backups/memories_pre_migration_20251230.json`
+- **Size**: 54 KB
+- **Records**: 73 memories
+
+### Migration Applied
+
+- **Date**: 2025-12-30
+- **Model**: `claude-haiku-4-5-20251001`
+- **Result**: **Success**
+  - 29 memories updated
+  - 44 unchanged (already pronoun-neutral or no "User" references)
+  - 0 errors
+  - Duration: ~32 seconds
 
 ---
 
