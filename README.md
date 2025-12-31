@@ -374,7 +374,7 @@ Free under [AGPL-3.0](LICENSE). You can use, modify, and distribute slashAI, but
 Need to keep your modifications private or avoid AGPL obligations?
 
 📧 **Contact**: Slash Daemon
-🔗 **Email**: [mailto@slashdaemon@protonmail.com]
+🔗 **Email**: slashdaemon@protonmail.com
 
 ### Contributing
 
