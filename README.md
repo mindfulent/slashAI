@@ -353,9 +353,32 @@ Songs generated during the v0.9.1 and v0.9.2 coding sessions:
 | [02 Why Can't I Remember](docs/02%20Why%20Can%27t%20I%20Remember%20by%20Slash.mp3) | Building the persistent memory system |
 | [03 What You Showed Me](docs/03%20What%20You%20Showed%20Me%20by%20Slash.mp3) | Adding image understanding |
 
-## License
+## 📄 License
 
-MIT License - see LICENSE file for details.
+slashAI is dual-licensed:
+
+| License | Use Case | Obligations |
+|---------|----------|-------------|
+| **AGPL-3.0** | Open source, personal, internal | Source disclosure for network-accessible deployments |
+| **Commercial** | Proprietary, SaaS, closed-source | No copyleft requirements |
+
+### Open Source Use
+
+Free under [AGPL-3.0](LICENSE). You can use, modify, and distribute slashAI, but:
+- Modifications must be AGPL-3.0 licensed
+- Network users must be offered source code access
+- Copyright notices must be preserved
+
+### Commercial Licensing
+
+Need to keep your modifications private or avoid AGPL obligations?
+
+📧 **Contact**: Slash Daemon
+🔗 **Email**: [mailto@slashdaemon@protonmail.com]
+
+### Contributing
+
+Contributions are welcome! By submitting a PR, you agree to our [Contributor License Agreement](CLA.md).
 
 ## Acknowledgments
 
