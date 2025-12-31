@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Dual Licensing (AGPL-3.0 + Commercial)
+- **LICENSE.md** - Full AGPL-3.0 license text with commercial licensing option
+- **CLA.md** - Contributor License Agreement for PR submissions
+- **NOTICE.md** - Third-party software attribution (discord.py, anthropic, asyncpg, etc.)
+- **pyproject.toml** - Package metadata with dual licensing classifiers
+- **AGPL-3.0 headers** added to all 23 Python source files
+- **GitHub Actions CLA workflow** (`.github/workflows/cla.yml`) - Automatically requests CLA signature from first-time contributors
+
 ### Planned
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management
