@@ -744,77 +744,108 @@ class DiscordBot(commands.Bot):
 
     async def search_messages(
         self,
-        channel_id: int,
         query: str,
+        channel_id: Optional[int] = None,
         author: Optional[str] = None,
         limit: int = 10,
     ) -> list[dict]:
         """
-        Search messages in a channel by content, optionally filtering by author.
+        Search messages by content, optionally filtering by channel and/or author.
 
         Args:
-            channel_id: The channel to search
             query: Text to search for (case-insensitive)
+            channel_id: Optional channel to search (if None, searches all channels)
             author: Optional username/display name to filter by
             limit: Maximum results to return
 
         Returns:
             List of message dicts with id, author info, content, timestamp
         """
-        channel = self.get_channel(channel_id)
-        if channel is None:
-            channel = await self.fetch_channel(channel_id)
+        # Determine which channels to search
+        if channel_id is not None:
+            channel = self.get_channel(channel_id)
+            if channel is None:
+                channel = await self.fetch_channel(channel_id)
+            channels_to_search = [channel]
+        else:
+            # Search all accessible text channels
+            channels_to_search = []
+            for guild in self.guilds:
+                for ch in guild.channels:
+                    if isinstance(ch, discord.TextChannel):
+                        channels_to_search.append(ch)
 
-        # Resolve author username to ID if provided
+        # Resolve author username to ID if provided (check first guild)
         author_id = None
-        if author and hasattr(channel, "guild"):
-            # Try exact match first (username or display name)
-            member = channel.guild.get_member_named(author)
-            if member:
-                author_id = member.id
-            else:
-                # Try case-insensitive partial match
-                author_lower = author.lower()
-                for m in channel.guild.members:
-                    if (
-                        author_lower in m.name.lower()
-                        or author_lower in m.display_name.lower()
-                    ):
-                        author_id = m.id
-                        break
+        if author and channels_to_search:
+            first_channel = channels_to_search[0]
+            if hasattr(first_channel, "guild"):
+                # Try exact match first (username or display name)
+                member = first_channel.guild.get_member_named(author)
+                if member:
+                    author_id = member.id
+                else:
+                    # Try case-insensitive partial match
+                    author_lower = author.lower()
+                    for m in first_channel.guild.members:
+                        if (
+                            author_lower in m.name.lower()
+                            or author_lower in m.display_name.lower()
+                        ):
+                            author_id = m.id
+                            break
 
-        # Fetch and filter messages
-        # Search through more messages than requested to account for filtering
-        search_limit = min(limit * 20, 500)
+        # Search through channels
         results = []
         query_lower = query.lower()
 
-        async for msg in channel.history(limit=search_limit):
-            # Filter by author if specified
-            if author_id and msg.author.id != author_id:
+        # Limit messages per channel when doing cross-channel search
+        if channel_id is None:
+            per_channel_limit = max(50, 200 // len(channels_to_search)) if channels_to_search else 50
+        else:
+            per_channel_limit = min(limit * 20, 500)
+
+        for channel in channels_to_search:
+            try:
+                async for msg in channel.history(limit=per_channel_limit):
+                    # Filter by author if specified
+                    if author_id and msg.author.id != author_id:
+                        continue
+
+                    # Filter by content (case-insensitive substring match)
+                    if query_lower not in msg.content.lower():
+                        continue
+
+                    results.append(
+                        {
+                            "message_id": str(msg.id),
+                            "author_id": str(msg.author.id),
+                            "author_name": msg.author.name,
+                            "author_display_name": msg.author.display_name,
+                            "content": msg.content[:500] if len(msg.content) > 500 else msg.content,
+                            "timestamp": msg.created_at.isoformat(),
+                            "channel_id": str(channel.id),
+                            "channel_name": getattr(channel, "name", "DM"),
+                        }
+                    )
+
+                    # Early exit if we have enough results for single-channel search
+                    if channel_id is not None and len(results) >= limit:
+                        break
+            except discord.Forbidden:
+                # Skip channels we can't read
+                continue
+            except Exception as e:
+                logger.warning(f"Error searching channel {channel.id}: {e}")
                 continue
 
-            # Filter by content (case-insensitive substring match)
-            if query_lower not in msg.content.lower():
-                continue
-
-            results.append(
-                {
-                    "message_id": str(msg.id),
-                    "author_id": str(msg.author.id),
-                    "author_name": msg.author.name,
-                    "author_display_name": msg.author.display_name,
-                    "content": msg.content[:500] if len(msg.content) > 500 else msg.content,
-                    "timestamp": msg.created_at.isoformat(),
-                    "channel_id": str(channel_id),
-                    "channel_name": getattr(channel, "name", "DM"),
-                }
-            )
-
+            # Early exit if we have enough results
             if len(results) >= limit:
                 break
 
-        return results
+        # Sort by timestamp (most recent first) and limit results
+        results.sort(key=lambda x: x["timestamp"], reverse=True)
+        return results[:limit]
 
 
 async def main():

@@ -219,29 +219,30 @@ async def get_channel_info(channel_id: str) -> str:
 
 @mcp.tool()
 async def search_messages(
-    channel_id: str,
     query: str,
+    channel_id: Optional[str] = None,
     author: Optional[str] = None,
     limit: int = 10,
 ) -> str:
     """
-    Search for messages in a Discord channel.
+    Search for messages in Discord channels.
 
     Args:
-        channel_id: The Discord channel ID to search
         query: Text to search for (case-insensitive)
+        channel_id: Optional channel ID to search (if omitted, searches all accessible channels)
         author: Optional username/display name to filter by (e.g., "slashAI", "SlashDaemon")
         limit: Maximum results to return (default 10, max 50)
 
     Returns:
-        List of matching messages with IDs, authors, content snippets, and timestamps
+        List of matching messages with IDs, authors, content snippets, channels, and timestamps
     """
     if bot is None:
         return "Error: Discord bot not initialized"
 
     try:
         limit = min(limit, 50)
-        results = await bot.search_messages(int(channel_id), query, author, limit)
+        channel_id_int = int(channel_id) if channel_id else None
+        results = await bot.search_messages(query, channel_id_int, author, limit)
 
         if not results:
             return "No messages found matching your search"
@@ -250,11 +251,13 @@ async def search_messages(
         for msg in results:
             formatted.append(
                 f"[{msg['timestamp']}] Message ID: {msg['message_id']}\n"
+                f"  Channel: #{msg['channel_name']} ({msg['channel_id']})\n"
                 f"  Author: {msg['author_display_name']} (@{msg['author_name']}, ID: {msg['author_id']})\n"
                 f"  Content: {msg['content']}"
             )
 
-        return f"Found {len(results)} message(s):\n\n" + "\n\n".join(formatted)
+        search_scope = f"#{bot.get_channel(int(channel_id)).name}" if channel_id else "all channels"
+        return f"Found {len(results)} message(s) in {search_scope}:\n\n" + "\n\n".join(formatted)
     except Exception as e:
         return f"Error searching messages: {str(e)}"
 
