@@ -217,6 +217,48 @@ async def get_channel_info(channel_id: str) -> str:
         return f"Error getting channel info: {str(e)}"
 
 
+@mcp.tool()
+async def search_messages(
+    channel_id: str,
+    query: str,
+    author: Optional[str] = None,
+    limit: int = 10,
+) -> str:
+    """
+    Search for messages in a Discord channel.
+
+    Args:
+        channel_id: The Discord channel ID to search
+        query: Text to search for (case-insensitive)
+        author: Optional username/display name to filter by (e.g., "slashAI", "SlashDaemon")
+        limit: Maximum results to return (default 10, max 50)
+
+    Returns:
+        List of matching messages with IDs, authors, content snippets, and timestamps
+    """
+    if bot is None:
+        return "Error: Discord bot not initialized"
+
+    try:
+        limit = min(limit, 50)
+        results = await bot.search_messages(int(channel_id), query, author, limit)
+
+        if not results:
+            return "No messages found matching your search"
+
+        formatted = []
+        for msg in results:
+            formatted.append(
+                f"[{msg['timestamp']}] Message ID: {msg['message_id']}\n"
+                f"  Author: {msg['author_display_name']} (@{msg['author_name']}, ID: {msg['author_id']})\n"
+                f"  Content: {msg['content']}"
+            )
+
+        return f"Found {len(results)} message(s):\n\n" + "\n\n".join(formatted)
+    except Exception as e:
+        return f"Error searching messages: {str(e)}"
+
+
 if __name__ == "__main__":
     # Run MCP server with stdio transport
     mcp.run(transport="stdio")

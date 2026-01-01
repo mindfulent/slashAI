@@ -79,18 +79,21 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `edit_message` | `channel_id`, `message_id`, `content` | Confirmation |
 | `delete_message` | `channel_id`, `message_id` | Confirmation |
 | `read_messages` | `channel_id`, `limit` (default 10, max 100) | Formatted message list |
+| `search_messages` | `channel_id`, `query`, `author` (optional), `limit` (default 10, max 50) | Matching messages with IDs |
 | `list_channels` | `guild_id` (optional) | Channel list with IDs |
 | `get_channel_info` | `channel_id` | Channel metadata dict |
+| `describe_message_image` | `channel_id`, `message_id`, `prompt` (optional) | Vision analysis of image |
 
 ## Key Constants
 
 | Constant | Value | Location |
 |----------|-------|----------|
-| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py:22` |
-| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:115` |
-| `extraction_message_threshold` | 5 exchanges | `memory/config.py:21` |
-| `similarity_threshold` | 0.3 | `memory/config.py:18` |
-| `cluster_assignment_threshold` | 0.72 | `memory/config.py:74` |
+| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py:40` |
+| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:288` |
+| `extraction_message_threshold` | 5 exchanges | `memory/config.py:38` |
+| `similarity_threshold` | 0.3 | `memory/config.py:35` |
+| `embedding_model` | `voyage-3.5-lite` | `memory/config.py:45` |
+| `cluster_assignment_threshold` | 0.72 | `memory/config.py:91` |
 
 ## Environment Variables
 
@@ -216,7 +219,7 @@ Users can manage their memories directly through Discord slash commands:
 
 **Memory not being stored:**
 - Ensure `MEMORY_ENABLED=true` and `DATABASE_URL` + `VOYAGE_API_KEY` are set
-- Check migration status: all 7 migrations must be applied
+- Check migration status: all 8 migrations must be applied
 - Verify pgvector extension is enabled: `SELECT * FROM pg_extension WHERE extname = 'vector';`
 
 **MCP tools return "Discord bot not initialized":**
