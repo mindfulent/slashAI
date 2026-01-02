@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Slash command support (`/ask`, `/summarize`, `/clear`)
+- Rate limiting and token budget management
+- Multi-guild configuration support
+- User commands for build management (`/builds`, `/myprojects`)
+- Automatic milestone detection with notifications
+
+---
+
+## [0.9.14] - 2026-01-01
+
 ### Added
 
 #### Message Search MCP Tool
@@ -25,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - "Find my post in server-general" → `search_messages("modpack", channel="server-general", author="slashAI")`
   - "What did Slash say about redstone?" → `search_messages("redstone", author="SlashDaemon")`
 
+#### Channel Name Resolution
+- New `resolve_channel()` helper method for converting channel names to IDs
+- Available for future use by other MCP tools (send_message, edit_message, etc.)
+
 #### Dual Licensing (AGPL-3.0 + Commercial)
 - **LICENSE.md** - Full AGPL-3.0 license text with commercial licensing option
 - **CLA.md** - Contributor License Agreement for PR submissions
@@ -33,12 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AGPL-3.0 headers** added to all 23 Python source files
 - **GitHub Actions CLA workflow** (`.github/workflows/cla.yml`) - Automatically requests CLA signature from first-time contributors
 
-### Planned
-- Slash command support (`/ask`, `/summarize`, `/clear`)
-- Rate limiting and token budget management
-- Multi-guild configuration support
-- User commands for build management (`/builds`, `/myprojects`)
-- Automatic milestone detection with notifications
+### Technical Details
+
+#### Files Modified
+- `src/discord_bot.py`:
+  - Added `resolve_channel()` method for name → ID resolution
+  - Updated `search_messages()` to support cross-channel search
+- `src/mcp_server.py`:
+  - Added `search_messages` MCP tool with channel name support
+
+#### No Breaking Changes
+- No database migrations required
+- No new environment variables
+- Fully backwards compatible
 
 ---
 
@@ -573,6 +595,7 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.14 | 2026-01-01 | Message search tool with cross-channel and channel name resolution |
 | 0.9.13 | 2025-12-30 | Prompt caching for system prompt (15-20% cost reduction) |
 | 0.9.12 | 2025-12-30 | Agentic Discord tools for owner-only chat actions |
 | 0.9.11 | 2025-12-30 | Memory management slash commands |
@@ -627,7 +650,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.13...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.14...HEAD
+[0.9.14]: https://github.com/mindfulent/slashAI/compare/v0.9.13...v0.9.14
 [0.9.13]: https://github.com/mindfulent/slashAI/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/mindfulent/slashAI/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/mindfulent/slashAI/compare/v0.9.10...v0.9.11
