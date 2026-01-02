@@ -12,14 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Message Search MCP Tool
 - **`search_messages`** - New MCP tool for finding messages in Discord channels
   - Full-text search with case-insensitive matching
-  - **Cross-channel search** - omit `channel_id` to search all accessible channels
+  - **Cross-channel search** - omit `channel` to search all accessible channels
+  - **Channel name resolution** - use names like "server-general" instead of numeric IDs
+    - Handles emoji prefixes (e.g., "server-general" matches "🖥️server-general")
+    - Supports partial matching and case-insensitive lookup
   - Optional author filter with automatic username → ID resolution
   - Supports username, display name, and partial matches
   - Returns message ID, channel info, author info, content snippet, and timestamp
   - Results sorted by timestamp (most recent first)
 - Use cases:
   - "Find my post about modpacks" → `search_messages("modpack", author="slashAI")` (searches everywhere)
-  - "Find my post in #server-general" → `search_messages("modpack", channel_id="123", author="slashAI")`
+  - "Find my post in server-general" → `search_messages("modpack", channel="server-general", author="slashAI")`
   - "What did Slash say about redstone?" → `search_messages("redstone", author="SlashDaemon")`
 
 #### Dual Licensing (AGPL-3.0 + Commercial)

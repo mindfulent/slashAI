@@ -220,7 +220,7 @@ async def get_channel_info(channel_id: str) -> str:
 @mcp.tool()
 async def search_messages(
     query: str,
-    channel_id: Optional[str] = None,
+    channel: Optional[str] = None,
     author: Optional[str] = None,
     limit: int = 10,
 ) -> str:
@@ -229,7 +229,8 @@ async def search_messages(
 
     Args:
         query: Text to search for (case-insensitive)
-        channel_id: Optional channel ID to search (if omitted, searches all accessible channels)
+        channel: Optional channel ID or name to search (e.g., "1449635293945790496" or "server-general")
+                 If omitted, searches all accessible channels.
         author: Optional username/display name to filter by (e.g., "slashAI", "SlashDaemon")
         limit: Maximum results to return (default 10, max 50)
 
@@ -241,7 +242,16 @@ async def search_messages(
 
     try:
         limit = min(limit, 50)
-        channel_id_int = int(channel_id) if channel_id else None
+
+        # Resolve channel name/ID to channel object
+        channel_id_int = None
+        resolved_channel = None
+        if channel:
+            resolved_channel = bot.resolve_channel(channel)
+            if resolved_channel is None:
+                return f"Error: Could not find channel matching '{channel}'. Try using the numeric channel ID or check the channel name."
+            channel_id_int = resolved_channel.id
+
         results = await bot.search_messages(query, channel_id_int, author, limit)
 
         if not results:
@@ -256,7 +266,7 @@ async def search_messages(
                 f"  Content: {msg['content']}"
             )
 
-        search_scope = f"#{bot.get_channel(int(channel_id)).name}" if channel_id else "all channels"
+        search_scope = f"#{resolved_channel.name}" if resolved_channel else "all channels"
         return f"Found {len(results)} message(s) in {search_scope}:\n\n" + "\n\n".join(formatted)
     except Exception as e:
         return f"Error searching messages: {str(e)}"

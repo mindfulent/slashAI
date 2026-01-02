@@ -633,6 +633,61 @@ class DiscordBot(commands.Bot):
 
     # --- MCP Tool Methods ---
 
+    def resolve_channel(self, channel_ref: str) -> Optional[discord.TextChannel]:
+        """
+        Resolve a channel reference (ID or name) to a TextChannel.
+
+        Args:
+            channel_ref: Channel ID (numeric string) or name (e.g., "server-general")
+
+        Returns:
+            TextChannel if found, None otherwise
+
+        Matching priority:
+        1. Exact numeric ID
+        2. Exact channel name match (case-insensitive)
+        3. Partial name match - channel name contains the search term
+        4. Fuzzy match - search term found after stripping emoji prefixes
+        """
+        # Try numeric ID first
+        try:
+            channel_id = int(channel_ref)
+            channel = self.get_channel(channel_id)
+            if channel and isinstance(channel, discord.TextChannel):
+                return channel
+        except ValueError:
+            pass  # Not a numeric ID, try name matching
+
+        # Normalize the search term
+        search = channel_ref.lower().strip().lstrip("#")
+
+        # Collect all text channels
+        all_channels = []
+        for guild in self.guilds:
+            for ch in guild.channels:
+                if isinstance(ch, discord.TextChannel):
+                    all_channels.append(ch)
+
+        # Try exact name match first
+        for ch in all_channels:
+            if ch.name.lower() == search:
+                return ch
+
+        # Try partial match (search term in channel name)
+        for ch in all_channels:
+            if search in ch.name.lower():
+                return ch
+
+        # Try fuzzy match - strip emoji prefixes from channel names
+        # Common pattern: "🖥️server-general" or "❗server-releases"
+        for ch in all_channels:
+            # Strip leading non-ascii characters (emojis)
+            stripped_name = "".join(c for c in ch.name if c.isascii()).lower().strip()
+            if stripped_name == search or search in stripped_name:
+                return ch
+
+        return None
+
     async def send_message(self, channel_id: int, content: str) -> discord.Message:
         """Send a message to a channel. Used by MCP tools."""
         channel = self.get_channel(channel_id)

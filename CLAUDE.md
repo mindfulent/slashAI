@@ -79,7 +79,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `edit_message` | `channel_id`, `message_id`, `content` | Confirmation |
 | `delete_message` | `channel_id`, `message_id` | Confirmation |
 | `read_messages` | `channel_id`, `limit` (default 10, max 100) | Formatted message list |
-| `search_messages` | `query`, `channel_id` (optional), `author` (optional), `limit` (default 10, max 50) | Matching messages with IDs |
+| `search_messages` | `query`, `channel` (optional, ID or name), `author` (optional), `limit` (default 10, max 50) | Matching messages with IDs |
 | `list_channels` | `guild_id` (optional) | Channel list with IDs |
 | `get_channel_info` | `channel_id` | Channel metadata dict |
 | `describe_message_image` | `channel_id`, `message_id`, `prompt` (optional) | Vision analysis of image |
