@@ -309,11 +309,15 @@ class DiscordBot(commands.Bot):
         print(f"Connected to {len(self.guilds)} guild(s)")
 
         # Sync slash commands to Discord (v0.9.11)
-        try:
-            synced = await self.tree.sync()
-            logger.info(f"Synced {len(synced)} slash command(s)")
-        except Exception as e:
-            logger.error(f"Failed to sync commands: {e}", exc_info=True)
+        # Skip in MCP-only mode to avoid wiping commands registered by the main bot
+        if self.enable_chat:
+            try:
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} slash command(s)")
+            except Exception as e:
+                logger.error(f"Failed to sync commands: {e}", exc_info=True)
+        else:
+            logger.info("MCP-only mode, skipping command sync")
 
         self._ready_event.set()
 

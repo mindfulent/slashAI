@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.15] - 2026-01-03
+
+### Fixed
+
+#### MCP Server No Longer Wipes Slash Commands
+- **Critical bug fix**: The MCP server (used by Claude Code) was syncing an empty command tree on startup, which wiped out the `/memories` slash commands registered by the production bot
+- Root cause: `on_ready()` called `tree.sync()` unconditionally, but in MCP-only mode (`enable_chat=False`), no cogs are loaded, resulting in an empty tree overwriting production commands
+- Fix: Skip command sync when `enable_chat=False` (MCP-only mode)
+- This resolves the issue where slash commands would stop working ~1 day after deployment (whenever Claude Code was used)
+
+---
+
 ## [0.9.14] - 2026-01-01
 
 ### Added
