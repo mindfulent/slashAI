@@ -338,7 +338,8 @@ class DiscordBot(commands.Bot):
         # DEBUG: Log every incoming message to diagnose mobile upload issues
         has_attachments = len(message.attachments) > 0
         has_embeds = len(message.embeds) > 0
-        is_mention = self.user.mentioned_in(message)
+        # Check for direct mention only (ignore @everyone/@here)
+        is_mention = self.user in message.mentions
         is_dm = isinstance(message.channel, discord.DMChannel)
         logger.info(
             f"[MSG] from={message.author.name} channel={getattr(message.channel, 'name', 'DM')} "
@@ -359,7 +360,8 @@ class DiscordBot(commands.Bot):
         if not self.enable_chat:
             return
 
-        if self.user.mentioned_in(message) or isinstance(
+        # Respond to direct mentions (@slashAI) or DMs, but NOT @everyone/@here
+        if self.user in message.mentions or isinstance(
             message.channel, discord.DMChannel
         ):
             await self._handle_chat(message)
