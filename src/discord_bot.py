@@ -217,6 +217,8 @@ class DiscordBot(commands.Bot):
         self.claude_client: Optional[ClaudeClient] = None
         self.db_pool: Optional[asyncpg.Pool] = None
         self.image_observer = None  # Image memory system
+        self.reminder_manager = None  # Reminder system (v0.9.17)
+        self.reminder_scheduler = None  # Background scheduler for reminders
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -270,6 +272,22 @@ class DiscordBot(commands.Bot):
                     logger.info("Analytics commands cog loaded")
                 except Exception as e:
                     logger.error(f"Failed to load analytics commands: {e}", exc_info=True)
+
+                # Initialize reminder system (v0.9.17)
+                try:
+                    from reminders import ReminderManager, ReminderScheduler
+                    from commands.reminder_commands import ReminderCommands
+
+                    self.reminder_manager = ReminderManager(self.db_pool)
+                    self.reminder_scheduler = ReminderScheduler(self, self.db_pool)
+
+                    await self.add_cog(ReminderCommands(
+                        self, self.db_pool, self.reminder_manager, owner_id
+                    ))
+                    logger.info("Reminder system initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize reminder system: {e}", exc_info=True)
+                    logger.warning("Reminders disabled due to initialization failure")
 
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
@@ -326,6 +344,10 @@ class DiscordBot(commands.Bot):
                 logger.info(f"Synced {len(synced)} slash command(s)")
             except Exception as e:
                 logger.error(f"Failed to sync commands: {e}", exc_info=True)
+
+            # Start reminder scheduler (v0.9.17)
+            if self.reminder_scheduler:
+                self.reminder_scheduler.start()
         else:
             logger.info("MCP-only mode, skipping command sync")
 
@@ -688,6 +710,9 @@ class DiscordBot(commands.Bot):
 
     async def close(self):
         """Clean up resources on shutdown."""
+        # Stop reminder scheduler (v0.9.17)
+        if self.reminder_scheduler:
+            self.reminder_scheduler.stop()
         await analytics_shutdown()
         if self.db_pool:
             await self.db_pool.close()

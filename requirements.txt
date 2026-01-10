@@ -22,3 +22,8 @@ voyageai>=0.3.0
 boto3>=1.34.0  # DO Spaces (S3-compatible)
 numpy>=1.24.0  # Vector math for clustering
 Pillow>=10.0.0  # Image processing for Voyage embeddings
+
+# Scheduled Reminders (v0.9.17)
+dateparser>=1.2.0      # Natural language time parsing
+croniter>=2.0.0        # CRON expression handling
+pytz>=2024.1           # Timezone support

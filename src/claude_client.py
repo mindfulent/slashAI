@@ -172,6 +172,56 @@ DISCORD_TOOLS = [
             "required": ["channel_id", "message_id"]
         }
     },
+    {
+        "name": "set_reminder",
+        "description": "Create a reminder that will be delivered later. Can be one-time or recurring with CRON support.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The reminder message content"
+                },
+                "time": {
+                    "type": "string",
+                    "description": "When to remind: natural language ('in 2 hours', 'tomorrow at 10am', 'every weekday at 9am') or CRON ('0 10 * * *')"
+                },
+                "channel_id": {
+                    "type": "string",
+                    "description": "Optional: Channel ID for channel delivery (admin only, defaults to DM)"
+                }
+            },
+            "required": ["content", "time"]
+        }
+    },
+    {
+        "name": "list_reminders",
+        "description": "List scheduled reminders for the current user.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_completed": {
+                    "type": "boolean",
+                    "description": "Include completed/failed reminders (default: false)",
+                    "default": False
+                }
+            }
+        }
+    },
+    {
+        "name": "cancel_reminder",
+        "description": "Cancel a scheduled reminder by ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reminder_id": {
+                    "type": "integer",
+                    "description": "The reminder ID to cancel"
+                }
+            },
+            "required": ["reminder_id"]
+        }
+    },
 ]
 
 # Default system prompt for the chatbot
@@ -671,6 +721,99 @@ class ClaudeClient:
                     self.total_output_tokens += vision_response.usage.output_tokens
 
                     result = vision_response.content[0].text
+                    success = True
+
+            elif tool_name == "set_reminder":
+                # Create a reminder
+                if not hasattr(self.bot, 'reminder_manager') or self.bot.reminder_manager is None:
+                    result = "Reminder system is not available"
+                    success = False
+                else:
+                    from reminders import parse_time_expression, TimeParseError
+
+                    content = tool_input["content"]
+                    time_expr = tool_input["time"]
+                    channel_id = tool_input.get("channel_id")
+
+                    # Get user timezone (need user_id from conversation context)
+                    # For tool execution, we use UTC as default
+                    user_tz = "UTC"
+
+                    try:
+                        parsed = parse_time_expression(time_expr, user_tz)
+
+                        # Check channel delivery permission
+                        is_channel_delivery = False
+                        delivery_channel_id = None
+                        if channel_id and self.owner_id:
+                            is_channel_delivery = True
+                            delivery_channel_id = int(channel_id)
+
+                        # Create the reminder (use owner_id since only owner can use tools)
+                        reminder_id = await self.bot.reminder_manager.create_reminder(
+                            user_id=int(self.owner_id),
+                            content=content,
+                            parsed_time=parsed,
+                            delivery_channel_id=delivery_channel_id,
+                            is_channel_delivery=is_channel_delivery,
+                        )
+
+                        schedule = f"Recurring ({parsed.cron_expression})" if parsed.is_recurring else "One-time"
+                        result = (
+                            f"Reminder created successfully!\n"
+                            f"ID: {reminder_id}\n"
+                            f"Message: {content}\n"
+                            f"Schedule: {schedule}\n"
+                            f"Next: {parsed.next_execution.strftime('%Y-%m-%d %H:%M UTC')}\n"
+                            f"Delivery: {'Channel ' + str(delivery_channel_id) if is_channel_delivery else 'DM'}"
+                        )
+                        success = True
+                    except TimeParseError as e:
+                        result = f"Could not parse time: {e}"
+                        success = False
+
+            elif tool_name == "list_reminders":
+                # List reminders
+                if not hasattr(self.bot, 'reminder_manager') or self.bot.reminder_manager is None:
+                    result = "Reminder system is not available"
+                    success = False
+                else:
+                    include_completed = tool_input.get("include_completed", False)
+                    reminders, total = await self.bot.reminder_manager.list_reminders(
+                        int(self.owner_id),
+                        include_completed=include_completed,
+                        limit=20,
+                        offset=0,
+                    )
+
+                    if not reminders:
+                        result = "No reminders found."
+                    else:
+                        lines = [f"Found {total} reminder(s):\n"]
+                        for rem in reminders:
+                            status = rem["status"]
+                            next_exec = rem["next_execution_at"]
+                            next_str = next_exec.strftime("%Y-%m-%d %H:%M UTC") if next_exec else "N/A"
+                            recur = " (recurring)" if rem["cron_expression"] else ""
+                            content = rem["content"][:50] + "..." if len(rem["content"]) > 50 else rem["content"]
+                            lines.append(f"[{rem['id']}] {status}{recur}: {content} - Next: {next_str}")
+                        result = "\n".join(lines)
+                    success = True
+
+            elif tool_name == "cancel_reminder":
+                # Cancel a reminder
+                if not hasattr(self.bot, 'reminder_manager') or self.bot.reminder_manager is None:
+                    result = "Reminder system is not available"
+                    success = False
+                else:
+                    reminder_id = tool_input["reminder_id"]
+                    cancelled = await self.bot.reminder_manager.cancel_reminder(
+                        reminder_id, int(self.owner_id)
+                    )
+                    if cancelled:
+                        result = f"Reminder #{reminder_id} has been cancelled."
+                    else:
+                        result = f"Reminder #{reminder_id} not found or you don't own it."
                     success = True
 
             else:

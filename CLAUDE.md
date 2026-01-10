@@ -71,6 +71,11 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `narrator.py`: Generates progression narratives
    - `storage.py`: DigitalOcean Spaces (S3-compatible)
 
+6. **`src/reminders/`** - Scheduled reminders system (v0.9.17)
+   - `time_parser.py`: Natural language + CRON parsing
+   - `manager.py`: Database operations for reminders
+   - `scheduler.py`: Background task loop for delivery (60s interval)
+
 ## MCP Tools
 
 These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
@@ -87,7 +92,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 
 **Channel name resolution:** `search_messages` supports channel names (e.g., "server-general") in addition to IDs. Handles emoji prefixes and partial matching.
 
-**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
+**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
 
 ## Key Constants
 
@@ -162,6 +167,10 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 
 -- Analytics (v0.9.16)
 \i migrations/009_create_analytics.sql
+
+-- Scheduled Reminders (v0.9.17)
+\i migrations/010_create_scheduled_reminders.sql
+\i migrations/011_create_user_settings.sql
 ```
 
 ## Memory Privacy Model
@@ -250,6 +259,31 @@ Owner-only slash commands for viewing bot analytics (requires `OWNER_ID` env var
 
 **Event tracking:** Analytics events are tracked automatically for messages, API calls, memory operations, commands, and errors. Set `ANALYTICS_ENABLED=false` to disable.
 
+## Reminder Commands (v0.9.17+)
+
+Users can schedule reminders via slash commands or natural language:
+
+| Command | Description |
+|---------|-------------|
+| `/remind set <message> <time> [channel]` | Create a reminder (channel delivery admin-only) |
+| `/remind list [include_completed] [page]` | List your reminders |
+| `/remind cancel <reminder_id>` | Cancel a reminder |
+| `/remind pause <reminder_id>` | Pause a recurring reminder |
+| `/remind resume <reminder_id>` | Resume a paused reminder |
+| `/remind timezone <timezone>` | Set your timezone (e.g., `America/Los_Angeles`) |
+
+**Time formats supported:**
+- Natural language: `in 2 hours`, `tomorrow at 10am`, `next Monday 3pm`
+- Recurring: `every day at 9am`, `every weekday at 3pm`, `every 2 hours`
+- CRON: `0 10 * * *` (daily at 10am), `0 9 * * 1-5` (weekdays at 9am)
+- Presets: `hourly`, `daily`, `weekly`, `weekdays`, `monthly`
+
+**Delivery:**
+- Regular users: Reminders delivered via DM
+- Admin (OWNER_ID): Can specify a channel for delivery
+
+**Natural language (chatbot):** Users can also say "@slashAI remind me at 10am to check the server" and Claude will use the `set_reminder` tool.
+
 ## Troubleshooting
 
 **Bot doesn't respond to mentions:**
@@ -278,6 +312,12 @@ Owner-only slash commands for viewing bot analytics (requires `OWNER_ID` env var
 - May take up to 1 hour for Discord to propagate globally
 - Requires `MEMORY_ENABLED=true` (commands only load with memory system)
 - MCP-only mode (`enable_chat=False`) skips command sync to avoid wiping production commands
+
+**Reminders not being delivered:**
+- Scheduler runs every 60 seconds (check logs for "Reminder scheduler started")
+- Verify migrations 010 and 011 are applied
+- Check user hasn't blocked DMs (falls back to retry up to 5 times)
+- Use `/remind list include_completed:true` to see failed reminders with error messages
 
 ## Claude Code MCP Configuration
 
