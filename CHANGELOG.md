@@ -16,6 +16,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.16] - 2026-01-09
+
+### Added
+
+#### Native PostgreSQL Analytics System
+A comprehensive analytics system for tracking bot usage, performance, and errors:
+
+- **Event Tracking** - Fire-and-forget async tracking with `track()` and `track_async()` functions
+- **7 Event Categories**: message, memory, command, tool, api, error, system
+- **Core Events Tracked**:
+  - `message_received` - User messages with guild/channel context
+  - `response_sent` - Bot responses with latency metrics
+  - `claude_api_call` - API calls with token usage and cache stats
+  - `tool_executed` - Agentic tool calls with success/failure
+  - `command_used` - Slash command invocations
+  - `memory_created`, `retrieval_performed`, `extraction_triggered` - Memory system events
+  - `bot_error` - Errors with type, message, and traceback
+
+#### Analytics Slash Commands (Owner Only)
+New `/analytics` command group for real-time insights:
+
+| Command | Description |
+|---------|-------------|
+| `/analytics summary` | 24-hour overview (messages, users, tokens, errors) |
+| `/analytics dau [days]` | Daily active users over time |
+| `/analytics tokens [days]` | Token usage breakdown with cache stats |
+| `/analytics commands [days]` | Most-used slash commands |
+| `/analytics errors [limit]` | Recent error log |
+| `/analytics users [days]` | Most active users |
+| `/analytics memory` | Memory system statistics |
+
+#### Analytics CLI Tool
+New `scripts/analytics_query.py` for command-line analytics:
+
+```bash
+python scripts/analytics_query.py summary    # 24-hour overview
+python scripts/analytics_query.py dau        # Daily active users
+python scripts/analytics_query.py tokens     # Token usage by day
+python scripts/analytics_query.py commands   # Command usage
+python scripts/analytics_query.py errors     # Recent errors
+python scripts/analytics_query.py latency    # Response latency percentiles
+python scripts/analytics_query.py memory     # Memory system stats
+python scripts/analytics_query.py tools      # Tool execution stats
+```
+
+#### New Database Migration
+- `migrations/009_create_analytics.sql` - Analytics events table with 7 indexes
+
+#### New Environment Variable
+- `ANALYTICS_ENABLED` - Set to "true" to enable analytics (default: disabled)
+
+### Technical Details
+
+#### Files Created
+- `src/analytics.py` - Core analytics module with lazy connection pool
+- `src/commands/analytics_commands.py` - Owner-only slash commands with @owner_only() decorator
+- `scripts/analytics_query.py` - CLI tool with predefined queries
+- `migrations/009_create_analytics.sql` - Database schema
+
+#### Files Modified
+- `src/discord_bot.py` - Added message_received/response_sent/bot_error tracking, analytics cog
+- `src/claude_client.py` - Added claude_api_call/tool_executed/tool_error tracking
+- `src/memory/manager.py` - Added memory system event tracking
+- `src/commands/memory_commands.py` - Added command_used tracking for all memory commands
+- `CLAUDE.md` - Added analytics documentation
+
+#### Migration Steps
+1. Deploy code changes
+2. Run migration:
+   ```bash
+   psql $DATABASE_URL -f migrations/009_create_analytics.sql
+   ```
+3. Set `ANALYTICS_ENABLED=true` in environment
+4. Restart bot to load analytics cog
+
+#### No Breaking Changes
+- Analytics is opt-in via `ANALYTICS_ENABLED` environment variable
+- Without it, behavior is identical to v0.9.15
+
+---
+
 ## [0.9.15] - 2026-01-03
 
 ### Fixed
@@ -607,6 +688,8 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.16 | 2026-01-09 | Native PostgreSQL analytics with slash commands and CLI tool |
+| 0.9.15 | 2026-01-03 | Fix MCP server wiping slash commands |
 | 0.9.14 | 2026-01-01 | Message search tool with cross-channel and channel name resolution |
 | 0.9.13 | 2025-12-30 | Prompt caching for system prompt (15-20% cost reduction) |
 | 0.9.12 | 2025-12-30 | Agentic Discord tools for owner-only chat actions |
@@ -662,7 +745,9 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.14...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.16...HEAD
+[0.9.16]: https://github.com/mindfulent/slashAI/compare/v0.9.15...v0.9.16
+[0.9.15]: https://github.com/mindfulent/slashAI/compare/v0.9.14...v0.9.15
 [0.9.14]: https://github.com/mindfulent/slashAI/compare/v0.9.13...v0.9.14
 [0.9.13]: https://github.com/mindfulent/slashAI/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/mindfulent/slashAI/compare/v0.9.11...v0.9.12

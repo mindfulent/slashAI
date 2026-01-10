@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.15
+**Current Version:** 0.9.16
 
 ## Overview
 
@@ -169,6 +169,7 @@ Then in Claude Code:
 | `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
 | `MOD_CHANNEL_ID` | No | Discord channel ID for moderation alerts |
 | `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions (v0.9.12+) |
+| `ANALYTICS_ENABLED` | No | Set to "true" to enable usage analytics (v0.9.16+) |
 
 ### Customizing the Personality
 
@@ -248,10 +249,12 @@ slashAI/
 │   ├── 005_create_build_clusters.sql
 │   ├── 006_create_image_observations.sql
 │   ├── 007_create_image_moderation_and_indexes.sql
-│   └── 008_add_deletion_log.sql
+│   ├── 008_add_deletion_log.sql
+│   └── 009_create_analytics.sql
 ├── scripts/                # CLI tools (v0.9.10+)
 │   ├── migrate_memory_format.py  # Convert memories to pronoun-neutral format
-│   └── memory_inspector.py       # Debug and inspect memory system
+│   ├── memory_inspector.py       # Debug and inspect memory system
+│   └── analytics_query.py        # CLI for analytics queries (v0.9.16+)
 ├── docs/
 │   ├── ARCHITECTURE.md             # High-level architecture overview
 │   ├── MEMORY_TECHSPEC.md          # Text memory specification
