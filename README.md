@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.16
+**Current Version:** 0.9.17
 
 ## Overview
 
@@ -47,6 +47,16 @@ Users can view and manage their memories via Discord slash commands:
 - `/memories stats` - View memory statistics
 
 All command responses are private (ephemeral). Users can only delete their own memories.
+
+### Scheduled Reminders (v0.9.17+)
+Set reminders that get delivered via DM at a specified time:
+- **Natural language** - "remind me in 2 hours", "tomorrow at 10am", "next Monday 3pm"
+- **Recurring** - "every weekday at 9am", "every 2 hours", full CRON expressions
+- **Slash commands** - `/remind set`, `/remind list`, `/remind cancel`, `/remind timezone`
+- **Timezone support** - Each user can set their preferred timezone
+- **Channel delivery** - Bot owner can set reminders that post to specific channels
+
+The bot owner can also set reminders via natural language in chat: "remind me at 10am to check the server"
 
 ### Image Memory (v0.9.2+)
 - **Build tracking** - Recognizes and tracks Minecraft build projects over time
@@ -225,7 +235,13 @@ slashAI/
 │   ├── commands/           # Discord slash commands (v0.9.11+)
 │   │   ├── __init__.py
 │   │   ├── memory_commands.py  # /memories command group
+│   │   ├── reminder_commands.py # /remind command group (v0.9.17+)
 │   │   └── views.py            # Pagination and confirmation UIs
+│   ├── reminders/          # Scheduled reminders (v0.9.17+)
+│   │   ├── __init__.py
+│   │   ├── time_parser.py      # Natural language + CRON parsing
+│   │   ├── manager.py          # Database operations
+│   │   └── scheduler.py        # Background delivery loop
 │   └── memory/             # Memory system (v0.9.1+)
 │       ├── __init__.py
 │       ├── config.py       # Memory configuration
@@ -250,7 +266,9 @@ slashAI/
 │   ├── 006_create_image_observations.sql
 │   ├── 007_create_image_moderation_and_indexes.sql
 │   ├── 008_add_deletion_log.sql
-│   └── 009_create_analytics.sql
+│   ├── 009_create_analytics.sql
+│   ├── 010_create_scheduled_reminders.sql
+│   └── 011_create_user_settings.sql
 ├── scripts/                # CLI tools (v0.9.10+)
 │   ├── migrate_memory_format.py  # Convert memories to pronoun-neutral format
 │   ├── memory_inspector.py       # Debug and inspect memory system

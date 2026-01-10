@@ -16,6 +16,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.17] - 2026-01-10
+
+### Added
+
+#### Scheduled Reminders System
+A full-featured reminder system with natural language parsing and CRON support:
+
+- **Natural Language Time Parsing** - "in 2 hours", "tomorrow at 10am", "next Monday 3pm"
+- **Recurring Reminders** - "every weekday at 9am", "every 2 hours", full CRON expressions
+- **CRON Presets** - `hourly`, `daily`, `weekly`, `weekdays`, `weekends`, `monthly`
+- **Per-User Timezone Support** - Reminders respect user's configured timezone
+- **Background Scheduler** - 60-second polling loop for reliable delivery
+- **Retry Logic** - Up to 5 delivery attempts before marking failed
+
+#### Reminder Slash Commands
+New `/remind` command group for all users:
+
+| Command | Description |
+|---------|-------------|
+| `/remind set <message> <time>` | Create a reminder |
+| `/remind list` | View your scheduled reminders |
+| `/remind cancel <id>` | Cancel a reminder |
+| `/remind pause <id>` | Pause a recurring reminder |
+| `/remind resume <id>` | Resume a paused reminder |
+| `/remind timezone <tz>` | Set your timezone (e.g., America/Los_Angeles) |
+
+#### Agentic Reminder Tools (Owner Only)
+Claude can now set reminders via natural language for the bot owner:
+- `set_reminder` - Create reminders with natural language or CRON
+- `list_reminders` - View scheduled reminders
+- `cancel_reminder` - Cancel a reminder by ID
+
+Owner can also set reminders that post to specific channels.
+
+#### New Database Migrations
+- `migrations/010_create_scheduled_reminders.sql` - Reminders table with CRON support
+- `migrations/011_create_user_settings.sql` - User timezone preferences
+
+#### New Dependencies
+- `dateparser>=1.2.0` - Natural language time parsing
+- `croniter>=2.0.0` - CRON expression handling
+- `pytz>=2024.1` - Timezone support
+
+### Technical Details
+
+#### Files Created
+- `src/reminders/__init__.py` - Package exports
+- `src/reminders/time_parser.py` - Natural language + CRON parsing
+- `src/reminders/manager.py` - Database operations
+- `src/reminders/scheduler.py` - Background delivery loop
+- `src/commands/reminder_commands.py` - Slash command implementations
+
+#### Files Modified
+- `src/discord_bot.py` - Reminder system integration (init, start/stop scheduler)
+- `src/claude_client.py` - Added reminder tools and system prompt section
+- `requirements.txt` - Added dateparser, croniter, pytz
+- `CLAUDE.md` - Full reminder documentation
+
+#### Migration Steps
+1. Install new dependencies:
+   ```bash
+   pip install dateparser croniter pytz
+   ```
+2. Run migrations:
+   ```bash
+   psql $DATABASE_URL -f migrations/010_create_scheduled_reminders.sql
+   psql $DATABASE_URL -f migrations/011_create_user_settings.sql
+   ```
+3. Restart bot to load reminder system
+
+#### No Breaking Changes
+- Reminders are automatically enabled when database is available
+- No new required environment variables
+- Fully backwards compatible
+
+---
+
 ## [0.9.16] - 2026-01-09
 
 ### Added
@@ -688,6 +765,7 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.9.17 | 2026-01-10 | Scheduled reminders with natural language + CRON support |
 | 0.9.16 | 2026-01-09 | Native PostgreSQL analytics with slash commands and CLI tool |
 | 0.9.15 | 2026-01-03 | Fix MCP server wiping slash commands |
 | 0.9.14 | 2026-01-01 | Message search tool with cross-channel and channel name resolution |
@@ -745,7 +823,8 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.16...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.17...HEAD
+[0.9.17]: https://github.com/mindfulent/slashAI/compare/v0.9.16...v0.9.17
 [0.9.16]: https://github.com/mindfulent/slashAI/compare/v0.9.15...v0.9.16
 [0.9.15]: https://github.com/mindfulent/slashAI/compare/v0.9.14...v0.9.15
 [0.9.14]: https://github.com/mindfulent/slashAI/compare/v0.9.13...v0.9.14
