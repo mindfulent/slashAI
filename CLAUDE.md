@@ -73,6 +73,8 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 ## MCP Tools
 
+These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
+
 | Tool | Parameters | Returns |
 |------|------------|---------|
 | `send_message` | `channel_id`, `content` | Message ID |
@@ -82,18 +84,22 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `search_messages` | `query`, `channel` (optional, ID or name), `author` (optional), `limit` (default 10, max 50) | Matching messages with IDs |
 | `list_channels` | `guild_id` (optional) | Channel list with IDs |
 | `get_channel_info` | `channel_id` | Channel metadata dict |
-| `describe_message_image` | `channel_id`, `message_id`, `prompt` (optional) | Vision analysis of image |
+
+**Channel name resolution:** `search_messages` supports channel names (e.g., "server-general") in addition to IDs. Handles emoji prefixes and partial matching.
+
+**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
 
 ## Key Constants
 
 | Constant | Value | Location |
 |----------|-------|----------|
-| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py:40` |
-| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py:288` |
-| `extraction_message_threshold` | 5 exchanges | `memory/config.py:38` |
-| `similarity_threshold` | 0.3 | `memory/config.py:35` |
-| `embedding_model` | `voyage-3.5-lite` | `memory/config.py:45` |
-| `cluster_assignment_threshold` | 0.72 | `memory/config.py:91` |
+| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py` |
+| `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py` |
+| `extraction_message_threshold` | 5 exchanges | `memory/config.py` |
+| `similarity_threshold` | 0.3 | `memory/config.py` |
+| `embedding_model` | `voyage-3.5-lite` | `memory/config.py` |
+| `cluster_assignment_threshold` | 0.72 | `memory/config.py` |
+| `DISCORD_MAX_LENGTH` | 2000 chars | `discord_bot.py` |
 
 ## Environment Variables
 
@@ -111,6 +117,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 | `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
 | `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
 | `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions |
+| `ANALYTICS_ENABLED` | No | Set to "false" to disable analytics tracking (default: true) |
 
 ## Development Notes
 
@@ -124,11 +131,15 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 **Memory system rollback:** Set `MEMORY_ENABLED=false` to fall back to v0.9.0 behavior (no memory)
 
+**Prompt caching:** System prompt (~1,100 tokens) is cached via Anthropic's ephemeral cache. Cache expires after 5 minutes of inactivity. Memory context is dynamic and not cached.
+
 **Release workflow:** When cutting a new release, always update:
 1. `CHANGELOG.md` - Add version entry with date and changes
 2. `README.md` - Update "Current Version" at top
 3. `docs/MEMORY_*.md` - Update version numbers if memory-related
 4. Create GitHub release with `gh release create vX.Y.Z`
+
+**License:** AGPL-3.0 with commercial licensing option. All source files have AGPL headers.
 
 ## Database Migrations
 
@@ -148,6 +159,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 
 -- Memory management (v0.9.11)
 \i migrations/008_add_deletion_log.sql
+
+-- Analytics (v0.9.16)
+\i migrations/009_create_analytics.sql
 ```
 
 ## Memory Privacy Model
@@ -190,6 +204,16 @@ python scripts/memory_inspector.py export --all -o backup.json        # Backup A
 # IMPORTANT: Always backup first with `export --all` before running with --apply
 python scripts/migrate_memory_format.py                               # Dry run (preview)
 python scripts/migrate_memory_format.py --apply                       # Apply changes
+
+# Analytics Query - Query analytics data from command line
+python scripts/analytics_query.py summary                             # 24-hour overview
+python scripts/analytics_query.py dau                                 # Daily active users
+python scripts/analytics_query.py tokens                              # Token usage by day
+python scripts/analytics_query.py commands                            # Command usage
+python scripts/analytics_query.py errors                              # Recent errors
+python scripts/analytics_query.py latency                             # Response latency
+python scripts/analytics_query.py memory                              # Memory system stats
+python scripts/analytics_query.py tools                               # Tool execution stats
 ```
 
 ## Discord Slash Commands (v0.9.11+)
@@ -210,16 +234,33 @@ Users can manage their memories directly through Discord slash commands:
 - You can only delete your own memories
 - Mentions shows read-only view of others' guild_public memories
 
+## Analytics Commands (v0.9.16+)
+
+Owner-only slash commands for viewing bot analytics (requires `OWNER_ID` env var):
+
+| Command | Description |
+|---------|-------------|
+| `/analytics summary [hours]` | Quick overview (messages, users, tokens, cost, errors) |
+| `/analytics dau [days]` | Daily active users over time |
+| `/analytics tokens [days]` | Token usage and estimated costs |
+| `/analytics commands [days]` | Command usage breakdown |
+| `/analytics errors [limit]` | Recent errors with details |
+| `/analytics users [days]` | Top users by message count |
+| `/analytics memory [days]` | Memory system stats (extractions, retrievals, success rate) |
+
+**Event tracking:** Analytics events are tracked automatically for messages, API calls, memory operations, commands, and errors. Set `ANALYTICS_ENABLED=false` to disable.
+
 ## Troubleshooting
 
 **Bot doesn't respond to mentions:**
 - Check `ANTHROPIC_API_KEY` is set (chatbot mode requires it)
 - Verify bot has `message_content` intent enabled in Discord Developer Portal
 - Check logs: `logger.setLevel(logging.DEBUG)` for verbose output
+- Bot ignores `@everyone` and `@here` mentions (only responds to direct `@slashAI`)
 
 **Memory not being stored:**
 - Ensure `MEMORY_ENABLED=true` and `DATABASE_URL` + `VOYAGE_API_KEY` are set
-- Check migration status: all 8 migrations must be applied
+- Check migration status: all 9 migrations must be applied
 - Verify pgvector extension is enabled: `SELECT * FROM pg_extension WHERE extname = 'vector';`
 
 **MCP tools return "Discord bot not initialized":**
@@ -230,12 +271,13 @@ Users can manage their memories directly through Discord slash commands:
 **Images not being processed:**
 - Requires `IMAGE_MEMORY_ENABLED=true` plus DO Spaces credentials
 - Check image size (max 10MB) and format (png, jpg, jpeg, gif, webp)
+- Images are normalized (CMYK→RGB, EXIF stripped) before API calls
 
 **Slash commands not appearing:**
 - Commands sync on bot startup (check logs for "Synced X slash command(s)")
 - May take up to 1 hour for Discord to propagate globally
 - Requires `MEMORY_ENABLED=true` (commands only load with memory system)
-- Try `/memories` in Discord to see if the command group is registered
+- MCP-only mode (`enable_chat=False`) skips command sync to avoid wiping production commands
 
 ## Claude Code MCP Configuration
 

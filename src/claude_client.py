@@ -24,12 +24,15 @@ Integrates with memory system for persistent context.
 """
 
 import base64
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 import discord
 from anthropic import AsyncAnthropic
+
+from analytics import track
 
 if TYPE_CHECKING:
     from discord_bot import DiscordBot
@@ -437,15 +440,43 @@ class ClaudeClient:
             if tools_enabled:
                 api_kwargs["tools"] = DISCORD_TOOLS
 
+            api_start = time.time()
             response = await self.client.messages.create(**api_kwargs)
+            api_latency_ms = int((time.time() - api_start) * 1000)
 
             # Track token usage (including cache stats)
             self.total_input_tokens += response.usage.input_tokens
             self.total_output_tokens += response.usage.output_tokens
+            cache_read = 0
+            cache_creation = 0
             if hasattr(response.usage, 'cache_creation_input_tokens'):
-                self.total_cache_creation_tokens += response.usage.cache_creation_input_tokens or 0
+                cache_creation = response.usage.cache_creation_input_tokens or 0
+                self.total_cache_creation_tokens += cache_creation
             if hasattr(response.usage, 'cache_read_input_tokens'):
-                self.total_cache_read_tokens += response.usage.cache_read_input_tokens or 0
+                cache_read = response.usage.cache_read_input_tokens or 0
+                self.total_cache_read_tokens += cache_read
+
+            # Analytics: Track API call
+            guild_id = None
+            if channel:
+                guild = getattr(channel, "guild", None)
+                guild_id = guild.id if guild else None
+            track(
+                "claude_api_call",
+                "api",
+                user_id=int(user_id),
+                channel_id=int(channel_id),
+                guild_id=guild_id,
+                properties={
+                    "model": self.model,
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                    "cache_read": cache_read,
+                    "cache_creation": cache_creation,
+                    "latency_ms": api_latency_ms,
+                    "has_tools": tools_enabled,
+                },
+            )
 
             # Check if we have tool use blocks
             tool_use_blocks = [
@@ -528,13 +559,18 @@ class ClaudeClient:
         if self.bot is None:
             return "Error: Discord bot not available"
 
+        start_time = time.time()
+        result = None
+        success = False
+
         try:
             if tool_name == "send_message":
                 message = await self.bot.send_message(
                     int(tool_input["channel_id"]),
                     tool_input["content"]
                 )
-                return f"Message sent successfully. Message ID: {message.id}"
+                result = f"Message sent successfully. Message ID: {message.id}"
+                success = True
 
             elif tool_name == "edit_message":
                 await self.bot.edit_message(
@@ -542,14 +578,16 @@ class ClaudeClient:
                     int(tool_input["message_id"]),
                     tool_input["content"]
                 )
-                return f"Message {tool_input['message_id']} edited successfully"
+                result = f"Message {tool_input['message_id']} edited successfully"
+                success = True
 
             elif tool_name == "delete_message":
                 await self.bot.delete_message(
                     int(tool_input["channel_id"]),
                     int(tool_input["message_id"])
                 )
-                return f"Message {tool_input['message_id']} deleted successfully"
+                result = f"Message {tool_input['message_id']} deleted successfully"
+                success = True
 
             elif tool_name == "read_messages":
                 limit = min(tool_input.get("limit", 10), 100)
@@ -558,14 +596,16 @@ class ClaudeClient:
                     limit
                 )
                 if not messages:
-                    return "No messages found in this channel"
-                formatted = []
-                for msg in messages:
-                    timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
-                    formatted.append(
-                        f"[{timestamp}] (ID: {msg.id}) {msg.author.name}: {msg.content}"
-                    )
-                return "\n".join(formatted)
+                    result = "No messages found in this channel"
+                else:
+                    formatted = []
+                    for msg in messages:
+                        timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                        formatted.append(
+                            f"[{timestamp}] (ID: {msg.id}) {msg.author.name}: {msg.content}"
+                        )
+                    result = "\n".join(formatted)
+                success = True
 
             elif tool_name == "list_channels":
                 guild_id = tool_input.get("guild_id")
@@ -573,66 +613,97 @@ class ClaudeClient:
                     int(guild_id) if guild_id else None
                 )
                 if not channels:
-                    return "No channels found"
-                formatted = []
-                for ch in channels:
-                    guild_name = ch.guild.name if ch.guild else "Unknown"
-                    formatted.append(f"[{ch.id}] #{ch.name} (in {guild_name})")
-                return "\n".join(formatted)
+                    result = "No channels found"
+                else:
+                    formatted = []
+                    for ch in channels:
+                        guild_name = ch.guild.name if ch.guild else "Unknown"
+                        formatted.append(f"[{ch.id}] #{ch.name} (in {guild_name})")
+                    result = "\n".join(formatted)
+                success = True
 
             elif tool_name == "get_channel_info":
                 info = await self.bot.get_channel_info(
                     int(tool_input["channel_id"])
                 )
-                return "\n".join(f"{k}: {v}" for k, v in info.items())
+                result = "\n".join(f"{k}: {v}" for k, v in info.items())
+                success = True
 
             elif tool_name == "describe_message_image":
                 # Fetch the image from Discord
-                result = await self.bot.get_message_image(
+                img_result = await self.bot.get_message_image(
                     int(tool_input["channel_id"]),
                     int(tool_input["message_id"])
                 )
-                if result is None:
-                    return "No image attachment found in that message."
+                if img_result is None:
+                    result = "No image attachment found in that message."
+                    success = True
+                else:
+                    image_bytes, media_type = img_result
+                    prompt = tool_input.get("prompt", "Describe this image in detail.")
 
-                image_bytes, media_type = result
-                prompt = tool_input.get("prompt", "Describe this image in detail.")
-
-                # Make a separate Claude Vision call to describe the image
-                image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-                vision_response = await self.client.messages.create(
-                    model=self.model,
-                    max_tokens=1024,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_b64,
+                    # Make a separate Claude Vision call to describe the image
+                    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+                    vision_response = await self.client.messages.create(
+                        model=self.model,
+                        max_tokens=1024,
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": media_type,
+                                        "data": image_b64,
+                                    }
+                                },
+                                {
+                                    "type": "text",
+                                    "text": prompt
                                 }
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ]
-                    }]
-                )
+                            ]
+                        }]
+                    )
 
-                # Track token usage for this vision call
-                self.total_input_tokens += vision_response.usage.input_tokens
-                self.total_output_tokens += vision_response.usage.output_tokens
+                    # Track token usage for this vision call
+                    self.total_input_tokens += vision_response.usage.input_tokens
+                    self.total_output_tokens += vision_response.usage.output_tokens
 
-                return vision_response.content[0].text
+                    result = vision_response.content[0].text
+                    success = True
 
             else:
-                return f"Unknown tool: {tool_name}"
+                result = f"Unknown tool: {tool_name}"
+                success = False
 
         except Exception as e:
-            return f"Error executing {tool_name}: {str(e)}"
+            result = f"Error executing {tool_name}: {str(e)}"
+            success = False
+            # Analytics: Track tool error
+            track(
+                "tool_error",
+                "error",
+                properties={
+                    "tool_name": tool_name,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)[:200],
+                },
+            )
+
+        # Analytics: Track tool execution
+        latency_ms = int((time.time() - start_time) * 1000)
+        track(
+            "tool_executed",
+            "tool",
+            properties={
+                "tool_name": tool_name,
+                "success": success,
+                "latency_ms": latency_ms,
+            },
+        )
+
+        return result
 
     def _format_memories(
         self,

@@ -27,6 +27,7 @@ import asyncio
 import io
 import os
 import re
+import time
 from typing import Optional
 
 import asyncpg
@@ -36,6 +37,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from PIL import Image
 
+from analytics import track, shutdown as analytics_shutdown
 from claude_client import ClaudeClient
 
 load_dotenv()
@@ -261,6 +263,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load memory commands: {e}", exc_info=True)
 
+                # Load analytics slash commands (owner-only)
+                try:
+                    from commands.analytics_commands import AnalyticsCommands
+                    await self.add_cog(AnalyticsCommands(self, self.db_pool))
+                    logger.info("Analytics commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load analytics commands: {e}", exc_info=True)
+
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
                     await self._setup_image_memory(anthropic_client)
@@ -347,6 +357,21 @@ class DiscordBot(commands.Bot):
             f"mention={is_mention} dm={is_dm} content_len={len(message.content)}"
         )
 
+        # Analytics: Track message received
+        track(
+            "message_received",
+            "message",
+            user_id=message.author.id,
+            channel_id=message.channel.id,
+            guild_id=message.guild.id if message.guild else None,
+            properties={
+                "channel_type": "dm" if is_dm else "guild",
+                "has_attachments": has_attachments,
+                "content_length": len(message.content),
+                "is_mention": is_mention,
+            },
+        )
+
         # Process commands first
         await self.process_commands(message)
 
@@ -424,6 +449,7 @@ class DiscordBot(commands.Bot):
         if not content and not images:
             return
 
+        start_time = time.time()
         async with message.channel.typing():
             try:
                 response = await self.claude_client.chat(
@@ -433,9 +459,38 @@ class DiscordBot(commands.Bot):
                     channel=message.channel,  # Pass channel for memory privacy
                     images=images if images else None,
                 )
+                chunks = self._chunk_message(response)
                 await self._send_chunked(message.channel, response, reply_to=message)
+
+                # Analytics: Track response sent
+                latency_ms = int((time.time() - start_time) * 1000)
+                track(
+                    "response_sent",
+                    "message",
+                    user_id=message.author.id,
+                    channel_id=message.channel.id,
+                    guild_id=message.guild.id if message.guild else None,
+                    properties={
+                        "response_length": len(response),
+                        "chunk_count": len(chunks),
+                        "latency_ms": latency_ms,
+                        "has_images": bool(images),
+                    },
+                )
             except Exception as e:
                 logger.error(f"Chat error: {e}", exc_info=True)
+                # Analytics: Track error
+                track(
+                    "chat_error",
+                    "error",
+                    user_id=message.author.id,
+                    channel_id=message.channel.id,
+                    guild_id=message.guild.id if message.guild else None,
+                    properties={
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)[:200],
+                    },
+                )
                 await message.reply(f"Sorry, I encountered an error: {str(e)}")
 
     async def _read_text_attachments(
@@ -633,6 +688,7 @@ class DiscordBot(commands.Bot):
 
     async def close(self):
         """Clean up resources on shutdown."""
+        await analytics_shutdown()
         if self.db_pool:
             await self.db_pool.close()
         await super().close()

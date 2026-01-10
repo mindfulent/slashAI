@@ -30,6 +30,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from analytics import track
 from .views import PaginationView, DeleteConfirmView, MemoryDetailView
 
 logger = logging.getLogger("slashAI.commands.memory")
@@ -87,6 +88,16 @@ class MemoryCommands(commands.Cog):
     ):
         """List your memories."""
         await interaction.response.defer(ephemeral=True)
+
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "list", "page": page, "privacy": privacy},
+        )
 
         user_id = interaction.user.id
         offset = (page - 1) * PAGE_SIZE
@@ -192,6 +203,16 @@ class MemoryCommands(commands.Cog):
         """Search your memories by text."""
         await interaction.response.defer(ephemeral=True)
 
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "search", "page": page},
+        )
+
         user_id = interaction.user.id
         offset = (page - 1) * PAGE_SIZE
 
@@ -278,6 +299,16 @@ class MemoryCommands(commands.Cog):
     ):
         """View public memories from others that mention you."""
         await interaction.response.defer(ephemeral=True)
+
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "mentions", "page": page},
+        )
 
         # This command only works in guilds
         if not interaction.guild:
@@ -426,6 +457,16 @@ class MemoryCommands(commands.Cog):
     ):
         """View full details of a memory."""
         await interaction.response.defer(ephemeral=True)
+
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "view", "memory_id": memory_id},
+        )
 
         user_id = interaction.user.id
         memory = await self.memory.get_memory(memory_id)
@@ -598,6 +639,15 @@ class MemoryCommands(commands.Cog):
         memory_id: int,
     ):
         """Delete one of your memories."""
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "delete", "memory_id": memory_id},
+        )
         await self._confirm_delete(interaction, memory_id)
 
     # =========================================================================
@@ -608,6 +658,16 @@ class MemoryCommands(commands.Cog):
     async def memory_stats(self, interaction: discord.Interaction):
         """View your memory statistics."""
         await interaction.response.defer(ephemeral=True)
+
+        # Analytics: Track command usage
+        track(
+            "command_used",
+            "command",
+            user_id=interaction.user.id,
+            channel_id=interaction.channel_id,
+            guild_id=interaction.guild.id if interaction.guild else None,
+            properties={"command_name": "memories", "subcommand": "stats"},
+        )
 
         user_id = interaction.user.id
         stats = await self.memory.get_user_stats(user_id)

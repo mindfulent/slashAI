@@ -30,6 +30,8 @@ import asyncpg
 import discord
 from anthropic import AsyncAnthropic
 
+from analytics import track
+
 logger = logging.getLogger("slashAI.memory")
 
 from .config import MemoryConfig
@@ -83,6 +85,22 @@ class MemoryManager:
         logger.info(f"Retrieving memories for user={user_id}, query={query[:50]}...")
         memories = await self.retriever.retrieve(user_id, query, channel)
         logger.info(f"Retrieved {len(memories)} memories")
+
+        # Analytics: Track retrieval
+        guild = getattr(channel, "guild", None)
+        track(
+            "retrieval_performed",
+            "memory",
+            user_id=user_id,
+            channel_id=getattr(channel, "id", None),
+            guild_id=guild.id if guild else None,
+            properties={
+                "query_length": len(query),
+                "results_count": len(memories),
+                "top_similarity": memories[0].similarity if memories else 0.0,
+            },
+        )
+
         for mem in memories:
             logger.debug(f"  - [{mem.memory_type}] {mem.summary[:50]}... (sim={mem.similarity:.3f})")
         return memories
@@ -209,6 +227,23 @@ class MemoryManager:
         messages: list[dict],
     ):
         """Extract memories from accumulated messages."""
+        guild = getattr(channel, "guild", None)
+        guild_id = guild.id if guild else None
+        channel_privacy = await classify_channel_privacy(channel)
+
+        # Analytics: Track extraction triggered
+        track(
+            "extraction_triggered",
+            "memory",
+            user_id=user_id,
+            channel_id=channel_id,
+            guild_id=guild_id,
+            properties={
+                "message_count": len(messages),
+                "channel_privacy": channel_privacy.value,
+            },
+        )
+
         try:
             logger.info(f"Extracting memories from {len(messages)} messages")
             extracted_with_privacy = await self.extractor.extract_with_privacy(
@@ -216,13 +251,24 @@ class MemoryManager:
             )
             logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
 
-            guild = getattr(channel, "guild", None)
-            guild_id = guild.id if guild else None
-
             for memory, privacy_level in extracted_with_privacy:
                 logger.info(f"Storing memory: [{privacy_level.value}] {memory.summary[:50]}...")
                 await self.updater.update(
                     user_id, memory, privacy_level, channel_id, guild_id
+                )
+
+                # Analytics: Track memory created
+                track(
+                    "memory_created",
+                    "memory",
+                    user_id=user_id,
+                    channel_id=channel_id,
+                    guild_id=guild_id,
+                    properties={
+                        "memory_type": memory.memory_type,
+                        "privacy_level": privacy_level.value,
+                        "confidence": memory.confidence,
+                    },
                 )
 
             # Reset session after extraction
@@ -235,6 +281,18 @@ class MemoryManager:
             logger.info(f"Session reset for user={user_id}, channel={channel_id}")
         except Exception as e:
             logger.error(f"Memory extraction failed for user={user_id}: {e}", exc_info=True)
+            # Analytics: Track extraction failure
+            track(
+                "extraction_failed",
+                "error",
+                user_id=user_id,
+                channel_id=channel_id,
+                guild_id=guild_id,
+                properties={
+                    "error_type": type(e).__name__,
+                    "message_count": len(messages),
+                },
+            )
             # Don't reset session on failure - will retry next threshold
 
     # =========================================================================
