@@ -47,8 +47,12 @@ Claude can now set reminders via natural language for the bot owner:
 - `set_reminder` - Create reminders with natural language or CRON
 - `list_reminders` - View scheduled reminders
 - `cancel_reminder` - Cancel a reminder by ID
+- `set_user_timezone` - Set timezone preference (Claude interprets natural language like "west coast" → America/Los_Angeles)
 
 Owner can also set reminders that post to specific channels.
+
+#### First-Time User Experience
+When creating a reminder without a timezone set, Claude now asks for your timezone conversationally. You can respond naturally ("I'm on the west coast", "NYC", "Pacific time") and Claude will interpret it correctly.
 
 #### New Database Migrations
 - `migrations/010_create_scheduled_reminders.sql` - Reminders table with CRON support
@@ -58,6 +62,9 @@ Owner can also set reminders that post to specific channels.
 - `dateparser>=1.2.0` - Natural language time parsing
 - `croniter>=2.0.0` - CRON expression handling
 - `pytz>=2024.1` - Timezone support
+
+### Fixed
+- **Timezone not applied to agentic reminders** - The `set_reminder` tool was hardcoded to use UTC instead of fetching the user's timezone preference. Now correctly uses the user's stored timezone.
 
 ### Technical Details
 

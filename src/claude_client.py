@@ -222,6 +222,20 @@ DISCORD_TOOLS = [
             "required": ["reminder_id"]
         }
     },
+    {
+        "name": "set_user_timezone",
+        "description": "Set the user's timezone preference. Use IANA timezone names (e.g., 'America/Los_Angeles', 'America/New_York', 'Europe/London'). Call this when the user tells you their timezone in natural language - interpret their response (e.g., 'west coast' -> 'America/Los_Angeles', 'NYC' -> 'America/New_York').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone name (e.g., 'America/Los_Angeles', 'Europe/London')"
+                }
+            },
+            "required": ["timezone"]
+        }
+    },
 ]
 
 # Default system prompt for the chatbot
@@ -748,42 +762,76 @@ class ClaudeClient:
                     content = tool_input["content"]
                     time_expr = tool_input["time"]
                     channel_id = tool_input.get("channel_id")
+                    user_id = int(self.owner_id)
 
-                    # Get user timezone (need user_id from conversation context)
-                    # For tool execution, we use UTC as default
-                    user_tz = "UTC"
-
-                    try:
-                        parsed = parse_time_expression(time_expr, user_tz)
-
-                        # Check channel delivery permission
-                        is_channel_delivery = False
-                        delivery_channel_id = None
-                        if channel_id and self.owner_id:
-                            is_channel_delivery = True
-                            delivery_channel_id = int(channel_id)
-
-                        # Create the reminder (use owner_id since only owner can use tools)
-                        reminder_id = await self.bot.reminder_manager.create_reminder(
-                            user_id=int(self.owner_id),
-                            content=content,
-                            parsed_time=parsed,
-                            delivery_channel_id=delivery_channel_id,
-                            is_channel_delivery=is_channel_delivery,
-                        )
-
-                        schedule = f"Recurring ({parsed.cron_expression})" if parsed.is_recurring else "One-time"
+                    # Check if user has timezone set
+                    has_tz = await self.bot.reminder_manager.has_user_timezone(user_id)
+                    if not has_tz:
+                        # Prompt Claude to ask the user for their timezone
                         result = (
-                            f"Reminder created successfully!\n"
-                            f"ID: {reminder_id}\n"
-                            f"Message: {content}\n"
-                            f"Schedule: {schedule}\n"
-                            f"Next: {parsed.next_execution.strftime('%Y-%m-%d %H:%M UTC')}\n"
-                            f"Delivery: {'Channel ' + str(delivery_channel_id) if is_channel_delivery else 'DM'}"
+                            "Cannot create reminder: User's timezone is not set. "
+                            "Ask them what timezone they're in - they can say a city, region, "
+                            "or abbreviation like 'Pacific', 'EST', or 'London'. "
+                            "Then call set_user_timezone with the IANA timezone name before retrying."
                         )
+                        success = False
+                    else:
+                        # Get the user's timezone
+                        user_tz = await self.bot.reminder_manager.get_user_timezone(user_id)
+
+                        try:
+                            parsed = parse_time_expression(time_expr, user_tz)
+
+                            # Check channel delivery permission
+                            is_channel_delivery = False
+                            delivery_channel_id = None
+                            if channel_id and self.owner_id:
+                                is_channel_delivery = True
+                                delivery_channel_id = int(channel_id)
+
+                            # Create the reminder
+                            reminder_id = await self.bot.reminder_manager.create_reminder(
+                                user_id=user_id,
+                                content=content,
+                                parsed_time=parsed,
+                                delivery_channel_id=delivery_channel_id,
+                                is_channel_delivery=is_channel_delivery,
+                            )
+
+                            schedule = f"Recurring ({parsed.cron_expression})" if parsed.is_recurring else "One-time"
+                            result = (
+                                f"Reminder created successfully!\n"
+                                f"ID: {reminder_id}\n"
+                                f"Message: {content}\n"
+                                f"Schedule: {schedule}\n"
+                                f"Next: {parsed.next_execution.strftime('%Y-%m-%d %H:%M')} {user_tz}\n"
+                                f"Delivery: {'Channel ' + str(delivery_channel_id) if is_channel_delivery else 'DM'}"
+                            )
+                            success = True
+                        except TimeParseError as e:
+                            result = f"Could not parse time: {e}"
+                            success = False
+
+            elif tool_name == "set_user_timezone":
+                # Set user timezone
+                if not hasattr(self.bot, 'reminder_manager') or self.bot.reminder_manager is None:
+                    result = "Reminder system is not available"
+                    success = False
+                else:
+                    timezone = tool_input["timezone"]
+                    user_id = int(self.owner_id)
+
+                    # Validate and set the timezone
+                    tz_set = await self.bot.reminder_manager.set_user_timezone(user_id, timezone)
+                    if tz_set:
+                        result = f"Timezone set to {timezone}. You can now create reminders using this timezone."
                         success = True
-                    except TimeParseError as e:
-                        result = f"Could not parse time: {e}"
+                    else:
+                        result = (
+                            f"Invalid timezone: '{timezone}'. "
+                            "Please use a valid IANA timezone name like 'America/Los_Angeles', "
+                            "'America/New_York', 'Europe/London', etc."
+                        )
                         success = False
 
             elif tool_name == "list_reminders":

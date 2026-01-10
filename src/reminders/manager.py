@@ -319,6 +319,25 @@ class ReminderManager:
         logger.info(f"Set timezone for user {user_id}: {timezone}")
         return True
 
+    async def has_user_timezone(self, user_id: int) -> bool:
+        """
+        Check if a user has set their timezone preference.
+
+        Args:
+            user_id: Discord user ID
+
+        Returns:
+            True if user has a timezone set, False otherwise
+        """
+        row = await self.db.fetchrow(
+            """
+            SELECT 1 FROM user_settings
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+        return row is not None
+
     # =========================================================================
     # Scheduler-facing methods
     # =========================================================================

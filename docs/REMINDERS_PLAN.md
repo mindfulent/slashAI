@@ -213,12 +213,14 @@ embed.set_footer(text=f"Reminder ID: {reminder_id}")
 ```python
 {
     "name": "list_reminders",
-    "description": "List scheduled reminders for a user.",
+    "description": "List scheduled reminders for the current user.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "user_id": {"type": "string"},
-            "include_completed": {"type": "boolean"}
+            "include_completed": {
+                "type": "boolean",
+                "description": "Include completed/failed reminders (default: false)"
+            }
         }
     }
 }
@@ -238,6 +240,35 @@ embed.set_footer(text=f"Reminder ID: {reminder_id}")
     }
 }
 ```
+
+#### set_user_timezone
+```python
+{
+    "name": "set_user_timezone",
+    "description": "Set the user's timezone preference. Use IANA timezone names. Call this when the user tells you their timezone in natural language - interpret their response (e.g., 'west coast' -> 'America/Los_Angeles').",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "timezone": {
+                "type": "string",
+                "description": "IANA timezone name (e.g., 'America/Los_Angeles', 'Europe/London')"
+            }
+        },
+        "required": ["timezone"]
+    }
+}
+```
+
+**First-time user experience:**
+
+When `set_reminder` is called and the user hasn't set their timezone:
+1. Tool returns error prompting Claude to ask the user for their timezone
+2. Claude asks conversationally: "What timezone are you in?"
+3. User responds naturally: "west coast", "I'm in Seattle", "PST", etc.
+4. Claude interprets and calls `set_user_timezone` with IANA timezone
+5. Claude retries `set_reminder` with correct timezone
+
+This ensures times are always interpreted correctly without requiring users to know IANA timezone names.
 
 ---
 
