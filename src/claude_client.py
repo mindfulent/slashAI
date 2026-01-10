@@ -313,6 +313,20 @@ Users can view and manage their memories using slash commands:
 
 All command responses are private (ephemeral). Users can only delete their own memories. If someone asks about managing their memories or what you know about them, mention these commands.
 
+### Scheduled Reminders
+You can set reminders for users that will be delivered later:
+- One-time reminders: "remind me in 2 hours to check the server"
+- Recurring reminders: "remind me every weekday at 9am to check logs"
+- Supports natural language times and CRON expressions
+
+When someone asks you to remind them of something, use the `set_reminder` tool. Reminders are delivered via DM. Users can also use slash commands:
+- `/remind set <message> <time>` - Create a reminder
+- `/remind list` - View scheduled reminders
+- `/remind cancel <id>` - Cancel a reminder
+- `/remind timezone <tz>` - Set their timezone (e.g., America/Los_Angeles)
+
+For the owner, you can also set reminders that post to specific channels.
+
 ### Real-Time Vision
 You can see and interpret images shared in the current message:
 - Describe what's in screenshots
