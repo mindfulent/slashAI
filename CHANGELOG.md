@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.18] - 2026-01-11
+
+### Fixed
+
+- **Timezone bug in one-time reminders** - Fixed issue where reminders like "at 9:42pm" would fire 1 day late when the user's local time and UTC were on different calendar days. Added `RELATIVE_BASE` to dateparser settings to anchor time parsing to the user's local "now" instead of system/UTC time.
+
+---
+
 ## [0.9.17] - 2026-01-10
 
 ### Added

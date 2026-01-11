@@ -317,10 +317,17 @@ def parse_time_expression(expr: str, user_timezone: str = "UTC") -> ParsedTime:
         )
 
     # Try parsing as one-time natural language
+    # IMPORTANT: Use RELATIVE_BASE to anchor "now" to the user's local time.
+    # Without this, dateparser may get confused about which day to use when
+    # the user's local time and UTC are on different calendar days.
+    # Example: At 9:40pm Pacific (5:40am UTC next day), "at 9:42pm" should be
+    # 2 minutes away, not 1 day + 2 minutes away.
+    now_local = datetime.now(user_tz)
     settings = {
         'TIMEZONE': user_timezone,
         'RETURN_AS_TIMEZONE_AWARE': True,
         'PREFER_DATES_FROM': 'future',
+        'RELATIVE_BASE': now_local.replace(tzinfo=None),
     }
 
     parsed = dateparser.parse(expr, settings=settings)
@@ -333,8 +340,7 @@ def parse_time_expression(expr: str, user_timezone: str = "UTC") -> ParsedTime:
         )
 
     # Ensure it's in the future
-    now = datetime.now(user_tz)
-    if parsed <= now:
+    if parsed <= now_local:
         # If parsed time is in the past, dateparser might have gotten the date wrong
         # Try to be more specific
         raise TimeParseError(
