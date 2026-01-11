@@ -43,6 +43,9 @@ When `OWNER_ID` sets a reminder in a public channel via natural language, the re
 
 - **Bot messages counted in analytics** - Changed `message.author == self.user` to `message.author.bot` to filter ALL bot messages (was tracking other bots like DeanBot in analytics)
 - **`/analytics users` improvements** - Now shows all users with resolved usernames and DM vs public message breakdown
+- **Database connection pool exhaustion** - Limited main pool to 2-5 connections (was default 10) to stay under managed Postgres limits
+- **Discord mention format** - Fixed @mentions in reminder messages to use numeric user ID instead of literal `<@{user.id}>`
+- **Timezone display in confirmation** - Fixed reminder confirmation showing UTC time with user's timezone label; now converts back to local time
 
 ### Technical Details
 
