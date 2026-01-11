@@ -16,6 +16,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.19] - 2026-01-11
+
+### Added
+
+#### Conversational Reminder Delivery
+Reminders are now delivered as natural, context-aware messages instead of structured embeds:
+
+- **AI-Generated Messages** - Uses Claude Sonnet to craft personalized reminder messages at delivery time
+- **Channel Context** - Reads recent messages in public channels to match conversation tone
+- **Memory Integration** - Retrieves relevant user memories for personalized context
+- **Time with Timezone** - Includes time with shorthand timezone (e.g., "10:00 AM PST")
+- **Natural Recurrence** - Says "your daily reminder" or "weekly reminder" instead of showing CRON
+- **Fallback Template** - Simple message if API unavailable
+
+#### Auto-Detect Channel Delivery for Owner
+When `OWNER_ID` sets a reminder in a public channel via natural language, the reminder automatically delivers to that channel (no explicit `channel_id` parameter needed). DM reminders still deliver via DM.
+
+| User | Sets Reminder In | Delivery Location |
+|------|------------------|-------------------|
+| Regular user | Anywhere | DM |
+| OWNER_ID | DM | DM |
+| OWNER_ID | Public channel | That channel |
+
+### Fixed
+
+- **Bot messages counted in analytics** - Changed `message.author == self.user` to `message.author.bot` to filter ALL bot messages (was tracking other bots like DeanBot in analytics)
+- **`/analytics users` improvements** - Now shows all users with resolved usernames and DM vs public message breakdown
+
+### Technical Details
+
+#### Files Modified
+- `src/reminders/scheduler.py` - Added Sonnet message generation, channel context, memory retrieval
+- `src/claude_client.py` - Auto-detect owner + public channel for channel delivery
+- `src/discord_bot.py` - Filter all bot messages from processing
+- `src/commands/analytics_commands.py` - Enhanced `/analytics users` output
+- `docs/REMINDERS_PLAN.md` - Updated with v0.9.19 enhancements
+
+---
+
 ## [0.9.18] - 2026-01-11
 
 ### Fixed
