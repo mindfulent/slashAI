@@ -299,10 +299,16 @@ class ReminderScheduler:
             if memory_context:
                 prompt_parts.append(f"\nRelevant context about this user:\n{memory_context}")
 
+            # Build mention instruction
+            if is_channel:
+                mention_instruction = f"- Start with the Discord mention <@{user.id}> (use this exact text)"
+            else:
+                mention_instruction = "- No @mention needed (this is a DM)"
+
             prompt_parts.extend([
                 "",
                 "Generate a natural, conversational reminder message. Guidelines:",
-                f"- {'Include @mention: <@{user.id}>' if is_channel else 'No @mention needed (this is a DM)'}",
+                mention_instruction,
                 "- Include the reminder content naturally",
                 f"- Mention the time with timezone: {time_str} {tz_short}",
                 f"- For recurring reminders, note the frequency naturally (e.g., 'your {recurrence} reminder')" if cron_expression else "",
@@ -323,8 +329,6 @@ class ReminderScheduler:
 
             if response.content and response.content[0].type == "text":
                 message = response.content[0].text.strip()
-                # Replace placeholder mention with actual mention
-                message = message.replace(f"<@{user.id}>", f"<@{user.id}>")
                 return message
 
             return fallback_message
