@@ -246,7 +246,9 @@ class DiscordBot(commands.Bot):
             try:
                 from memory import MemoryManager
 
-                self.db_pool = await asyncpg.create_pool(database_url)
+                self.db_pool = await asyncpg.create_pool(
+                    database_url, min_size=2, max_size=5
+                )
                 anthropic_client = AsyncAnthropic(api_key=api_key)
                 memory_manager = MemoryManager(self.db_pool, anthropic_client)
                 self.claude_client = ClaudeClient(
