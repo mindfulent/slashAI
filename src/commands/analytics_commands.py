@@ -365,7 +365,7 @@ class AnalyticsCommands(commands.Cog):
     @owner_only()
     @app_commands.describe(days="Number of days to analyze (default: 30)")
     async def users(self, interaction: discord.Interaction, days: int = 30):
-        """Top users by message count."""
+        """All users by message count."""
         await interaction.response.defer(ephemeral=True)
 
         rows = await self.db.fetch(
@@ -374,6 +374,7 @@ class AnalyticsCommands(commands.Cog):
                 user_id,
                 COUNT(*) as message_count,
                 COUNT(*) FILTER (WHERE properties->>'channel_type' = 'dm') as dm_count,
+                COUNT(*) FILTER (WHERE properties->>'channel_type' = 'guild') as guild_count,
                 MIN(created_at) as first_seen,
                 MAX(created_at) as last_seen
             FROM analytics_events
@@ -382,7 +383,6 @@ class AnalyticsCommands(commands.Cog):
               AND created_at > NOW() - make_interval(days => $1)
             GROUP BY user_id
             ORDER BY message_count DESC
-            LIMIT 10
             """,
             days,
         )
@@ -392,28 +392,31 @@ class AnalyticsCommands(commands.Cog):
             return
 
         embed = discord.Embed(
-            title=f"Top Users ({days} days)",
+            title=f"All Users ({days} days)",
             color=discord.Color.blue(),
         )
 
-        lines = ["```", "User ID            | Msgs |  DMs", "-" * 38]
+        # Resolve usernames for all users
+        user_lines = []
         for row in rows:
-            lines.append(f"{row['user_id']:<18} | {row['message_count']:>4} | {row['dm_count']:>4}")
-        lines.append("```")
-
-        embed.description = "\n".join(lines)
-
-        # Try to resolve usernames for top 3
-        resolved = []
-        for row in rows[:3]:
             try:
                 user = await self.bot.fetch_user(row["user_id"])
-                resolved.append(f"{user.display_name}: {row['message_count']} msgs")
+                username = user.display_name
             except Exception:
-                resolved.append(f"User {row['user_id']}: {row['message_count']} msgs")
+                username = f"User {row['user_id']}"
 
-        if resolved:
-            embed.add_field(name="Top 3", value="\n".join(resolved), inline=False)
+            dm = row["dm_count"]
+            guild = row["guild_count"]
+            total = row["message_count"]
+            user_lines.append(f"**{username}**: {total} msgs ({dm} DM, {guild} public)")
+
+        embed.description = "\n".join(user_lines)
+
+        # Summary footer
+        total_msgs = sum(r["message_count"] for r in rows)
+        total_dm = sum(r["dm_count"] for r in rows)
+        total_guild = sum(r["guild_count"] for r in rows)
+        embed.set_footer(text=f"Total: {len(rows)} users, {total_msgs} msgs ({total_dm} DM, {total_guild} public)")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 

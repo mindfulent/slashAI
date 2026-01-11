@@ -363,8 +363,8 @@ class DiscordBot(commands.Bot):
 
     async def on_message(self, message: discord.Message):
         """Handle incoming messages for chatbot functionality."""
-        # Ignore messages from the bot itself
-        if message.author == self.user:
+        # Ignore messages from bots (including self)
+        if message.author.bot:
             return
 
         # DEBUG: Log every incoming message to diagnose mobile upload issues

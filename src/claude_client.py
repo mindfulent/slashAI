@@ -586,7 +586,8 @@ class ClaudeClient:
             for tool_block in tool_use_blocks:
                 result = await self._execute_tool(
                     tool_block.name,
-                    tool_block.input
+                    tool_block.input,
+                    source_channel=channel,
                 )
                 tool_results.append({
                     "type": "tool_result",
@@ -623,13 +624,19 @@ class ClaudeClient:
 
         return response_text
 
-    async def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
+    async def _execute_tool(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        source_channel: Optional[discord.abc.Messageable] = None,
+    ) -> str:
         """
         Execute a Discord tool and return the result.
 
         Args:
             tool_name: Name of the tool to execute
             tool_input: Tool input parameters
+            source_channel: The channel where the original message was sent (for context)
 
         Returns:
             String result of the tool execution
@@ -782,12 +789,23 @@ class ClaudeClient:
                         try:
                             parsed = parse_time_expression(time_expr, user_tz)
 
-                            # Check channel delivery permission
+                            # Determine channel delivery:
+                            # - If explicit channel_id provided (admin only), use it
+                            # - If OWNER_ID and source is a guild channel, auto-deliver to that channel
+                            # - Otherwise, deliver via DM
                             is_channel_delivery = False
                             delivery_channel_id = None
+
                             if channel_id and self.owner_id:
+                                # Explicit channel_id provided
                                 is_channel_delivery = True
                                 delivery_channel_id = int(channel_id)
+                            elif self.owner_id and source_channel:
+                                # Auto-detect: OWNER_ID in public guild channel
+                                is_guild_channel = hasattr(source_channel, 'guild') and source_channel.guild is not None
+                                if is_guild_channel:
+                                    is_channel_delivery = True
+                                    delivery_channel_id = source_channel.id
 
                             # Create the reminder
                             reminder_id = await self.bot.reminder_manager.create_reminder(
@@ -799,13 +817,14 @@ class ClaudeClient:
                             )
 
                             schedule = f"Recurring ({parsed.cron_expression})" if parsed.is_recurring else "One-time"
+                            delivery_desc = f"Channel <#{delivery_channel_id}>" if is_channel_delivery else "DM"
                             result = (
                                 f"Reminder created successfully!\n"
                                 f"ID: {reminder_id}\n"
                                 f"Message: {content}\n"
                                 f"Schedule: {schedule}\n"
                                 f"Next: {parsed.next_execution.strftime('%Y-%m-%d %H:%M')} {user_tz}\n"
-                                f"Delivery: {'Channel ' + str(delivery_channel_id) if is_channel_delivery else 'DM'}"
+                                f"Delivery: {delivery_desc}"
                             )
                             success = True
                         except TimeParseError as e:
