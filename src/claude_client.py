@@ -818,12 +818,16 @@ class ClaudeClient:
 
                             schedule = f"Recurring ({parsed.cron_expression})" if parsed.is_recurring else "One-time"
                             delivery_desc = f"Channel <#{delivery_channel_id}>" if is_channel_delivery else "DM"
+                            # Convert UTC time back to user's timezone for display
+                            import pytz
+                            user_tz_obj = pytz.timezone(user_tz)
+                            next_local = parsed.next_execution.astimezone(user_tz_obj)
                             result = (
                                 f"Reminder created successfully!\n"
                                 f"ID: {reminder_id}\n"
                                 f"Message: {content}\n"
                                 f"Schedule: {schedule}\n"
-                                f"Next: {parsed.next_execution.strftime('%Y-%m-%d %H:%M')} {user_tz}\n"
+                                f"Next: {next_local.strftime('%Y-%m-%d %I:%M %p')} {user_tz}\n"
                                 f"Delivery: {delivery_desc}"
                             )
                             success = True
