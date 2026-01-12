@@ -252,13 +252,22 @@ class MemoryManager:
         channel_id = getattr(channel, "id", None)
 
         # Embed query using multimodal model (same as image embeddings)
-        result = await self._voyage.embed(
-            [query],
-            model=self.image_config.image_embedding_model,
-            input_type="query",
-        )
-        embedding = result.embeddings[0]
-        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        # Note: Must use multimodal_embed() with text input, not embed()
+        # voyage-multimodal-3 embeds both images and text in the same space
+        try:
+            result = await self._voyage.multimodal_embed(
+                inputs=[[query]],  # Text wrapped in list for multimodal API
+                model=self.image_config.image_embedding_model,
+            )
+            embedding = result.embeddings[0]
+            embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        except Exception as e:
+            # Multimodal embedding not available - skip image retrieval
+            logger.warning(
+                f"Image retrieval skipped: multimodal embedding failed ({type(e).__name__}: {e}). "
+                f"Ensure voyage-multimodal-3 access is enabled."
+            )
+            return []
 
         # Build privacy-filtered query
         # Use image-calibrated threshold (0.15 minimum, much lower than text)
