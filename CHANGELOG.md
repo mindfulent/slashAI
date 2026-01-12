@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.9.23] - 2026-01-11
+## [0.9.23] - 2026-01-12
 
 ### Added
 
@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 When you ask about images ("what images have I shared?", "my builds"), the system now semantically searches stored image observations—not just text memories *about* the image system.
 
 **How it works:**
-1. Query is embedded using Voyage multimodal (same model as stored images)
+1. Query is embedded using Voyage multimodal API (`multimodal_embed()`) - same embedding space as stored images
 2. `image_observations` table is searched by embedding similarity
 3. Relevant image descriptions, summaries, and tags are formatted into context
 4. Uses calibrated image thresholds (0.15 minimum, 0.40 high relevance)
@@ -38,10 +38,22 @@ When you ask about images ("what images have I shared?", "my builds"), the syste
 
 This completes the image memory retrieval pipeline. Previously, `get_build_context()` returned recent clusters by time, but didn't match images to the user's query.
 
+### Fixed
+
+- **Multimodal API call**: Must use `multimodal_embed()` (not `embed()`) for text queries against image embeddings. Both images and text are embedded in the same vector space by voyage-multimodal-3.
+
+### Validated in Production
+
+Tested with real queries:
+- "what can you remember about images I've shared?" → Retrieved 5 relevant image observations
+- "what about minecraft builds?" → Retrieved 5 text memories + 5 image memories
+
+Bot correctly reported specific build details (library with quartz ceiling, custom tree with purple foliage, Old Vic theatre) from stored observations without hallucination.
+
 ### Technical Details
 
 #### Files Modified
-- `src/memory/manager.py` - Added `retrieve_images()` method with privacy-filtered semantic search
+- `src/memory/manager.py` - Added `retrieve_images()` method with privacy-filtered semantic search using `multimodal_embed()`
 - `src/claude_client.py` - Added `_format_images()` and `_image_relevance_label()`, integrated into chat context
 - `src/memory/__init__.py` - Exported `RetrievedImage` dataclass
 
