@@ -321,7 +321,7 @@ Memvid's model assumes **controlled access** to the entire memory file, which is
 
 **Flow:**
 ```
-Conversation (10+ messages) → Claude extraction prompt → Structured memories
+Conversation (5+ exchanges) → Claude extraction prompt → Structured memories
 ```
 
 **Extraction Output:**
@@ -448,7 +448,7 @@ slashAI's image system is deeper but narrower (Minecraft-focused), while Memvid 
    - Prevents misattribution bugs (the "Rain incident")
    - See: [MEMORY_ATTRIBUTION_PLAN.md](./MEMORY_ATTRIBUTION_PLAN.md)
 
-2. **Memory Introspection** (planned)
+2. **Memory Introspection** (v0.9.21)
    - Shows Claude relevance/confidence/privacy/recency metadata
    - Enables confidence-appropriate language ("I think..." vs factual)
    - See: [META_MEMORY_PLAN.md](./META_MEMORY_PLAN.md)
