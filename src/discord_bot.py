@@ -48,8 +48,8 @@ import logging
 DISCORD_MAX_LENGTH = 2000
 
 # Anthropic API limits for images
-MAX_IMAGE_BYTES = 5_000_000  # 5MB limit for Anthropic API
-MAX_IMAGE_DIMENSION = 8000  # Max 8000x8000 pixels
+MAX_IMAGE_BYTES = 1_000_000  # ~1MB limit (accounts for base64 overhead + API efficiency)
+MAX_IMAGE_DIMENSION = 2048  # Max 2048px (Anthropic downsamples to ~1.15MP anyway)
 
 
 def normalize_image_for_api(image_bytes: bytes, media_type: str) -> tuple[bytes, str]:
@@ -136,7 +136,10 @@ logger = logging.getLogger("slashAI")
 
 def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = MAX_IMAGE_BYTES) -> tuple[bytes, str]:
     """
-    Resize an image if it exceeds API limits.
+    Resize an image for optimal API transmission.
+
+    Always resizes large images first (Anthropic downsamples to ~1.15MP anyway),
+    then compresses to stay under the byte limit.
 
     Args:
         image_bytes: Original image data
@@ -146,49 +149,63 @@ def resize_image_for_api(image_bytes: bytes, media_type: str, max_bytes: int = M
     Returns:
         Tuple of (resized_bytes, media_type) - media_type may change to JPEG for better compression
     """
-    if len(image_bytes) <= max_bytes:
-        return image_bytes, media_type
-
-    logger.info(f"[RESIZE] Image too large ({len(image_bytes)} bytes), resizing...")
-
     img = None
     try:
         img = Image.open(io.BytesIO(image_bytes))
+        original_size = img.size
+        needs_resize = img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION
 
-        # Check if dimensions are too large
-        if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+        # Always resize if dimensions exceed limit (no point sending 4K to API)
+        if needs_resize:
             ratio = min(MAX_IMAGE_DIMENSION / img.width, MAX_IMAGE_DIMENSION / img.height)
             new_size = (int(img.width * ratio), int(img.height * ratio))
             img = img.resize(new_size, Image.Resampling.LANCZOS)
-            logger.info(f"[RESIZE] Reduced dimensions to {new_size}")
+            logger.info(f"[RESIZE] Reduced dimensions from {original_size} to {new_size}")
+
+        # Convert to RGB for JPEG compression (no alpha channel)
+        save_img = img
+        if img.mode in ("RGBA", "P", "PA", "LA"):
+            rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                save_img = img.convert("RGBA")
+            elif img.mode in ("PA", "LA"):
+                save_img = img.convert("RGBA")
+            else:
+                save_img = img
+            if save_img.mode == "RGBA":
+                rgb_img.paste(save_img, mask=save_img.split()[3])
+            else:
+                rgb_img.paste(save_img)
+            save_img = rgb_img
+        elif img.mode == "L":
+            save_img = img.convert("RGB")
 
         # Try progressively lower quality until under limit
         result_bytes = image_bytes  # fallback
         for quality in [85, 70, 55, 40]:
             buffer = io.BytesIO()
-
-            # Convert to RGB if saving as JPEG (no alpha channel)
-            save_img = img
-            if img.mode in ("RGBA", "P"):
-                rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == "P":
-                    save_img = img.convert("RGBA")
-                rgb_img.paste(save_img, mask=save_img.split()[3] if len(save_img.split()) > 3 else None)
-                save_img = rgb_img
-
             save_img.save(buffer, format="JPEG", quality=quality, optimize=True)
             result_bytes = buffer.getvalue()
 
             if len(result_bytes) <= max_bytes:
-                logger.info(f"[RESIZE] Compressed to {len(result_bytes)} bytes at quality={quality}")
+                if needs_resize or len(image_bytes) > max_bytes:
+                    logger.info(f"[RESIZE] Compressed to {len(result_bytes)} bytes at quality={quality}")
                 return result_bytes, "image/jpeg"
 
         # Last resort: reduce dimensions further
         while len(result_bytes) > max_bytes and min(img.size) > 100:
             new_size = (img.width // 2, img.height // 2)
             img = img.resize(new_size, Image.Resampling.LANCZOS)
+            # Reconvert to RGB after resize
+            if img.mode in ("RGBA", "P", "PA", "LA"):
+                rgb_img = Image.new("RGB", img.size, (255, 255, 255))
+                rgba_img = img.convert("RGBA") if img.mode != "RGBA" else img
+                rgb_img.paste(rgba_img, mask=rgba_img.split()[3])
+                save_img = rgb_img
+            else:
+                save_img = img if img.mode == "RGB" else img.convert("RGB")
             buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=40, optimize=True)
+            save_img.save(buffer, format="JPEG", quality=40, optimize=True)
             result_bytes = buffer.getvalue()
             logger.info(f"[RESIZE] Further reduced to {new_size}, now {len(result_bytes)} bytes")
 

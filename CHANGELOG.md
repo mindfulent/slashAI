@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.21] - 2026-01-11
+
+### Fixed
+
+#### Aggressive Image Resizing for API Reliability
+Large screenshots (4K+) were hitting Anthropic's 5MB base64 limit despite existing resize logic. The old approach only resized as a "last resort" after quality compression failed.
+
+**Root cause:** Base64 encoding adds ~33% overhead, so a 4.5MB image becomes ~6MB after encoding.
+
+**New approach:**
+- **Dimension limit reduced:** 8000px → 2048px (Anthropic downsamples to ~1.15MP internally anyway)
+- **Byte limit reduced:** 5MB → 1MB (accounts for base64 overhead)
+- **Resize-first strategy:** Always scale down oversized images before compression, not as a fallback
+
+**Result:** Screenshots that previously failed at 5-6MB now compress to ~200-500KB with no loss of detail for LLM analysis.
+
+---
+
 ## [0.9.20] - 2026-01-11
 
 ### Added
