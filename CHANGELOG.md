@@ -16,6 +16,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.22] - 2026-01-11
+
+### Fixed
+
+#### Image Memory Retrieval Gap
+Build context from image observations was stored but never retrieved during chat. The `get_build_context()` method existed but was never called.
+
+**Fix:** Wired up `get_build_context()` in `claude_client.py:chat()` - build context is now retrieved alongside text memories and combined into the system prompt.
+
+#### Embedding Threshold Miscalibration
+Image and text embeddings have completely different similarity distributions but shared the same thresholds:
+
+| Embedding Model | Mean Similarity | Range | Old Threshold |
+|-----------------|-----------------|-------|---------------|
+| voyage-3.5-lite (text) | 0.63 | 0.44-0.88 | 0.30 (passed 100%) |
+| voyage-multimodal (images) | 0.19 | -0.04-1.0 | 0.72 (passed <1%) |
+
+**Calibrated thresholds:**
+- Text similarity: 0.30 → 0.50 (captures top ~50% of matches)
+- Image clustering: 0.72 → 0.35 (top ~10%, was nearly unreachable)
+- Text relevance labels: "highly relevant" ≥0.70, "moderately relevant" ≥0.55
+
+**Result:** Related images now cluster together, and text retrieval is more selective.
+
+#### System Prompt Accuracy
+Updated Image Memory section to:
+- Clarify that build context is automatically retrieved
+- Note that visual similarity doesn't capture semantic relationships (exterior vs interior)
+- Add "Memory Accuracy" guardrail to prevent hallucination when no memories are retrieved
+
+### Added
+
+#### Expanded Cluster Naming Vocabulary
+Build clusters now get meaningful names from 90+ structure types (was 16):
+- Civic: library, museum, courthouse, government, parliament
+- Commercial: shop, market, tavern, warehouse, bakery
+- Maritime: dock, harbor, port, lighthouse, pier
+- Minecraft-specific: iron_farm, creeper_farm, sorting_system, xp_farm
+
+### Technical Details
+
+See [docs/IMAGE_MEMORY_ISSUES.md](docs/IMAGE_MEMORY_ISSUES.md) for full analysis and calibration data.
+
+#### Files Modified
+- `src/claude_client.py` - Retrieval gap fix, system prompt updates, calibrated relevance labels
+- `src/memory/config.py` - Separate thresholds for text/image, calibration documentation
+- `src/memory/images/clusterer.py` - Calibrated thresholds, expanded naming vocabulary
+- `CLAUDE.md` - Updated Key Constants table
+
+---
+
 ## [0.9.21] - 2026-01-11
 
 ### Fixed

@@ -101,10 +101,12 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py` |
 | `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py` |
 | `extraction_message_threshold` | 5 exchanges | `memory/config.py` |
-| `similarity_threshold` | 0.3 | `memory/config.py` |
+| `similarity_threshold` (text) | 0.50 | `memory/config.py` |
 | `embedding_model` | `voyage-3.5-lite` | `memory/config.py` |
-| `cluster_assignment_threshold` | 0.72 | `memory/config.py` |
+| `cluster_assignment_threshold` | 0.35 | `memory/config.py` |
 | `DISCORD_MAX_LENGTH` | 2000 chars | `discord_bot.py` |
+
+**Note:** Thresholds were recalibrated in v0.9.21 to account for different embedding model distributions. Text embeddings (voyage-3.5-lite) have high baseline similarity (~0.63 mean), while image embeddings (voyage-multimodal) have low baseline (~0.19 mean). See `docs/IMAGE_MEMORY_ISSUES.md` for calibration data.
 
 ## Environment Variables
 

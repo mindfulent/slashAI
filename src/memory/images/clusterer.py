@@ -34,11 +34,16 @@ import numpy as np
 
 @dataclass
 class ClusterConfig:
-    """Configuration for build clustering."""
+    """Configuration for build clustering.
 
-    # Similarity thresholds
-    assignment_threshold: float = 0.72  # Min similarity to assign to existing cluster
-    new_cluster_threshold: float = 0.65  # Below this, definitely new cluster
+    Thresholds are calibrated for Voyage multimodal embeddings which have
+    low baseline similarity (mean ~0.19). See docs/IMAGE_MEMORY_ISSUES.md.
+    """
+
+    # Similarity thresholds - calibrated for Voyage multimodal
+    # 0.35 is ~90th percentile (was 0.72, nearly unreachable)
+    assignment_threshold: float = 0.35  # Min similarity to assign to existing cluster
+    new_cluster_threshold: float = 0.25  # Below this, definitely new cluster
 
     # Temporal settings
     active_window_days: int = 30  # Cluster considered "active" if updated within
@@ -320,29 +325,120 @@ class BuildClusterer:
         tags: list[str],
     ) -> str:
         """Generate a human-readable cluster name."""
-        # Priority tags for naming
+        # Priority tags for naming - expanded vocabulary (Issue 5)
+        # Ordered roughly by specificity
         priority_tags = [
+            # Grand structures
             "castle",
-            "house",
-            "tower",
-            "farm",
-            "bridge",
             "cathedral",
-            "village",
-            "ship",
-            "statue",
-            "wall",
-            "gate",
-            "garden",
-            "mansion",
             "temple",
             "fortress",
+            "palace",
+            "citadel",
+            # Civic buildings
+            "library",
+            "museum",
+            "courthouse",
+            "government",
+            "parliament",
+            "capitol",
+            "town_hall",
+            "city_hall",
+            # Residential
+            "mansion",
+            "house",
+            "cottage",
+            "cabin",
+            "apartment",
+            "villa",
+            # Commercial
+            "shop",
+            "market",
+            "bazaar",
+            "tavern",
+            "inn",
+            "restaurant",
+            "bakery",
+            "store",
+            # Industrial
+            "warehouse",
+            "factory",
+            "mill",
+            "forge",
+            "foundry",
+            "workshop",
+            "smithy",
+            # Maritime
+            "ship",
+            "dock",
+            "harbor",
+            "port",
             "lighthouse",
+            "pier",
+            "boat",
+            # Agricultural
+            "farm",
+            "barn",
+            "stable",
+            "silo",
+            "windmill",
+            "greenhouse",
+            # Military/Defense
+            "tower",
+            "wall",
+            "gate",
+            "gatehouse",
+            "barracks",
+            "armory",
+            "watchtower",
+            # Religious
+            "church",
+            "chapel",
+            "monastery",
+            "shrine",
+            "altar",
+            # Natural/Decorative
+            "garden",
+            "park",
+            "fountain",
+            "statue",
+            "monument",
+            "arena",
+            "amphitheater",
+            "colosseum",
+            # Transportation
+            "bridge",
+            "station",
+            "railway",
+            "road",
+            "tunnel",
+            # Settlement
+            "village",
+            "town",
+            "city",
+            "outpost",
+            "camp",
+            # Minecraft-specific
+            "nether_portal",
+            "end_portal",
+            "spawner",
+            "mob_farm",
+            "xp_farm",
+            "iron_farm",
+            "gold_farm",
+            "creeper_farm",
+            "guardian_farm",
+            "storage",
+            "sorting_system",
+            "enchanting",
+            "brewing",
         ]
 
         for tag in priority_tags:
             if tag in tags:
-                return f"{tag.title()} Build"
+                # Handle compound tags with underscores
+                display_name = tag.replace("_", " ").title()
+                return f"{display_name} Build"
 
         # Fall back to observation type
         type_names = {
@@ -350,6 +446,8 @@ class BuildClusterer:
             "landscape": "Landscape",
             "redstone": "Redstone Contraption",
             "farm": "Farm Build",
+            "interior": "Interior Build",
+            "exterior": "Exterior Build",
             "other": "Project",
             "unknown": "Build Project",
         }

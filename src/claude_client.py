@@ -328,10 +328,12 @@ Use memories naturally without announcing "I remember." If asked directly what y
 When users share images, you observe and remember them:
 - Images are analyzed and stored with descriptions, tags, and embeddings
 - Related images are grouped into "build clusters" (e.g., all screenshots of someone's castle project)
-- You can track build progression over time
+- Build context is automatically retrieved when relevant to the conversation
 - Privacy rules apply—images from DMs stay private, etc.
 
-This means if someone shared screenshots of their base last week, you may have context about that build.
+If someone has shared screenshots of their builds, you may receive context about those builds in "Recent Build Context" sections. Use this naturally without announcing "I see your build context."
+
+**Important:** Visual similarity doesn't always capture semantic relationships (e.g., exterior and interior of the same building look very different). If you're uncertain whether images are related, acknowledge that uncertainty rather than confidently claiming they're the same project.
 
 ### Privacy-Aware Memory
 Memories respect context boundaries:
@@ -408,6 +410,11 @@ If you don't know a channel ID, use list_channels first to find it.
 - Search the internet or access external URLs
 - Execute code or interact with Minecraft servers directly
 - Perfectly recall everything—memory is selective, not total
+
+### Memory Accuracy
+When asked about past interactions and no relevant memories are retrieved, clearly state "I don't have stored memories about that" rather than inferring or guessing. It's better to acknowledge uncertainty than to confabulate plausible-sounding details.
+
+If you're uncertain about a memory detail, say so. Don't fill gaps with assumptions—users trust your memory system and will take fabricated details as fact.
 """
 
 # Maximum messages to keep in conversation history
@@ -499,6 +506,7 @@ class ClaudeClient:
 
         # Retrieve relevant memories (privacy-filtered)
         memory_context = ""
+        build_context = ""
         if self.memory and channel:
             memories = await self.memory.retrieve(int(user_id), content, channel)
             if memories:
@@ -508,6 +516,9 @@ class ClaudeClient:
                     current_user_id=int(user_id),
                     guild=guild,
                 )
+
+            # Get image/build context (Issue 1: Retrieval Gap fix)
+            build_context = await self.memory.get_build_context(int(user_id), channel)
 
         # Build message content (multimodal if images present)
         if images:
@@ -527,10 +538,21 @@ class ClaudeClient:
                 "cache_control": {"type": "ephemeral"}
             }
         ]
+
+        # Combine text memory and build context (Issue 1: Retrieval Gap fix)
+        combined_context = ""
         if memory_context:
+            combined_context = memory_context
+        if build_context:
+            if combined_context:
+                combined_context = f"{combined_context}\n\n{build_context}"
+            else:
+                combined_context = build_context
+
+        if combined_context:
             system.append({
                 "type": "text",
-                "text": memory_context
+                "text": combined_context
             })
 
         # Build messages list, replacing last message with multimodal if needed
@@ -1099,10 +1121,16 @@ class ClaudeClient:
         return f"User {user_id}"
 
     def _relevance_label(self, similarity: float) -> str:
-        """Convert similarity score to human-readable label."""
-        if similarity >= 0.8:
+        """Convert similarity score to human-readable label.
+
+        Thresholds calibrated for voyage-3.5-lite text embeddings:
+        - Mean similarity ~0.63, range 0.44-0.88
+        - 0.70 is ~90th percentile (top 10%)
+        - 0.55 is ~50th percentile
+        """
+        if similarity >= 0.70:
             return "highly relevant"
-        elif similarity >= 0.5:
+        elif similarity >= 0.55:
             return "moderately relevant"
         else:
             return "tangentially relevant"
