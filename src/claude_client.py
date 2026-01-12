@@ -239,6 +239,29 @@ DISCORD_TOOLS = [
             "required": ["timezone"]
         }
     },
+    {
+        "name": "search_memories",
+        "description": "Search your stored memories about a user or topic. Use when: (1) you're uncertain about a fact and want to verify, (2) the user asks what you remember about something specific, (3) you need to reconcile conflicting information. Returns memories with relevance scores, confidence, and context.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for (topic, fact, project name, etc.)"
+                },
+                "user_id": {
+                    "type": "string",
+                    "description": "Optional: Search memories about a specific user (Discord user ID)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 5, max 10)",
+                    "default": 5
+                }
+            },
+            "required": ["query"]
+        }
+    },
 ]
 
 # Default system prompt for the chatbot
@@ -921,6 +944,43 @@ class ClaudeClient:
                         result = f"Reminder #{reminder_id} has been cancelled."
                     else:
                         result = f"Reminder #{reminder_id} not found or you don't own it."
+                    success = True
+
+            elif tool_name == "search_memories":
+                # Search memories
+                if self.memory is None:
+                    result = "Memory system is not available"
+                    success = False
+                else:
+                    query = tool_input["query"]
+                    user_id = tool_input.get("user_id")
+                    limit = min(tool_input.get("limit", 5), 10)
+
+                    memories = await self.memory.search(
+                        query=query,
+                        user_id=int(user_id) if user_id else None,
+                        limit=limit,
+                    )
+
+                    if not memories:
+                        result = "No relevant memories found."
+                    else:
+                        lines = [f"Found {len(memories)} relevant memories:\n"]
+                        for i, mem in enumerate(memories, 1):
+                            lines.append(f"{i}. {mem.summary}")
+                            lines.append(
+                                f"   Relevance: {mem.similarity:.0%} | "
+                                f"Confidence: {self._confidence_label(mem.confidence)}"
+                            )
+                            lines.append(
+                                f"   Privacy: {mem.privacy_level.value} | "
+                                f"Updated: {self._age_label(mem.updated_at)}"
+                            )
+                            if mem.raw_dialogue:
+                                snippet = mem.raw_dialogue[:150] + "..." if len(mem.raw_dialogue) > 150 else mem.raw_dialogue
+                                lines.append(f"   Context: {snippet}")
+                            lines.append("")
+                        result = "\n".join(lines)
                     success = True
 
             else:

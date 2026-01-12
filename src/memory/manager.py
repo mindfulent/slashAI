@@ -105,6 +105,77 @@ class MemoryManager:
             logger.debug(f"  - [{mem.memory_type}] {mem.summary[:50]}... (sim={mem.similarity:.3f})")
         return memories
 
+    async def search(
+        self,
+        query: str,
+        user_id: Optional[int] = None,
+        limit: int = 5,
+    ) -> list[RetrievedMemory]:
+        """
+        Search memories by semantic similarity (for agentic tool use).
+
+        Unlike retrieve(), this method doesn't apply privacy filtering since
+        it's used by the owner to explicitly query memories.
+
+        Args:
+            query: Search query
+            user_id: Optional user ID to filter memories by owner
+            limit: Max results (default 5, max 10)
+
+        Returns:
+            List of matching memories with similarity scores
+        """
+        limit = min(limit, 10)
+
+        # Generate query embedding
+        embedding = await self.retriever._embed(query, input_type="query")
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+        # Build query with optional user filter
+        if user_id:
+            sql = """
+                SELECT
+                    id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
+                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                FROM memories
+                WHERE user_id = $2
+                  AND 1 - (embedding <=> $1::vector) > $3
+                ORDER BY embedding <=> $1::vector
+                LIMIT $4
+            """
+            params = [embedding_str, user_id, self.config.similarity_threshold, limit]
+        else:
+            sql = """
+                SELECT
+                    id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
+                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                FROM memories
+                WHERE 1 - (embedding <=> $1::vector) > $2
+                ORDER BY embedding <=> $1::vector
+                LIMIT $3
+            """
+            params = [embedding_str, self.config.similarity_threshold, limit]
+
+        rows = await self.db.fetch(sql, *params)
+
+        memories = [
+            RetrievedMemory(
+                id=r["id"],
+                user_id=r["user_id"],
+                summary=r["topic_summary"],
+                raw_dialogue=r["raw_dialogue"],
+                memory_type=r["memory_type"],
+                privacy_level=PrivacyLevel(r["privacy_level"]),
+                similarity=r["similarity"],
+                confidence=r["confidence"] or 0.5,
+                updated_at=r["updated_at"],
+            )
+            for r in rows
+        ]
+
+        logger.info(f"Memory search for '{query[:30]}...' returned {len(memories)} results")
+        return memories
+
     async def get_build_context(
         self, user_id: int, channel: discord.abc.Messageable
     ) -> str:
