@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
 
-**Current Version:** 0.9.19
+**Current Version:** 0.9.20
 
 ## Overview
 
@@ -36,6 +36,7 @@ The bot owner can also trigger Discord actions directly through chat (v0.9.12+).
 - **ADD/MERGE logic** - Intelligently updates existing memories vs creating new ones
 - **Memory attribution** (v0.9.10+) - Clear indication of WHO each memory belongs to
 - **Pronoun-neutral format** (v0.9.10+) - Memories stored without assumed pronouns
+- **Memory introspection** (v0.9.20+) - Metadata on relevance, confidence, privacy, and recency helps Claude weight conflicting info
 
 ### Memory Management (v0.9.11+)
 Users can view and manage their memories via Discord slash commands:
@@ -73,6 +74,7 @@ The bot owner can trigger Discord actions directly through chat:
 - Request message edits or deletions
 - Read messages from other channels for context
 - Describe images from past messages (fetches and analyzes via Vision API)
+- Search memories explicitly ("what do you remember about X?") (v0.9.20+)
 - All actions require explicit owner request (never automatic)
 
 Set `OWNER_ID` environment variable to your Discord user ID to enable.

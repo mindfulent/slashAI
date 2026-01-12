@@ -16,6 +16,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.20] - 2026-01-11
+
+### Added
+
+#### Memory Introspection
+Claude now has visibility into memory metadata, enabling smarter handling of conflicting or uncertain information:
+
+**Phase 1: Metadata Transparency**
+- Retrieved memories now include human-readable labels: `[relevance] [confidence] [privacy] [recency]`
+- Example: `[highly relevant] [stated explicitly] [public] [3 days ago]`
+- System prompt guidance helps Claude use metadata appropriately without narrating it
+
+**Phase 2: Memory Query Tool (Owner Only)**
+- New `search_memories` agentic tool for explicit memory searches
+- Use cases: verify uncertain facts, answer "what do you remember about X?", reconcile conflicts
+- Returns formatted results with relevance scores, confidence, privacy levels, and context
+
+#### Metadata Labels
+
+| Metadata | Thresholds | Labels |
+|----------|------------|--------|
+| **Relevance** | ≥0.8 / ≥0.5 / <0.5 | highly relevant / moderately relevant / tangentially relevant |
+| **Confidence** | ≥0.9 / ≥0.7 / ≥0.5 / <0.5 | stated explicitly / high confidence / inferred / uncertain |
+| **Privacy** | dm / channel_restricted / guild_public / global | dm-private / restricted / public / global |
+| **Recency** | <1d / <7d / <30d / ≥30d | today / N days ago / N weeks ago / N months ago |
+
+### Technical Details
+
+#### Files Modified
+- `src/memory/retriever.py` - Added `confidence` field to `RetrievedMemory`, updated SQL queries
+- `src/claude_client.py` - Added metadata helper methods, updated `_format_memories`, added `search_memories` tool
+- `src/memory/manager.py` - Added `search()` method for semantic memory search
+
+#### Design Document
+See [META_MEMORY_PLAN.md](docs/META_MEMORY_PLAN.md) for full implementation plan.
+
+---
+
 ## [0.9.19] - 2026-01-11
 
 ### Added

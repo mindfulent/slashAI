@@ -92,7 +92,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 
 **Channel name resolution:** `search_messages` supports channel names (e.g., "server-general") in addition to IDs. Handles emoji prefixes and partial matching.
 
-**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder`, `set_user_timezone` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
+**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder`, `set_user_timezone`, `search_memories` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
 
 ## Key Constants
 
