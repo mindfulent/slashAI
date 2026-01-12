@@ -25,3 +25,4 @@ nul
 
 # Database backups (contain user data)
 backups/
+tmpclaude-*
