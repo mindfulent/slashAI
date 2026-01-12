@@ -48,6 +48,7 @@ class RetrievedMemory:
     memory_type: str
     privacy_level: PrivacyLevel
     similarity: float
+    confidence: float  # Extraction confidence (0.0-1.0)
     updated_at: datetime
 
 
@@ -169,6 +170,7 @@ class MemoryRetriever:
                 memory_type=r["memory_type"],
                 privacy_level=PrivacyLevel(r["privacy_level"]),
                 similarity=r["similarity"],
+                confidence=r["confidence"] or 0.5,  # Default to 0.5 if NULL
                 updated_at=r["updated_at"],
             )
             for r in rows
@@ -210,7 +212,7 @@ class MemoryRetriever:
         base_query = """
             SELECT
                 id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                1 - (embedding <=> $1::vector) as similarity, updated_at
+                confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
             FROM memories
             WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})

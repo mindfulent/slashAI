@@ -35,8 +35,11 @@ from anthropic import AsyncAnthropic
 from analytics import track
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from discord_bot import DiscordBot
     from memory import MemoryManager
+    from memory.privacy import PrivacyLevel
     from memory.retriever import RetrievedMemory
 
 # Claude Sonnet 4.5 model ID
@@ -315,6 +318,25 @@ Memories respect context boundaries:
 - **Global facts** (like someone's IGN or timezone): Retrievable everywhere
 
 You never leak private information across these boundaries.
+
+### Memory Introspection
+
+Retrieved memories include metadata: [relevance] [confidence] [privacy] [recency].
+
+**How to use this information:**
+- Weight conflicting facts by relevance and recency—newer, more relevant wins
+- Match your certainty to confidence levels:
+  - "stated explicitly" → speak factually
+  - "inferred" or "uncertain" → hedge appropriately ("I think...", "if I recall...")
+- Never reference dm-private or restricted memories in public channels
+- Use recency to contextualize—"a few weeks ago you mentioned..." vs. "recently..."
+
+**What NOT to do:**
+- Don't narrate metadata ("I see a memory with 0.85 similarity...")
+- Don't announce memory lookups unless asked about your memory system
+- Don't over-explain your reasoning about which memories to trust
+
+Use the metadata internally to inform your responses. The user shouldn't notice the introspection—they should just notice you being more accurate.
 
 ### Memory Management Commands
 Users can view and manage their memories using slash commands:
@@ -942,9 +964,8 @@ class ClaudeClient:
         """
         Format retrieved memories for injection into system prompt.
 
-        Memories are grouped by ownership to make attribution clear:
-        - User's own memories appear under "Your History"
-        - Other users' public memories are grouped by their display name
+        Memories are grouped by ownership with full metadata to enable
+        Claude to make informed decisions about confidence and relevance.
 
         Args:
             memories: List of retrieved memories
@@ -965,30 +986,40 @@ class ClaudeClient:
 
         lines = ["## Relevant Context From Past Conversations"]
 
-        # Format own memories
+        # Format own memories with full metadata
         if own_memories:
             lines.append("\n### Your History With This User")
             for mem in own_memories:
                 lines.append(f"- {mem.summary}")
+                # Add metadata line
+                relevance = self._relevance_label(mem.similarity)
+                confidence = self._confidence_label(mem.confidence)
+                privacy = self._privacy_label(mem.privacy_level)
+                age = self._age_label(mem.updated_at)
+                lines.append(f"  [{relevance}] [{confidence}] [{privacy}] [{age}]")
                 if mem.raw_dialogue:
-                    # Include a brief context snippet
                     snippet = mem.raw_dialogue[:200] + "..." if len(mem.raw_dialogue) > 200 else mem.raw_dialogue
                     lines.append(f"  *Context: {snippet}*")
 
-        # Format others' public memories
+        # Format others' public memories with metadata
         if others_memories:
             lines.append("\n### Public Knowledge From This Server")
             for user_id, user_memories in by_user.items():
-                # Resolve user_id to display name
                 display_name = self._resolve_display_name(user_id, guild)
                 lines.append(f"\n#### {display_name}'s shared context")
                 for mem in user_memories:
                     lines.append(f"- {mem.summary}")
+                    # Add metadata for others' memories (skip privacy since always public)
+                    relevance = self._relevance_label(mem.similarity)
+                    confidence = self._confidence_label(mem.confidence)
+                    age = self._age_label(mem.updated_at)
+                    lines.append(f"  [{relevance}] [{confidence}] [{age}]")
 
         lines.append("\n---")
         lines.append(
             "Use this context naturally. Attribute information correctly—"
-            "don't confuse one person's facts with another's."
+            "don't confuse one person's facts with another's. "
+            "Weight by relevance and recency when facts conflict."
         )
         return "\n".join(lines)
 
@@ -1006,6 +1037,61 @@ class ClaudeClient:
                 return member.display_name
         # Fallback for users who left or DM context
         return f"User {user_id}"
+
+    def _relevance_label(self, similarity: float) -> str:
+        """Convert similarity score to human-readable label."""
+        if similarity >= 0.8:
+            return "highly relevant"
+        elif similarity >= 0.5:
+            return "moderately relevant"
+        else:
+            return "tangentially relevant"
+
+    def _confidence_label(self, confidence: float) -> str:
+        """Convert confidence score to human-readable label."""
+        if confidence >= 0.9:
+            return "stated explicitly"
+        elif confidence >= 0.7:
+            return "high confidence"
+        elif confidence >= 0.5:
+            return "inferred"
+        else:
+            return "uncertain"
+
+    def _privacy_label(self, privacy_level: "PrivacyLevel") -> str:
+        """Convert privacy level to human-readable label."""
+        labels = {
+            "dm": "dm-private",
+            "channel_restricted": "restricted",
+            "guild_public": "public",
+            "global": "global",
+        }
+        return labels.get(privacy_level.value, privacy_level.value)
+
+    def _age_label(self, updated_at: "datetime") -> str:
+        """Convert timestamp to human-readable age label."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        # Ensure updated_at is timezone-aware
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+        delta = now - updated_at
+        days = delta.days
+
+        if days < 1:
+            return "today"
+        elif days == 1:
+            return "yesterday"
+        elif days < 7:
+            return f"{days} days ago"
+        elif days < 30:
+            weeks = days // 7
+            return f"{weeks} week{'s' if weeks > 1 else ''} ago"
+        else:
+            months = days // 30
+            return f"{months} month{'s' if months > 1 else ''} ago"
 
     def _build_multimodal_content(
         self, text: str, images: list[tuple[bytes, str]]
