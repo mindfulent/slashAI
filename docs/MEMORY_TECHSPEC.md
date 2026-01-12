@@ -9,7 +9,7 @@
 | Status | Released |
 | Author | Slash + Claude |
 | References | [RMM Paper (Tan et al., 2025)](https://arxiv.org/abs/2503.08026) |
-| Related Docs | [MEMORY_PRIVACY.md](./MEMORY_PRIVACY.md) |
+| Related Docs | [MEMORY_PRIVACY.md](./MEMORY_PRIVACY.md), [META_MEMORY_PLAN.md](./META_MEMORY_PLAN.md) |
 
 ---
 
@@ -1179,6 +1179,7 @@ Set `MEMORY_ENABLED=false` to fall back to v0.9.0 behavior.
 - MCP memory tools (with privacy controls)
 - User privacy controls (opt-out, export)
 - Channel permission sync
+- **Memory introspection** - See [META_MEMORY_PLAN.md](./META_MEMORY_PLAN.md) for detailed implementation plan
 
 ---
 

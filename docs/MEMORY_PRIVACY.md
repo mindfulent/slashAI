@@ -9,6 +9,7 @@
 | Status | Released |
 | Author | Slash + Claude |
 | Parent Doc | [MEMORY_TECHSPEC.md](./MEMORY_TECHSPEC.md) |
+| Related Docs | [META_MEMORY_PLAN.md](./META_MEMORY_PLAN.md) |
 
 ---
 
