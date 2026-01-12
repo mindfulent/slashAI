@@ -507,6 +507,7 @@ class ClaudeClient:
         # Retrieve relevant memories (privacy-filtered)
         memory_context = ""
         build_context = ""
+        image_context = ""
         if self.memory and channel:
             memories = await self.memory.retrieve(int(user_id), content, channel)
             if memories:
@@ -519,6 +520,11 @@ class ClaudeClient:
 
             # Get image/build context (Issue 1: Retrieval Gap fix)
             build_context = await self.memory.get_build_context(int(user_id), channel)
+
+            # Get query-relevant image observations
+            retrieved_images = await self.memory.retrieve_images(int(user_id), content, channel)
+            if retrieved_images:
+                image_context = self._format_images(retrieved_images)
 
         # Build message content (multimodal if images present)
         if images:
@@ -539,15 +545,16 @@ class ClaudeClient:
             }
         ]
 
-        # Combine text memory and build context (Issue 1: Retrieval Gap fix)
-        combined_context = ""
+        # Combine all context sources
+        context_parts = []
         if memory_context:
-            combined_context = memory_context
+            context_parts.append(memory_context)
+        if image_context:
+            context_parts.append(image_context)
         if build_context:
-            if combined_context:
-                combined_context = f"{combined_context}\n\n{build_context}"
-            else:
-                combined_context = build_context
+            context_parts.append(build_context)
+
+        combined_context = "\n\n".join(context_parts)
 
         if combined_context:
             system.append({
@@ -1104,6 +1111,59 @@ class ClaudeClient:
             "Weight by relevance and recency when facts conflict."
         )
         return "\n".join(lines)
+
+    def _format_images(self, images: list) -> str:
+        """
+        Format retrieved images for injection into system prompt.
+
+        Args:
+            images: List of RetrievedImage objects from memory.retrieve_images()
+        """
+        if not images:
+            return ""
+
+        lines = ["## Relevant Image Memories"]
+        lines.append(
+            "These are images the user has previously shared that may be relevant "
+            "to the current conversation:"
+        )
+
+        for img in images:
+            # Build description line
+            desc = img.summary or img.description[:100]
+            if len(desc) > 100:
+                desc = desc[:97] + "..."
+
+            cluster_info = f" (part of {img.cluster_name})" if img.cluster_name else ""
+            lines.append(f"- {desc}{cluster_info}")
+
+            # Add metadata
+            relevance = self._image_relevance_label(img.similarity)
+            age = self._age_label(img.captured_at)
+            tags_str = ", ".join(img.tags[:5]) if img.tags else "no tags"
+            lines.append(f"  [{relevance}] [{age}] Tags: {tags_str}")
+
+        lines.append("\n---")
+        lines.append(
+            "Use this image context naturally when discussing the user's builds or projects. "
+            "Don't claim to 'see' old images—describe what you know from the stored observations."
+        )
+        return "\n".join(lines)
+
+    def _image_relevance_label(self, similarity: float) -> str:
+        """Convert similarity score to human-readable label.
+
+        Thresholds calibrated for Voyage multimodal image embeddings:
+        - Mean similarity ~0.19, range -0.04-1.0
+        - 0.40 is ~94th percentile (top 6%)
+        - 0.25 is ~75th percentile (top 25%)
+        """
+        if similarity >= 0.40:
+            return "highly relevant"
+        elif similarity >= 0.25:
+            return "moderately relevant"
+        else:
+            return "tangentially relevant"
 
     def _resolve_display_name(
         self, user_id: int, guild: Optional[discord.Guild]

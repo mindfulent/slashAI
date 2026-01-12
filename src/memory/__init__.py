@@ -18,12 +18,13 @@
 """slashAI Memory System - Privacy-aware persistent memory."""
 
 from .config import ImageMemoryConfig, MemoryConfig
-from .manager import MemoryManager
+from .manager import MemoryManager, RetrievedImage
 from .privacy import PrivacyLevel
 
 __all__ = [
     "MemoryConfig",
     "ImageMemoryConfig",
     "MemoryManager",
+    "RetrievedImage",
     "PrivacyLevel",
 ]

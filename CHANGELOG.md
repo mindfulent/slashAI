@@ -16,6 +16,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.23] - 2026-01-11
+
+### Added
+
+#### Query-Relevant Image Retrieval
+When you ask about images ("what images have I shared?", "my builds"), the system now semantically searches stored image observations—not just text memories *about* the image system.
+
+**How it works:**
+1. Query is embedded using Voyage multimodal (same model as stored images)
+2. `image_observations` table is searched by embedding similarity
+3. Relevant image descriptions, summaries, and tags are formatted into context
+4. Uses calibrated image thresholds (0.15 minimum, 0.40 high relevance)
+
+**Example context injected:**
+```markdown
+## Relevant Image Memories
+- Grand neoclassical library building with columned facade (part of Library Build)
+  [moderately relevant] [2 weeks ago] Tags: library, neoclassical, columns
+```
+
+This completes the image memory retrieval pipeline. Previously, `get_build_context()` returned recent clusters by time, but didn't match images to the user's query.
+
+### Technical Details
+
+#### Files Modified
+- `src/memory/manager.py` - Added `retrieve_images()` method with privacy-filtered semantic search
+- `src/claude_client.py` - Added `_format_images()` and `_image_relevance_label()`, integrated into chat context
+- `src/memory/__init__.py` - Exported `RetrievedImage` dataclass
+
+#### New Configuration (ImageMemoryConfig)
+| Threshold | Value | Meaning |
+|-----------|-------|---------|
+| `image_minimum_relevance` | 0.15 | Top ~50% of similarities |
+| `image_moderate_relevance` | 0.25 | Top ~25% |
+| `image_high_relevance` | 0.40 | Top ~6% |
+
+---
+
 ## [0.9.22] - 2026-01-11
 
 ### Fixed

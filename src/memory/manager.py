@@ -24,21 +24,39 @@ with privacy enforcement.
 
 import json
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 import asyncpg
 import discord
+import voyageai
 from anthropic import AsyncAnthropic
 
 from analytics import track
 
 logger = logging.getLogger("slashAI.memory")
 
-from .config import MemoryConfig
+from .config import MemoryConfig, ImageMemoryConfig
 from .extractor import MemoryExtractor
 from .privacy import PrivacyLevel, classify_channel_privacy
 from .retriever import MemoryRetriever, RetrievedMemory
 from .updater import MemoryUpdater
+
+
+@dataclass
+class RetrievedImage:
+    """An image observation retrieved from the database."""
+
+    id: int
+    user_id: int
+    description: str
+    summary: str
+    tags: list[str]
+    cluster_name: Optional[str]
+    similarity: float
+    captured_at: datetime
+    privacy_level: str
 
 
 class MemoryManager:
@@ -51,6 +69,7 @@ class MemoryManager:
         config: Optional[MemoryConfig] = None,
     ):
         self.config = config or MemoryConfig.from_env()
+        self.image_config = ImageMemoryConfig.from_env()
         self.extractor = MemoryExtractor(anthropic_client)
         self.retriever = MemoryRetriever(db_pool, self.config)
         self.updater = MemoryUpdater(
@@ -58,6 +77,7 @@ class MemoryManager:
         )
         self.db = db_pool
         self._anthropic = anthropic_client
+        self._voyage = voyageai.AsyncClient()  # For image embeddings
 
         # Image memory components (lazy initialized)
         self._image_observer = None
@@ -202,6 +222,107 @@ class MemoryManager:
         return await self._build_narrator.get_brief_context(
             user_id, privacy_level.value, guild_id
         )
+
+    async def retrieve_images(
+        self,
+        user_id: int,
+        query: str,
+        channel: discord.abc.Messageable,
+        top_k: int = 5,
+    ) -> list[RetrievedImage]:
+        """
+        Retrieve relevant image observations by semantic search.
+
+        Args:
+            user_id: Discord user ID
+            query: Search query (usually current message)
+            channel: Discord channel for privacy context
+            top_k: Number of images to retrieve
+
+        Returns:
+            List of relevant images, privacy-filtered
+        """
+        if not query or not query.strip():
+            return []
+
+        # Get privacy context
+        context_privacy = await classify_channel_privacy(channel)
+        guild = getattr(channel, "guild", None)
+        guild_id = guild.id if guild else None
+        channel_id = getattr(channel, "id", None)
+
+        # Embed query using multimodal model (same as image embeddings)
+        result = await self._voyage.embed(
+            [query],
+            model=self.image_config.image_embedding_model,
+            input_type="query",
+        )
+        embedding = result.embeddings[0]
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+        # Build privacy-filtered query
+        # Use image-calibrated threshold (0.15 minimum, much lower than text)
+        threshold = self.image_config.image_minimum_relevance
+
+        if context_privacy == PrivacyLevel.DM:
+            # DM: user's own images only
+            privacy_filter = "io.user_id = $2"
+            params = [embedding_str, user_id, threshold, top_k]
+        elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
+            # Restricted: user's global + guild_public + user's channel_restricted
+            privacy_filter = """
+                (io.user_id = $2 AND io.privacy_level = 'global')
+                OR (io.privacy_level = 'guild_public' AND io.guild_id = $5)
+                OR (io.user_id = $2 AND io.privacy_level = 'channel_restricted' AND io.channel_id = $6)
+            """
+            params = [embedding_str, user_id, threshold, top_k, guild_id, channel_id]
+        else:  # GUILD_PUBLIC
+            # Public: user's global + any guild_public from same guild
+            privacy_filter = """
+                (io.user_id = $2 AND io.privacy_level = 'global')
+                OR (io.privacy_level = 'guild_public' AND io.guild_id = $5)
+            """
+            params = [embedding_str, user_id, threshold, top_k, guild_id]
+
+        sql = f"""
+            SELECT
+                io.id, io.user_id, io.description, io.summary, io.tags,
+                io.privacy_level, io.captured_at,
+                bc.auto_name as cluster_name, bc.user_name as cluster_user_name,
+                1 - (io.embedding <=> $1::vector) as similarity
+            FROM image_observations io
+            LEFT JOIN build_clusters bc ON io.build_cluster_id = bc.id
+            WHERE 1 - (io.embedding <=> $1::vector) > $3
+              AND ({privacy_filter})
+            ORDER BY io.embedding <=> $1::vector
+            LIMIT $4
+        """
+
+        rows = await self.db.fetch(sql, *params)
+
+        images = [
+            RetrievedImage(
+                id=r["id"],
+                user_id=r["user_id"],
+                description=r["description"] or "",
+                summary=r["summary"] or "",
+                tags=r["tags"] or [],
+                cluster_name=r["cluster_user_name"] or r["cluster_name"],
+                similarity=r["similarity"],
+                captured_at=r["captured_at"],
+                privacy_level=r["privacy_level"],
+            )
+            for r in rows
+        ]
+
+        logger.info(
+            f"Image retrieval for '{query[:30]}...' returned {len(images)} results "
+            f"(threshold={threshold}, context={context_privacy.value})"
+        )
+        for img in images:
+            logger.debug(f"  - [{img.similarity:.3f}] {img.summary[:50]}...")
+
+        return images
 
     async def track_message(
         self,
