@@ -267,10 +267,10 @@ class DiscordBot(commands.Bot):
                     database_url, min_size=2, max_size=5
                 )
                 anthropic_client = AsyncAnthropic(api_key=api_key)
-                memory_manager = MemoryManager(self.db_pool, anthropic_client)
+                self.memory_manager = MemoryManager(self.db_pool, anthropic_client)
                 self.claude_client = ClaudeClient(
                     api_key,
-                    memory_manager=memory_manager,
+                    memory_manager=self.memory_manager,
                     bot=self,
                     owner_id=owner_id,
                 )
@@ -279,7 +279,7 @@ class DiscordBot(commands.Bot):
                 # Load memory management slash commands (v0.9.11)
                 try:
                     from commands.memory_commands import MemoryCommands
-                    await self.add_cog(MemoryCommands(self, self.db_pool, memory_manager))
+                    await self.add_cog(MemoryCommands(self, self.db_pool, self.memory_manager))
                     logger.info("Memory commands cog loaded")
                 except Exception as e:
                     logger.error(f"Failed to load memory commands: {e}", exc_info=True)
@@ -338,13 +338,18 @@ class DiscordBot(commands.Bot):
             from memory.images import ImageObserver, ImageStorage
 
             storage = ImageStorage()
+            # Pass memory_manager to enable text-image bridging
+            memory_mgr = getattr(self, 'memory_manager', None)
             self.image_observer = ImageObserver(
                 db_pool=self.db_pool,
                 anthropic_client=anthropic_client,
                 storage=storage,
                 moderation_enabled=os.getenv("IMAGE_MODERATION_ENABLED", "true").lower() == "true",
+                memory_manager=memory_mgr,
             )
             logger.info("Image memory system initialized successfully")
+            if memory_mgr:
+                logger.info("Text-image memory bridge enabled")
         except Exception as e:
             logger.error(f"Failed to initialize image memory: {e}", exc_info=True)
             logger.warning("Image memory disabled due to initialization failure")

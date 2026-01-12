@@ -65,11 +65,12 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `config.py`: Configurable thresholds (env-overridable)
 
 5. **`src/memory/images/`** - Image memory system
-   - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering)
+   - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering → text memory)
    - `analyzer.py`: Claude Vision + Voyage multimodal embeddings
    - `clusterer.py`: Groups images into build clusters by similarity
    - `narrator.py`: Generates progression narratives
    - `storage.py`: DigitalOcean Spaces (S3-compatible)
+   - **Text-Image Bridge**: Image descriptions automatically stored as text memories (voyage-3.5-lite embeddings), enabling cross-modal retrieval
 
 6. **`src/reminders/`** - Scheduled reminders system (v0.9.17)
    - `time_parser.py`: Natural language + CRON parsing
@@ -173,6 +174,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 -- Scheduled Reminders (v0.9.17)
 \i migrations/010_create_scheduled_reminders.sql
 \i migrations/011_create_user_settings.sql
+
+-- Text-Image Memory Bridge (v0.9.24)
+\i migrations/012_link_text_memories_to_images.sql
 ```
 
 ## Memory Privacy Model
@@ -195,7 +199,10 @@ When a user posts an image:
 2. **Analysis** - Claude Vision generates description/tags, Voyage creates multimodal embedding
 3. **Storage** - Image uploaded to DO Spaces with hash-based deduplication
 4. **Clustering** - Observation assigned to or creates a build cluster based on embedding similarity
-5. **Narration** - On demand, generates progression narratives for build clusters
+5. **Text Memory Bridge** - Image description stored as text memory (voyage-3.5-lite) for cross-modal retrieval
+6. **Narration** - On demand, generates progression narratives for build clusters
+
+**Text-Image Bridge (v0.9.24+)**: Image descriptions are automatically embedded in the text memory space using voyage-3.5-lite, enabling text queries to retrieve relevant images. Memory format: `"Image: {summary}"` with full description and tags in raw_dialogue. Text memories linked to images via `linked_image_id` field.
 
 ## CLI Tools (v0.9.10+)
 

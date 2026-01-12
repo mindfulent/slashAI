@@ -187,14 +187,16 @@ class MemoryUpdater:
         privacy_level: PrivacyLevel,
         channel_id: Optional[int],
         guild_id: Optional[int],
+        linked_image_id: Optional[int] = None,
     ) -> int:
         """Add new memory with privacy level and origin tracking."""
         result = await self.db.fetchrow(
             """
             INSERT INTO memories (
                 user_id, topic_summary, raw_dialogue, embedding,
-                memory_type, confidence, privacy_level, origin_channel_id, origin_guild_id
-            ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9)
+                memory_type, confidence, privacy_level, origin_channel_id, origin_guild_id,
+                linked_image_id
+            ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (user_id, md5(topic_summary)) DO UPDATE SET
                 raw_dialogue = EXCLUDED.raw_dialogue,
                 embedding = EXCLUDED.embedding,
@@ -212,6 +214,7 @@ class MemoryUpdater:
             privacy_level.value,
             channel_id,
             guild_id,
+            linked_image_id,
         )
         return result["id"]
 

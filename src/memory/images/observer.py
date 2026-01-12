@@ -72,11 +72,13 @@ class ImageObserver:
         clusterer: Optional[BuildClusterer] = None,
         narrator: Optional[BuildNarrator] = None,
         moderation_enabled: bool = True,
+        memory_manager=None,  # Optional MemoryManager for text-image bridge
     ):
         self.db = db_pool
         self.anthropic = anthropic_client
         self.storage = storage
         self.moderation_enabled = moderation_enabled
+        self.memory_manager = memory_manager
 
         # Initialize components
         self.analyzer = analyzer or ImageAnalyzer(anthropic_client)
@@ -206,6 +208,26 @@ class ImageObserver:
         )
 
         logger.info(f"[OBSERVER] Complete! observation_id={observation_id}")
+
+        # STEP 8: Create text memory for text-image bridging (if memory manager available)
+        if self.memory_manager:
+            logger.info(f"[OBSERVER] Step 8: Creating text memory for image observation...")
+            try:
+                await self.memory_manager.create_image_text_memory(
+                    user_id=message.author.id,
+                    observation_id=observation_id,
+                    description=analysis.description,
+                    summary=analysis.summary,
+                    tags=analysis.tags,
+                    accompanying_text=message.content if message.content else None,
+                    privacy_level=privacy_level,
+                    channel_id=message.channel.id,
+                    guild_id=guild_id,
+                )
+                logger.info(f"[OBSERVER] Text memory created successfully for observation {observation_id}")
+            except Exception as e:
+                logger.error(f"[OBSERVER] Failed to create text memory: {e}", exc_info=True)
+                # Continue even if text memory creation fails - image is still stored
 
         # Free memory on constrained workers
         del image_bytes

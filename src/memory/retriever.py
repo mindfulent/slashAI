@@ -50,6 +50,7 @@ class RetrievedMemory:
     similarity: float
     confidence: float  # Extraction confidence (0.0-1.0)
     updated_at: datetime
+    linked_image_id: Optional[int] = None  # ID of linked image observation
 
 
 class MemoryRetriever:
@@ -172,6 +173,7 @@ class MemoryRetriever:
                 similarity=r["similarity"],
                 confidence=r["confidence"] or 0.5,  # Default to 0.5 if NULL
                 updated_at=r["updated_at"],
+                linked_image_id=r.get("linked_image_id"),
             )
             for r in rows
         ]
@@ -212,7 +214,8 @@ class MemoryRetriever:
         base_query = """
             SELECT
                 id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at,
+                linked_image_id
             FROM memories
             WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})

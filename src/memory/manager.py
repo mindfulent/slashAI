@@ -156,7 +156,8 @@ class MemoryManager:
             sql = """
                 SELECT
                     id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at,
+                    linked_image_id
                 FROM memories
                 WHERE user_id = $2
                   AND 1 - (embedding <=> $1::vector) > $3
@@ -168,7 +169,8 @@ class MemoryManager:
             sql = """
                 SELECT
                     id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                    confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at,
+                    linked_image_id
                 FROM memories
                 WHERE 1 - (embedding <=> $1::vector) > $2
                 ORDER BY embedding <=> $1::vector
@@ -189,6 +191,7 @@ class MemoryManager:
                 similarity=r["similarity"],
                 confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
+                linked_image_id=r.get("linked_image_id"),
             )
             for r in rows
         ]
@@ -380,6 +383,85 @@ class MemoryManager:
         if len(messages) >= self.config.extraction_message_threshold * 2:
             logger.info(f"Threshold reached, triggering extraction for user={user_id}")
             await self._trigger_extraction(user_id, channel_id, channel, messages)
+
+    async def create_image_text_memory(
+        self,
+        user_id: int,
+        observation_id: int,
+        description: str,
+        summary: str,
+        tags: list[str],
+        accompanying_text: Optional[str],
+        privacy_level: PrivacyLevel,
+        channel_id: int,
+        guild_id: Optional[int],
+    ) -> Optional[int]:
+        """
+        Create a text memory representation of an image observation.
+
+        This bridges the visual and textual embedding spaces by storing
+        the image's description in the text memory system.
+
+        Args:
+            user_id: Discord user ID
+            observation_id: ID of the image observation
+            description: Claude-generated image description
+            summary: One-line image summary
+            tags: Image categorization tags
+            accompanying_text: Discord message text that came with the image
+            privacy_level: Privacy level (inherited from image)
+            channel_id: Origin channel ID
+            guild_id: Origin guild ID
+
+        Returns:
+            Memory ID if created, None if error
+        """
+        try:
+            # Combine image metadata into rich text representation
+            # Format: summary + description + tags for searchability
+            tag_text = ", ".join(tags) if tags else "no tags"
+
+            # Use the summary as the topic (what gets embedded)
+            topic = f"Image: {summary}"
+
+            # Build detailed raw dialogue including all context
+            raw_parts = [description]
+            if tags:
+                raw_parts.append(f"Tags: {tag_text}")
+            if accompanying_text:
+                raw_parts.append(f"Context: {accompanying_text}")
+            raw_dialogue = "\n".join(raw_parts)
+
+            # Create ExtractedMemory representation
+            from .extractor import ExtractedMemory
+            memory = ExtractedMemory(
+                summary=topic,
+                memory_type="semantic",  # Images are semantic facts
+                raw_dialogue=raw_dialogue,
+                confidence=1.0,  # High confidence - directly from Claude Vision
+                global_safe=False,  # Keep at image's privacy level
+            )
+
+            # Generate embedding using text model (voyage-3.5-lite)
+            embedding = await self.retriever._embed(memory.summary, input_type="document")
+
+            # Add to memory system with image link
+            memory_id = await self.updater._add(
+                user_id=user_id,
+                memory=memory,
+                embedding=embedding,
+                privacy_level=privacy_level,
+                channel_id=channel_id,
+                guild_id=guild_id,
+                linked_image_id=observation_id,
+            )
+
+            logger.info(f"Created text memory {memory_id} linked to image observation {observation_id}")
+            return memory_id
+
+        except Exception as e:
+            logger.error(f"Failed to create image text memory: {e}", exc_info=True)
+            return None
 
     async def _get_or_create_session(
         self,
