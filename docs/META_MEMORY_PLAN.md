@@ -4,15 +4,17 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1.0 (Draft) |
+| Version | 1.0.0 |
 | Created | 2025-01-11 |
-| Status | Proposed |
+| Status | Implemented (v0.9.20) |
 | Author | Slash + Claude |
 | Parent Docs | [MEMORY_TECHSPEC.md](./MEMORY_TECHSPEC.md), [MEMORY_PRIVACY.md](./MEMORY_PRIVACY.md) |
 
 ---
 
 ## 1. Executive Summary
+
+> **Implementation Status:** Both Phase 1 and Phase 2 have been implemented and deployed in v0.9.20 (2026-01-11). This document serves as the implementation plan and technical reference.
 
 ### 1.1 The Problem
 
@@ -147,7 +149,7 @@ Use the metadata internally to inform your responses. The user shouldn't notice 
 """
 ```
 
-### 2.3 Phase 2: Memory Query Tool (Future)
+### 2.3 Phase 2: Memory Query Tool (Implemented)
 
 **Scope:** Add an agentic tool that allows Claude to explicitly query memories.
 
@@ -692,6 +694,8 @@ class TestRetrievalWithConfidence:
 
 ### 7.1 Phase 1: Metadata Transparency
 
+**Status:** ✅ Completed (v0.9.20, 2026-01-11)
+
 **Timeline:** 1-2 days
 
 1. **Day 1 Morning:** Update `RetrievedMemory` and SQL queries
@@ -702,6 +706,8 @@ class TestRetrievalWithConfidence:
 **Rollback:** Revert `_format_memories` to previous version (no database changes)
 
 ### 7.2 Phase 2: Memory Query Tool
+
+**Status:** ✅ Completed (v0.9.20, 2026-01-11)
 
 **Timeline:** 2-3 days (after Phase 1 stabilizes)
 
