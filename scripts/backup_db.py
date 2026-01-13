@@ -2,7 +2,8 @@
 """
 Database Backup CLI
 
-Triggers GitHub Actions backup workflow and waits for completion.
+Triggers GitHub Actions backup workflow in theblockacademy repo and waits for completion.
+The workflow runs in theblockacademy because that's where the DO/database secrets are configured.
 
 Usage:
     # Create pre-migration backup (before schema changes)
@@ -51,6 +52,7 @@ def trigger_backup(backup_type: str, notify: bool = True) -> str:
 
     result = run_gh([
         'workflow', 'run', 'db-backup.yml',
+        '-R', 'mindfulent/theblockacademy',
         '-f', f'backup_type={backup_type}',
         '-f', f'notify_discord={str(notify).lower()}'
     ])
@@ -65,6 +67,7 @@ def trigger_backup(backup_type: str, notify: bool = True) -> str:
     # Get the run ID
     result = run_gh([
         'run', 'list',
+        '-R', 'mindfulent/theblockacademy',
         '--workflow=db-backup.yml',
         '--limit=1',
         '--json=databaseId,status,createdAt'
@@ -92,6 +95,7 @@ def wait_for_completion(run_id: str, timeout: int = 300) -> bool:
     while time.time() - start_time < timeout:
         result = run_gh([
             'run', 'view', run_id,
+            '-R', 'mindfulent/theblockacademy',
             '--json=status,conclusion'
         ])
 
@@ -126,6 +130,7 @@ def get_backup_info(run_id: str) -> dict:
     """Get backup details from completed run."""
     result = run_gh([
         'run', 'view', run_id,
+        '-R', 'mindfulent/theblockacademy',
         '--json=jobs'
     ])
 

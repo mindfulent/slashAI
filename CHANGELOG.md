@@ -20,9 +20,9 @@ Implemented automated database backup system with GitHub Actions workflows and C
 - **Restore workflow** with artifact download and manual restore instructions
 
 **New files:**
-- `.github/workflows/db-backup.yml` - Backup workflow with pg_dump to DO Spaces
-- `.github/workflows/db-restore.yml` - Restore workflow with artifact download
-- `scripts/backup_db.py` - CLI tool to trigger backups and list available backups
+- `theblockacademy/.github/workflows/db-backup.yml` - Backup workflow with pg_dump to DO Spaces
+- `theblockacademy/.github/workflows/db-restore.yml` - Restore workflow with artifact download
+- `scripts/backup_db.py` - CLI tool to trigger backups and list available backups (triggers workflow in theblockacademy repo)
 
 **Usage:**
 ```bash
