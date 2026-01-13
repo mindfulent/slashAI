@@ -10,19 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Database Backup System (Spec 008)
-Implemented automated database backup system with GitHub Actions workflows and CLI tool for on-demand backups before migrations.
+Implemented automated backup system for the shared PostgreSQL database (used by both slashAI and theblockacademy).
 
 **Features:**
 - **Daily automated backups** at 6:00 AM UTC via GitHub Actions scheduled workflow
 - **On-demand backups** triggered via CLI or workflow_dispatch (types: `pre-migration`, `manual`, `daily`)
-- **Offsite storage** in DigitalOcean Spaces with 30-day retention policy (pre-migration backups exempt from auto-deletion)
+- **Offsite storage** in DigitalOcean Spaces (`db-backups/` prefix) with 30-day retention
+- **Pre-migration backups** exempt from auto-deletion for safety
 - **Discord notifications** for backup success/failure
 - **Restore workflow** with artifact download and manual restore instructions
 
+**Implementation:**
+- Workflows live in `theblockacademy` repo (where DO/database secrets are configured)
+- Backups named `tba_<type>_<timestamp>.dump` (e.g., `tba_pre-migration_20260113_020047.dump`)
+- Uses PostgreSQL 18 client to match DO managed database version
+
 **New files:**
-- `theblockacademy/.github/workflows/db-backup.yml` - Backup workflow with pg_dump to DO Spaces
-- `theblockacademy/.github/workflows/db-restore.yml` - Restore workflow with artifact download
-- `scripts/backup_db.py` - CLI tool to trigger backups and list available backups (triggers workflow in theblockacademy repo)
+- `theblockacademy/.github/workflows/db-backup.yml` - Backup workflow
+- `theblockacademy/.github/workflows/db-restore.yml` - Restore workflow
+- `scripts/backup_db.py` - CLI tool (triggers workflow in theblockacademy repo)
 
 **Usage:**
 ```bash

@@ -4,12 +4,24 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1.0 |
+| Version | 1.0.0 |
 | Created | 2026-01-12 |
-| Status | Draft Specification |
+| Implemented | 2026-01-13 |
+| Status | **Implemented** |
 | Author | Slash + Claude |
 | Target Version | v0.10.x (Pre-requisite) |
 | Priority | P0 - Critical |
+
+### Implementation Notes
+
+The following changes were made during implementation:
+
+| Spec | Implementation | Reason |
+|------|----------------|--------|
+| Workflows in slashAI repo | Workflows in **theblockacademy** repo | DO/database secrets already configured there |
+| PostgreSQL 16 client | PostgreSQL **18** client | DO managed database is PostgreSQL 18.1 |
+| `slashai_*` filename prefix | `tba_*` filename prefix | Database is shared between slashAI and theblockacademy |
+| `slashai-images/slashai-db/` path | `<bucket>/db-backups/` path | Simpler path structure |
 
 ---
 
@@ -76,11 +88,11 @@ Size in Gigabytes    Created At
 │  ─────────────                   ──────────────                ─────────   │
 │                                                                             │
 │  ┌─────────────────┐            ┌─────────────────┐         ┌────────────┐ │
-│  │ backup_db.py    │───trigger──▶│ db-backup.yml   │         │slashai-db/ │ │
+│  │ backup_db.py    │───trigger──▶│ db-backup.yml   │         │db-backups/ │ │
 │  │                 │            │                 │         │            │ │
 │  │ Commands:       │            │ Steps:          │         │ Backups:   │ │
 │  │ • backup        │            │ • Checkout      │         │ • pre_*    │ │
-│  │ • list          │            │ • Install pg16  │────────▶│ • daily_*  │ │
+│  │ • list          │            │ • Install pg18  │────────▶│ • daily_*  │ │
 │  │ • restore       │◀───status──│ • pg_dump -Fc   │         │ • manual_* │ │
 │  │                 │            │ • Upload Spaces │         │            │ │
 │  └─────────────────┘            │ • Notify Discord│         └────────────┘ │
@@ -109,19 +121,19 @@ Size in Gigabytes    Created At
 
 | Type | Trigger | Naming Convention | Use Case |
 |------|---------|-------------------|----------|
-| `pre-migration` | Manual | `slashai_pre-migration_YYYYMMDD_HHMMSS.dump` | Before schema changes |
-| `daily` | Scheduled (6am UTC) | `slashai_daily_YYYYMMDD_HHMMSS.dump` | Regular protection |
-| `manual` | Manual | `slashai_manual_YYYYMMDD_HHMMSS.dump` | Ad-hoc backups |
+| `pre-migration` | Manual | `tba_pre-migration_YYYYMMDD_HHMMSS.dump` | Before schema changes |
+| `daily` | Scheduled (6am UTC) | `tba_daily_YYYYMMDD_HHMMSS.dump` | Regular protection |
+| `manual` | Manual | `tba_manual_YYYYMMDD_HHMMSS.dump` | Ad-hoc backups |
 
 ### 2.3 Storage Structure
 
 ```
-DO Spaces: slashai-images (existing bucket)
+DO Spaces: <bucket> (configured via DO_SPACES_BUCKET secret)
 └── db-backups/
-    ├── slashai_pre-migration_20260112_150000.dump
-    ├── slashai_daily_20260112_060000.dump
-    ├── slashai_daily_20260111_060000.dump
-    ├── slashai_daily_20260110_060000.dump
+    ├── tba_pre-migration_20260113_150000.dump
+    ├── tba_daily_20260113_060000.dump
+    ├── tba_daily_20260112_060000.dump
+    ├── tba_daily_20260111_060000.dump
     └── ...
 ```
 
@@ -988,12 +1000,12 @@ $ # Run a few queries to verify data
 
 ## Appendix A: File Locations
 
-| File | Purpose |
-|------|---------|
-| `.github/workflows/db-backup.yml` | Backup workflow |
-| `.github/workflows/db-restore.yml` | Restore workflow |
-| `scripts/backup_db.py` | Local CLI tool |
-| `docs/enhancements/DATABASE_BACKUP_SPEC.md` | This document |
+| File | Repository | Purpose |
+|------|------------|---------|
+| `.github/workflows/db-backup.yml` | theblockacademy | Backup workflow |
+| `.github/workflows/db-restore.yml` | theblockacademy | Restore workflow |
+| `scripts/backup_db.py` | slashAI | Local CLI tool |
+| `docs/enhancements/008_DATABASE_BACKUP.md` | slashAI | This document |
 
 ## Appendix B: References
 
@@ -1001,10 +1013,10 @@ $ # Run a few queries to verify data
 - [pg_dump Documentation](https://www.postgresql.org/docs/current/app-pgdump.html)
 - [pg_restore Documentation](https://www.postgresql.org/docs/current/app-pgrestore.html)
 - [GitHub Actions workflow_dispatch](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_dispatch)
-- [theblockacademy backup-sync.yml](../../../theblockacademy/.github/workflows/sync-backups.yml) - Reference implementation
 
 ## Appendix C: Version History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 1.0.0 | 2026-01-13 | Slash + Claude | Implemented - workflows in theblockacademy, PG18, tba_* naming |
 | 0.1.0 | 2026-01-12 | Slash + Claude | Initial specification |
