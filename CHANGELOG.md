@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Database Backup System (Spec 008)
+Implemented automated database backup system with GitHub Actions workflows and CLI tool for on-demand backups before migrations.
+
+**Features:**
+- **Daily automated backups** at 6:00 AM UTC via GitHub Actions scheduled workflow
+- **On-demand backups** triggered via CLI or workflow_dispatch (types: `pre-migration`, `manual`, `daily`)
+- **Offsite storage** in DigitalOcean Spaces with 30-day retention policy (pre-migration backups exempt from auto-deletion)
+- **Discord notifications** for backup success/failure
+- **Restore workflow** with artifact download and manual restore instructions
+
+**New files:**
+- `.github/workflows/db-backup.yml` - Backup workflow with pg_dump to DO Spaces
+- `.github/workflows/db-restore.yml` - Restore workflow with artifact download
+- `scripts/backup_db.py` - CLI tool to trigger backups and list available backups
+
+**Usage:**
+```bash
+# Before running a migration
+python scripts/backup_db.py backup --type pre-migration
+
+# List all backups
+python scripts/backup_db.py list
+```
+
+See `docs/enhancements/008_DATABASE_BACKUP.md` for full specification.
+
 ### Planned
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management

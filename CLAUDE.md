@@ -225,6 +225,12 @@ python scripts/analytics_query.py errors                              # Recent e
 python scripts/analytics_query.py latency                             # Response latency
 python scripts/analytics_query.py memory                              # Memory system stats
 python scripts/analytics_query.py tools                               # Tool execution stats
+
+# Database Backup - Trigger and manage database backups
+python scripts/backup_db.py backup --type pre-migration               # Pre-migration backup (before schema changes)
+python scripts/backup_db.py backup --type manual                      # Manual backup
+python scripts/backup_db.py backup --type manual -q                   # Skip Discord notification
+python scripts/backup_db.py list                                       # List all backups in DO Spaces
 ```
 
 ## Discord Slash Commands (v0.9.11+)
