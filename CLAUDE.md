@@ -106,7 +106,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `cluster_assignment_threshold` | 0.35 | `memory/config.py` |
 | `DISCORD_MAX_LENGTH` | 2000 chars | `discord_bot.py` |
 
-**Note:** Thresholds were recalibrated in v0.9.21 to account for different embedding model distributions. Text embeddings (voyage-3.5-lite) have high baseline similarity (~0.63 mean), while image embeddings (voyage-multimodal) have low baseline (~0.19 mean). See `docs/IMAGE_MEMORY_ISSUES.md` for calibration data.
+**Note:** Thresholds were recalibrated in v0.9.21 to account for different embedding model distributions. Text embeddings (voyage-3.5-lite) have high baseline similarity (~0.63 mean), while image embeddings (voyage-multimodal) have low baseline (~0.19 mean). See `docs/enhancements/007_IMAGE_MEMORY_FIXES.md` for calibration data.
 
 ## Environment Variables
 
@@ -296,7 +296,7 @@ Users can schedule reminders via slash commands or natural language:
 
 **Memory not being stored:**
 - Ensure `MEMORY_ENABLED=true` and `DATABASE_URL` + `VOYAGE_API_KEY` are set
-- Check migration status: all 9 migrations must be applied
+- Check migration status: all 11 migrations must be applied
 - Verify pgvector extension is enabled: `SELECT * FROM pg_extension WHERE extname = 'vector';`
 
 **MCP tools return "Discord bot not initialized":**
@@ -343,3 +343,29 @@ Add to `~/.claude.json` (or Claude Code settings):
 ## Files to Ignore
 
 - `src/claude_client_new.py` - Experimental file, not used in production
+
+## Documentation Structure
+
+```
+docs/
+├── ARCHITECTURE.md          # High-level system design
+├── MEMORY_TECHSPEC.md       # Text memory specification
+├── MEMORY_PRIVACY.md        # Privacy model
+├── MEMORY_IMAGES.md         # Image memory specification
+├── PRD.md                   # Product requirements
+├── enhancements/            # Feature specifications
+│   ├── README.md            # Enhancement index and roadmap
+│   ├── 001_MEMORY_ATTRIBUTION.md  # v0.9.10
+│   ├── 002_MEMORY_MANAGEMENT.md   # v0.9.11
+│   ├── 003_AGENTIC_TOOLS.md       # v0.9.12
+│   ├── 004_ANALYTICS.md           # v0.9.16
+│   ├── 005_REMINDERS.md           # v0.9.17
+│   ├── 006_META_MEMORY.md         # v0.9.20
+│   ├── 007_IMAGE_MEMORY_FIXES.md  # v0.9.22
+│   └── 008-013_*.md               # Planned features
+└── research/                # Background research
+    ├── MEMVID_COMPARISON.md       # Memory system comparison
+    └── MEMVID_LESSONS_ANALYSIS.md # Lessons learned
+```
+
+**Enhancement specs** contain implementation details, database migrations, and acceptance criteria for each feature. See `docs/enhancements/README.md` for the full index and roadmap.

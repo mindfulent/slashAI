@@ -280,9 +280,12 @@ slashAI/
 │   ├── MEMORY_TECHSPEC.md          # Text memory specification
 │   ├── MEMORY_PRIVACY.md           # Privacy model documentation
 │   ├── MEMORY_IMAGES.md            # Image memory specification
-│   ├── MEMORY_ATTRIBUTION_PLAN.md  # v0.9.10 attribution design
-│   ├── MEMORY_MANAGEMENT_PLAN.md   # v0.9.11 slash commands design
-│   └── PRD.md                      # Product requirements document
+│   ├── PRD.md                      # Product requirements document
+│   ├── enhancements/               # Feature specs (001-013)
+│   │   ├── README.md               # Enhancement index and roadmap
+│   │   └── *.md                    # Individual enhancement specs
+│   └── research/                   # Research and analysis
+│       └── MEMVID_*.md             # Memory system comparisons
 ├── .do/
 │   └── app.yaml            # DigitalOcean App Platform config
 ├── .env.example            # Environment variable template
@@ -351,12 +354,20 @@ The base system prompt (~1,100 tokens) is cached using Anthropic's prompt cachin
 
 ## Documentation
 
+### Core Documentation
 - [Architecture Overview](docs/ARCHITECTURE.md) - System design and component overview
 - [Memory Technical Spec](docs/MEMORY_TECHSPEC.md) - Text memory system design
 - [Memory Privacy Model](docs/MEMORY_PRIVACY.md) - Privacy level classification
 - [Image Memory Spec](docs/MEMORY_IMAGES.md) - Image memory system design
 - [Product Requirements](docs/PRD.md) - User stories and acceptance criteria
 - [Changelog](CHANGELOG.md) - Version history and release notes
+
+### Enhancement Specs
+- [Enhancement Index](docs/enhancements/README.md) - Feature roadmap and status
+- Individual specs in `docs/enhancements/` (001-013) cover implemented and planned features
+
+### Research
+- [Memvid Comparison](docs/research/MEMVID_COMPARISON.md) - Memory system comparison analysis
 
 ## Contributing
 
