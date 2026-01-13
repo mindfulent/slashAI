@@ -539,11 +539,10 @@ class ClaudeClient:
             # Get image/build context (Issue 1: Retrieval Gap fix)
             build_context = await self.memory.get_build_context(int(user_id), channel)
 
-            # Get query-relevant image observations (only for image-related queries)
-            if self._is_image_related_query(content):
-                retrieved_images = await self.memory.retrieve_images(int(user_id), content, channel)
-                if retrieved_images:
-                    image_context = self._format_images(retrieved_images)
+            # Get query-relevant image observations
+            retrieved_images = await self.memory.retrieve_images(int(user_id), content, channel)
+            if retrieved_images:
+                image_context = self._format_images(retrieved_images)
 
         # Build message content (multimodal if images present)
         if images:
@@ -1183,36 +1182,6 @@ class ClaudeClient:
             "Don't claim to 'see' old images—describe what you know from the stored observations."
         )
         return "\n".join(lines)
-
-    def _is_image_related_query(self, content: str) -> bool:
-        """Check if a query is likely about images or visual content.
-
-        Used to skip expensive multimodal embedding calls for text-only queries.
-        Errs on the side of inclusion - better to retrieve unnecessary images
-        than miss relevant ones.
-        """
-        if not content:
-            return False
-
-        content_lower = content.lower()
-
-        # Keywords that suggest image/visual interest
-        image_keywords = [
-            # Direct image terms
-            "image", "images", "picture", "pictures", "photo", "photos",
-            "screenshot", "screenshots", "screen shot",
-            # Visual/showing
-            "show", "showed", "shown", "see", "seen", "look", "looks",
-            "visual", "visually",
-            # Minecraft builds (primary use case)
-            "build", "builds", "building", "built",
-            "project", "projects", "progress",
-            "base", "house", "castle", "tower", "farm", "structure",
-            # Sharing context
-            "shared", "posted", "uploaded", "sent",
-        ]
-
-        return any(keyword in content_lower for keyword in image_keywords)
 
     def _image_relevance_label(self, similarity: float) -> str:
         """Convert similarity score to human-readable label.
