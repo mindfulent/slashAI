@@ -236,6 +236,7 @@ class DiscordBot(commands.Bot):
         self.image_observer = None  # Image memory system
         self.reminder_manager = None  # Reminder system (v0.9.17)
         self.reminder_scheduler = None  # Background scheduler for reminders
+        self.decay_job = None  # Memory decay job (v0.10.1)
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -307,6 +308,16 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to initialize reminder system: {e}", exc_info=True)
                     logger.warning("Reminders disabled due to initialization failure")
+
+                # Initialize memory decay job (v0.10.1)
+                try:
+                    from memory.decay import MemoryDecayJob
+
+                    self.decay_job = MemoryDecayJob(self.db_pool)
+                    self.decay_job.start()
+                except Exception as e:
+                    logger.error(f"Failed to initialize decay job: {e}", exc_info=True)
+                    logger.warning("Memory decay disabled due to initialization failure")
 
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
@@ -732,6 +743,9 @@ class DiscordBot(commands.Bot):
         # Stop reminder scheduler (v0.9.17)
         if self.reminder_scheduler:
             self.reminder_scheduler.stop()
+        # Stop decay job (v0.10.1)
+        if self.decay_job:
+            self.decay_job.stop()
         await analytics_shutdown()
         if self.db_pool:
             await self.db_pool.close()

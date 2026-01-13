@@ -64,6 +64,25 @@ class MemoryConfig:
     hybrid_candidate_limit: int = 20  # Candidates per search type for RRF
     rrf_k: int = 60  # Smoothing constant for RRF
 
+    # Decay settings (v0.10.1)
+    # Relevance-weighted decay: memories decay slower if frequently retrieved
+    decay_enabled: bool = True
+    base_decay_rate: float = 0.95  # Rate for 0 retrievals (5% loss per period)
+    max_decay_rate: float = 0.99  # Rate for 10+ retrievals (1% loss per period)
+    decay_period_days: int = 30  # Days between decay periods
+    min_confidence: float = 0.10  # Floor - memories never drop below this
+    cleanup_threshold: float = 0.10  # Flag for cleanup below this
+    cleanup_age_days: int = 90  # Only cleanup memories older than this
+    consolidation_threshold: int = 5  # Retrievals needed for consolidation candidate
+
+    # Reinforcement boosts on access (per memory type)
+    reinforcement_boost_semantic: float = 0.05
+    reinforcement_boost_episodic: float = 0.03
+    reinforcement_boost_procedural: float = 0.04
+    reinforcement_cap_semantic: float = 0.99
+    reinforcement_cap_episodic: float = 0.95
+    reinforcement_cap_procedural: float = 0.97
+
     @classmethod
     def from_env(cls) -> "MemoryConfig":
         """Create config from environment variables with defaults."""
@@ -86,6 +105,21 @@ class MemoryConfig:
             hybrid_search_enabled=os.getenv("MEMORY_HYBRID_SEARCH", "true").lower() == "true",
             hybrid_candidate_limit=int(os.getenv("MEMORY_HYBRID_CANDIDATES", "20")),
             rrf_k=int(os.getenv("MEMORY_RRF_K", "60")),
+            # Decay settings
+            decay_enabled=os.getenv("MEMORY_DECAY_ENABLED", "true").lower() == "true",
+            base_decay_rate=float(os.getenv("MEMORY_BASE_DECAY_RATE", "0.95")),
+            max_decay_rate=float(os.getenv("MEMORY_MAX_DECAY_RATE", "0.99")),
+            decay_period_days=int(os.getenv("MEMORY_DECAY_PERIOD_DAYS", "30")),
+            min_confidence=float(os.getenv("MEMORY_MIN_CONFIDENCE", "0.10")),
+            cleanup_threshold=float(os.getenv("MEMORY_CLEANUP_THRESHOLD", "0.10")),
+            cleanup_age_days=int(os.getenv("MEMORY_CLEANUP_AGE_DAYS", "90")),
+            consolidation_threshold=int(os.getenv("MEMORY_CONSOLIDATION_THRESHOLD", "5")),
+            reinforcement_boost_semantic=float(os.getenv("MEMORY_REINFORCE_SEMANTIC", "0.05")),
+            reinforcement_boost_episodic=float(os.getenv("MEMORY_REINFORCE_EPISODIC", "0.03")),
+            reinforcement_boost_procedural=float(os.getenv("MEMORY_REINFORCE_PROCEDURAL", "0.04")),
+            reinforcement_cap_semantic=float(os.getenv("MEMORY_REINFORCE_CAP_SEMANTIC", "0.99")),
+            reinforcement_cap_episodic=float(os.getenv("MEMORY_REINFORCE_CAP_EPISODIC", "0.95")),
+            reinforcement_cap_procedural=float(os.getenv("MEMORY_REINFORCE_CAP_PROCEDURAL", "0.97")),
         )
 
 

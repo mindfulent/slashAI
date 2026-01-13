@@ -115,12 +115,10 @@ class MemoryRetriever:
                 embedding, user_id, context_privacy, channel, top_k
             )
 
-        # Update last_accessed_at for retrieved memories
+        # Reinforce retrieved memories (update access time, boost confidence, increment count)
         if rows:
             ids = [r["id"] for r in rows]
-            await self.db.execute(
-                "UPDATE memories SET last_accessed_at = NOW() WHERE id = ANY($1)", ids
-            )
+            await self._reinforce_memories(ids)
 
         memories = [
             RetrievedMemory(
@@ -310,3 +308,53 @@ class MemoryRetriever:
             [text], model=self.config.embedding_model, input_type=input_type
         )
         return result.embeddings[0]
+
+    async def _reinforce_memories(self, memory_ids: list[int]) -> None:
+        """
+        Reinforce accessed memories by boosting confidence and incrementing count.
+
+        This implements the "use it or lose it" principle - memories that
+        are retrieved often remain strong while unused memories decay.
+
+        Reinforcement varies by memory type:
+        - Semantic: +0.05 (cap 0.99) - facts should stay high
+        - Procedural: +0.04 (cap 0.97) - patterns reinforced through use
+        - Episodic: +0.03 (cap 0.95) - events strengthen but not become facts
+        """
+        # Check if retrieval_count column exists (migration 013)
+        try:
+            await self.db.execute(
+                """
+                UPDATE memories
+                SET
+                    confidence = LEAST(
+                        CASE memory_type
+                            WHEN 'semantic' THEN $2
+                            WHEN 'procedural' THEN $3
+                            ELSE $4  -- episodic
+                        END,
+                        confidence + CASE memory_type
+                            WHEN 'semantic' THEN $5
+                            WHEN 'procedural' THEN $6
+                            ELSE $7  -- episodic
+                        END
+                    ),
+                    retrieval_count = COALESCE(retrieval_count, 0) + 1,
+                    last_accessed_at = NOW()
+                WHERE id = ANY($1)
+            """,
+                memory_ids,
+                self.config.reinforcement_cap_semantic,
+                self.config.reinforcement_cap_procedural,
+                self.config.reinforcement_cap_episodic,
+                self.config.reinforcement_boost_semantic,
+                self.config.reinforcement_boost_procedural,
+                self.config.reinforcement_boost_episodic,
+            )
+        except Exception as e:
+            # Fallback if retrieval_count column doesn't exist yet
+            logger.debug(f"Reinforcement with count failed, using simple update: {e}")
+            await self.db.execute(
+                "UPDATE memories SET last_accessed_at = NOW() WHERE id = ANY($1)",
+                memory_ids,
+            )

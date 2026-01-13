@@ -18,6 +18,7 @@
 """slashAI Memory System - Privacy-aware persistent memory."""
 
 from .config import ImageMemoryConfig, MemoryConfig
+from .decay import DecayStats, MemoryDecayJob, run_decay_job
 from .manager import MemoryManager, RetrievedImage
 from .privacy import PrivacyLevel
 
@@ -27,4 +28,7 @@ __all__ = [
     "MemoryManager",
     "RetrievedImage",
     "PrivacyLevel",
+    "MemoryDecayJob",
+    "DecayStats",
+    "run_decay_job",
 ]

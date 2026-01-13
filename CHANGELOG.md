@@ -16,6 +16,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.1] - 2026-01-12
+
+### Added
+
+#### Relevance-Weighted Confidence Decay (Spec 011)
+Implements automatic memory confidence decay with reinforcement on access, making Claude's responses more appropriately hedged for old memories.
+
+**Problem Solved:**
+Old episodic memories maintained original confidence indefinitely:
+- User mentions building an iron farm in October
+- In January, Claude still confidently says "You're building an iron farm!"
+- User finished that project months ago
+
+**Solution:**
+- Episodic memories decay over time when not accessed (semantic memories don't decay)
+- Frequently-retrieved memories resist decay (relevance-weighted)
+- Accessing a memory reinforces its confidence
+- Very low confidence memories flagged for potential cleanup
+
+**Decay Algorithm:**
+```
+decay_resistance = min(1.0, retrieval_count / 10)
+effective_decay_rate = 0.95 + (0.04 × decay_resistance)
+new_confidence = confidence × (effective_decay_rate ^ periods_since_access)
+```
+
+| Retrievals | Decay Rate | Per-Period Loss |
+|------------|------------|-----------------|
+| 0 | 0.95 | 5% per 30 days |
+| 5 | 0.97 | 3% per 30 days |
+| 10+ | 0.99 | 1% per 30 days |
+
+**Reinforcement on Access (per memory type):**
+- Semantic: +0.05 (cap 0.99) - facts should stay high
+- Procedural: +0.04 (cap 0.97) - patterns reinforced through use
+- Episodic: +0.03 (cap 0.95) - events can strengthen but not become facts
+
+**New Schema (migration 013):**
+- `decay_policy` - 'none', 'standard', 'aggressive', 'pending_deletion'
+- `retrieval_count` - tracks how often memory is retrieved
+- `is_protected` - manual protection from decay
+
+**Background Job:**
+- Runs every 6 hours
+- Applies decay to eligible memories
+- Flags very low confidence old memories for cleanup
+- Identifies consolidation candidates (frequently-accessed episodic memories)
+
+**New Files:**
+- `migrations/013_add_confidence_decay.sql` - Schema changes
+- `src/memory/decay.py` - MemoryDecayJob background task
+- `scripts/memory_decay_cli.py` - CLI for decay management
+
+**Configuration:**
+- `MEMORY_DECAY_ENABLED=false` to disable (enabled by default)
+
+**CLI Commands:**
+```bash
+python scripts/memory_decay_cli.py run --dry-run  # Preview decay
+python scripts/memory_decay_cli.py run            # Run manually
+python scripts/memory_decay_cli.py stats          # View statistics
+python scripts/memory_decay_cli.py candidates     # Consolidation candidates
+python scripts/memory_decay_cli.py protect 42     # Protect a memory
+```
+
+See `docs/enhancements/011_CONFIDENCE_DECAY.md` for full specification.
+
+---
+
 ## [0.10.0] - 2026-01-12
 
 ### Added

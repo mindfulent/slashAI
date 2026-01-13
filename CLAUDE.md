@@ -137,6 +137,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `ANALYTICS_ENABLED` | No | Set to "false" to disable analytics tracking (default: true) |
 | `GITHUB_TOKEN` | Recommended | GitHub personal access token for higher API rate limits |
 | `MEMORY_HYBRID_SEARCH` | No | Set to "false" to disable hybrid search (default: true) |
+| `MEMORY_DECAY_ENABLED` | No | Set to "false" to disable confidence decay (default: true) |
 
 ## Development Notes
 
@@ -188,6 +189,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 
 -- Hybrid Search (v0.10.0)
 \i migrations/012_add_hybrid_search.sql
+
+-- Confidence Decay (v0.10.1)
+\i migrations/013_add_confidence_decay.sql
 ```
 
 ## Memory Privacy Model
@@ -246,6 +250,15 @@ python scripts/backup_db.py backup --type pre-migration               # Pre-migr
 python scripts/backup_db.py backup --type manual                      # Manual backup
 python scripts/backup_db.py backup --type manual -q                   # Skip Discord notification
 python scripts/backup_db.py list                                       # List all backups in DO Spaces
+
+# Memory Decay CLI (v0.10.1) - Manage confidence decay
+python scripts/memory_decay_cli.py run --dry-run                      # Preview decay without applying
+python scripts/memory_decay_cli.py run                                # Run decay job manually
+python scripts/memory_decay_cli.py stats                              # Show decay statistics
+python scripts/memory_decay_cli.py candidates                         # Show consolidation candidates
+python scripts/memory_decay_cli.py protect 42                         # Protect memory from decay
+python scripts/memory_decay_cli.py unprotect 42                       # Remove protection
+python scripts/memory_decay_cli.py pending                            # Show memories pending deletion
 ```
 
 ## Discord Slash Commands (v0.9.11+)

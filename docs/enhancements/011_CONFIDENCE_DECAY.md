@@ -4,11 +4,11 @@
 
 | Field | Value |
 |-------|-------|
-| Version | 0.1.0 |
+| Version | 1.0.0 |
 | Created | 2026-01-12 |
-| Status | Draft Specification |
+| Status | ✅ Implemented |
 | Author | Slash + Claude |
-| Target Version | v0.10.x |
+| Implemented | v0.10.1 |
 | Priority | P1 - High |
 
 ---
