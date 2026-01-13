@@ -374,8 +374,10 @@ Content → Frame creation → Compression → Append to .mv2
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **slashAI (LLM extraction)** | Cleaner data, structured facts, searchable summaries | Extraction cost, potential information loss |
-| **Memvid (direct storage)** | No information loss, simpler pipeline | Larger storage, search must be smarter |
+| **slashAI (LLM extraction)** | Cleaner data, structured facts, searchable summaries | Extraction latency (2-3s), API costs, nuance loss when content doesn't fit schema |
+| **Memvid (direct storage)** | Lossless capture, no extraction cost, preserves full context | Larger storage, requires smarter search to find relevant content |
+
+**Design philosophy difference:** slashAI pays upfront (extraction cost) for cleaner data; Memvid pays at query time (smarter search) for lossless storage. Neither is universally better—the right choice depends on whether information loss or query complexity is the bigger risk for your use case.
 
 ---
 
@@ -681,7 +683,14 @@ WHERE privacy_level = 'guild_public' AND origin_guild_id = $1
 }
 ```
 
-**Why It Matters:** Cleaner data, better search, structured facts.
+**Trade-offs:**
+- **Pro:** Cleaner data, better search, structured facts
+- **Con:** 2-3s latency per extraction, API costs, may lose nuance that doesn't fit the schema
+
+**When extraction helps:** Facts with clear structure (IGN, preferences, explicit statements).
+**When it hurts:** Nuanced context, implied relationships, conversational subtlety that gets flattened.
+
+Memvid's "store everything, search smart" approach is equally valid—it's lossless by design and shifts complexity to query time rather than ingestion.
 
 #### 4. Memory Attribution
 
