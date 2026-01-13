@@ -76,6 +76,9 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `manager.py`: Database operations for reminders
    - `scheduler.py`: Background task loop for delivery (60s interval)
 
+7. **`src/tools/`** - Agentic tools for the chatbot
+   - `github_docs.py`: Read-only access to slashAI documentation via GitHub API
+
 ## MCP Tools
 
 These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
@@ -92,7 +95,14 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 
 **Channel name resolution:** `search_messages` supports channel names (e.g., "server-general") in addition to IDs. Handles emoji prefixes and partial matching.
 
-**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder`, `set_user_timezone`, `search_memories` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
+**Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder`, `set_user_timezone`, `search_memories`, `read_github_file`, `list_github_docs` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
+
+**GitHub Documentation Tools:**
+- `read_github_file`: Read a documentation file from the slashAI repo (path must start with "docs/")
+- `list_github_docs`: List files in a docs subdirectory (e.g., "enhancements")
+- Both tools support an optional `ref` parameter for branch/commit SHA (default: "main")
+- Caches responses for 5 minutes to reduce API calls
+- Uses `GITHUB_TOKEN` env var for higher rate limits (5,000 vs 60 req/hr)
 
 ## Key Constants
 
@@ -125,6 +135,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
 | `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions |
 | `ANALYTICS_ENABLED` | No | Set to "false" to disable analytics tracking (default: true) |
+| `GITHUB_TOKEN` | Recommended | GitHub personal access token for higher API rate limits |
 
 ## Development Notes
 

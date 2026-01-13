@@ -41,6 +41,37 @@ python scripts/backup_db.py list
 
 See `docs/enhancements/008_DATABASE_BACKUP.md` for full specification.
 
+#### GitHub Documentation Reader (Spec 009)
+Enables slashAI to read its own documentation from GitHub, improving accuracy when discussing its implementation.
+
+**Features:**
+- **`read_github_file`**: Read a documentation file from the slashAI repository (must start with `docs/`)
+- **`list_github_docs`**: List files in a docs subdirectory (e.g., `enhancements`)
+- **Branch support**: Optional `ref` parameter for branch/commit SHA (default: `main`)
+- **Caching**: 5-minute TTL cache reduces API calls (50 entries max)
+- **Rate limiting**: Uses `GITHUB_TOKEN` for higher limits (5,000 vs 60 req/hr)
+
+**Security:**
+- Repository hardcoded to `mindfulent/slashAI`
+- Path validation prevents traversal attacks (`..`, `/`, control chars)
+- Read-only access to `/docs/**` only
+
+**New files:**
+- `src/tools/__init__.py` - Tools package initialization
+- `src/tools/github_docs.py` - GitHub API client with caching
+- `tests/test_github_docs.py` - Unit and integration tests (24 tests)
+
+**Usage (owner-only via chatbot):**
+```
+"What does the memory techspec say about embedding dimensions?"
+→ slashAI reads docs/MEMORY_TECHSPEC.md and provides accurate answer
+
+"List the enhancement specs"
+→ slashAI lists all files in docs/enhancements/
+```
+
+See `docs/enhancements/009_GITHUB_DOC_READER.md` for full specification.
+
 ### Planned
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management

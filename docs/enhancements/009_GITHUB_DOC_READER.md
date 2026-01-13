@@ -6,7 +6,7 @@
 |-------|-------|
 | Version | 0.1.0 |
 | Created | 2026-01-12 |
-| Status | Draft Specification |
+| Status | Implemented |
 | Author | Slash + Claude |
 | Target Version | v0.10.x |
 | Priority | P2 - Medium (after backup) |
@@ -923,3 +923,4 @@ Instead of TTL-based expiration, use GitHub webhooks to invalidate cache on push
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1.0 | 2026-01-12 | Slash + Claude | Initial specification |
+| 0.2.0 | 2026-01-12 | Claude | Implemented: `src/tools/github_docs.py`, tests, claude_client.py integration |

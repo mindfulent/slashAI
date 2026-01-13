@@ -33,6 +33,12 @@ import discord
 from anthropic import AsyncAnthropic
 
 from analytics import track
+from tools.github_docs import (
+    READ_GITHUB_FILE_TOOL,
+    LIST_GITHUB_DOCS_TOOL,
+    handle_read_github_file,
+    handle_list_github_docs,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -262,6 +268,9 @@ DISCORD_TOOLS = [
             "required": ["query"]
         }
     },
+    # GitHub documentation reader tools
+    READ_GITHUB_FILE_TOOL,
+    LIST_GITHUB_DOCS_TOOL,
 ]
 
 # Default system prompt for the chatbot
@@ -405,6 +414,15 @@ When Slash (the owner) requests it, you can take actions in Discord:
 
 Only use these tools when explicitly asked. Never take actions without a clear request.
 If you don't know a channel ID, use list_channels first to find it.
+
+### Documentation Access (Owner Only)
+You can read your own source code documentation from GitHub:
+- Use `read_github_file` to read specific docs (e.g., "docs/MEMORY_TECHSPEC.md")
+- Use `list_github_docs` to discover what documentation exists
+- Only files under /docs are accessible (techspecs, enhancement specs, architecture docs)
+
+When discussing your own implementation details or specifications, use these tools to reference
+the actual documentation instead of relying on memory. This ensures accuracy.
 
 ### What You Cannot Do
 - Search the internet or access external URLs
@@ -1011,6 +1029,21 @@ class ClaudeClient:
                             lines.append("")
                         result = "\n".join(lines)
                     success = True
+
+            elif tool_name == "read_github_file":
+                # Read a documentation file from GitHub
+                path = tool_input["path"]
+                ref = tool_input.get("ref", "main")
+                result = await handle_read_github_file(path, ref)
+                # Check if result is an error message
+                success = not result.startswith("Error:")
+
+            elif tool_name == "list_github_docs":
+                # List documentation files in GitHub
+                subdir = tool_input.get("subdir", "")
+                ref = tool_input.get("ref", "main")
+                result = await handle_list_github_docs(subdir, ref)
+                success = not result.startswith("Error:")
 
             else:
                 result = f"Unknown tool: {tool_name}"

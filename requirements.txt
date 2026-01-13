@@ -27,3 +27,6 @@ Pillow>=10.0.0  # Image processing for Voyage embeddings
 dateparser>=1.2.0      # Natural language time parsing
 croniter>=2.0.0        # CRON expression handling
 pytz>=2024.1           # Timezone support
+
+# GitHub Documentation Reader (v0.10.x)
+aiohttp>=3.9.0         # Async HTTP client for GitHub API
