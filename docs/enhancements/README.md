@@ -15,7 +15,7 @@ This directory contains implementation specifications for slashAI features—bot
 | [007](./007_IMAGE_MEMORY_FIXES.md) | Image Memory Fixes | v0.9.22 | ✅ Implemented | — |
 | [008](./008_DATABASE_BACKUP.md) | Database Backup | — | 📋 Draft | P0 Critical |
 | [009](./009_GITHUB_DOC_READER.md) | GitHub Doc Reader | — | 📋 Draft | P2 Medium |
-| [010](./010_HYBRID_SEARCH.md) | Hybrid Search | — | 📋 Draft | P1 High |
+| [010](./010_HYBRID_SEARCH.md) | Hybrid Search | v0.10.0 | ✅ Implemented | — |
 | [011](./011_CONFIDENCE_DECAY.md) | Confidence Decay | — | 📋 Draft | P1 High |
 | [012](./012_DETERMINISTIC_EXPORT.md) | Deterministic Export | — | 📋 Draft | P3 Low |
 | [013](./013_AUDIT_LOG.md) | Audit Log / Time-Travel | — | 📋 Draft | P2 Medium |
@@ -46,6 +46,9 @@ Memory introspection—Claude now sees metadata (relevance, confidence, privacy,
 **007 - Image Memory Fixes** (v0.9.22)
 Fixed image retrieval gap, threshold calibration, and system prompt accuracy for the image memory system.
 
+**010 - Hybrid Search** (v0.10.0)
+Combines lexical (BM25-style) and semantic search using Reciprocal Rank Fusion. Solves exact-match queries for player names, coordinates, mod names.
+
 ### Upcoming Features
 
 **008 - Database Backup** (P0 - Pre-requisite)
@@ -53,9 +56,6 @@ On-demand backup system using GitHub Actions and DO Spaces. Required before runn
 
 **009 - GitHub Doc Reader** (P2)
 Read-only access to slashAI documentation via GitHub API. Enables the bot to reference its own specs without copy-pasting.
-
-**010 - Hybrid Search** (P1)
-Combines lexical (BM25-style) and semantic search using Reciprocal Rank Fusion. Solves exact-match queries for player names, coordinates, mod names.
 
 **011 - Confidence Decay** (P1)
 Relevance-weighted decay based on retrieval frequency. Frequently-accessed memories resist decay; rarely-used memories fade.

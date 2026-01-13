@@ -18,8 +18,12 @@
 """
 Memory Retrieval
 
-Semantic search with privacy-aware filtering using Voyage AI embeddings
-and pgvector for similarity search.
+Hybrid search combining lexical (full-text) and semantic (vector) search
+using Reciprocal Rank Fusion (RRF) for optimal recall across query types.
+
+Lexical search excels at exact term matching (player names, coordinates, mod names)
+while semantic search handles conceptual queries. RRF combines both result sets
+by rank position, naturally boosting documents that appear in both.
 """
 
 import logging
@@ -53,12 +57,13 @@ class RetrievedMemory:
 
 
 class MemoryRetriever:
-    """Retrieves relevant memories with privacy filtering."""
+    """Retrieves relevant memories with hybrid lexical + semantic search."""
 
     def __init__(self, db_pool: asyncpg.Pool, config: MemoryConfig):
         self.db = db_pool
         self.voyage = voyageai.AsyncClient()  # Uses VOYAGE_API_KEY env var
         self.config = config
+        self._hybrid_available: bool | None = None  # Cached check for hybrid search
 
     async def retrieve(
         self,
@@ -68,7 +73,10 @@ class MemoryRetriever:
         top_k: Optional[int] = None,
     ) -> list[RetrievedMemory]:
         """
-        Retrieve relevant memories with privacy filtering.
+        Retrieve relevant memories using hybrid search with privacy filtering.
+
+        Combines lexical (BM25-style) and semantic (embedding) search using
+        Reciprocal Rank Fusion for optimal recall across query types.
 
         Args:
             user_id: Discord user ID
@@ -79,80 +87,33 @@ class MemoryRetriever:
         Returns:
             List of relevant memories, privacy-filtered
         """
-        # Skip retrieval for empty queries (e.g., image-only messages)
         if not query or not query.strip():
             return []
 
         top_k = top_k or self.config.top_k
         context_privacy = await classify_channel_privacy(channel)
 
-        # Debug: log retrieval context
-        guild_id = getattr(channel, 'guild', None)
-        guild_id = guild_id.id if guild_id else None
+        # Get channel/guild IDs for privacy filtering
+        guild = getattr(channel, 'guild', None)
+        guild_id = guild.id if guild else None
         channel_id = getattr(channel, 'id', None)
+
         logger.info(f"Retrieval context: privacy={context_privacy.value}, guild={guild_id}, channel={channel_id}")
 
+        # Generate query embedding
         embedding = await self._embed(query, input_type="query")
 
-        sql, params = self._build_privacy_query(
-            user_id, embedding, context_privacy, channel, top_k
-        )
-
-        # Debug: log eligible memories (privacy-filtered) and similarities
-        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
-
-        if context_privacy == PrivacyLevel.DM:
-            # DMs can see all of user's own memories
-            eligible_memories = await self.db.fetch(
-                "SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories WHERE user_id = $1",
-                user_id
+        # Try hybrid search if enabled and available
+        if self.config.hybrid_search_enabled and await self._is_hybrid_available():
+            rows = await self._retrieve_hybrid(
+                query, embedding, user_id, context_privacy.value,
+                guild_id, channel_id, top_k
             )
-            similarity_check = await self.db.fetch(
-                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
-                   FROM memories WHERE user_id = $2 ORDER BY embedding <=> $1::vector LIMIT 5""",
-                embedding_str, user_id
+        else:
+            # Fallback to semantic-only search
+            rows = await self._retrieve_semantic(
+                embedding, user_id, context_privacy, channel, top_k
             )
-        elif context_privacy == PrivacyLevel.CHANNEL_RESTRICTED:
-            # User's global + ANY user's guild_public + user's channel_restricted
-            eligible_memories = await self.db.fetch(
-                """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
-                   WHERE (user_id = $1 AND privacy_level = 'global')
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2)
-                   OR (user_id = $1 AND privacy_level = 'channel_restricted' AND origin_channel_id = $3)""",
-                user_id, guild_id, channel_id
-            )
-            similarity_check = await self.db.fetch(
-                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
-                   FROM memories WHERE (user_id = $2 AND privacy_level = 'global')
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
-                   OR (user_id = $2 AND privacy_level = 'channel_restricted' AND origin_channel_id = $4)
-                   ORDER BY embedding <=> $1::vector LIMIT 5""",
-                embedding_str, user_id, guild_id, channel_id
-            )
-        else:  # GUILD_PUBLIC - user's global + ANY user's guild_public from same guild
-            eligible_memories = await self.db.fetch(
-                """SELECT id, privacy_level, origin_guild_id, topic_summary FROM memories
-                   WHERE (user_id = $1 AND privacy_level = 'global')
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $2)""",
-                user_id, guild_id
-            )
-            similarity_check = await self.db.fetch(
-                """SELECT topic_summary, privacy_level, 1 - (embedding <=> $1::vector) as similarity
-                   FROM memories WHERE (user_id = $2 AND privacy_level = 'global')
-                   OR (privacy_level = 'guild_public' AND origin_guild_id = $3)
-                   ORDER BY embedding <=> $1::vector LIMIT 5""",
-                embedding_str, user_id, guild_id
-            )
-
-        logger.info(f"User has {len(eligible_memories)} eligible memories (context={context_privacy.value}):")
-        for m in eligible_memories:
-            logger.info(f"  [{m['privacy_level']}] {m['topic_summary'][:50]}...")
-
-        logger.info(f"Top similarities (threshold={self.config.similarity_threshold}):")
-        for m in similarity_check:
-            logger.info(f"  sim={m['similarity']:.3f} [{m['privacy_level']}] {m['topic_summary'][:40]}...")
-
-        rows = await self.db.fetch(sql, *params)
 
         # Update last_accessed_at for retrieved memories
         if rows:
@@ -170,25 +131,102 @@ class MemoryRetriever:
                 memory_type=r["memory_type"],
                 privacy_level=PrivacyLevel(r["privacy_level"]),
                 similarity=r["similarity"],
-                confidence=r["confidence"] or 0.5,  # Default to 0.5 if NULL
+                confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
             )
             for r in rows
         ]
 
-        # Log final retrieval results with attribution (Phase 1.5 debug logging)
         if memories:
             query_preview = query[:50] + "..." if len(query) > 50 else query
+            rrf_info = ""
+            if rows and "rrf_score" in rows[0].keys():
+                rrf_info = ", ".join(
+                    f"RRF={r['rrf_score']:.4f}" for r in rows[:3]
+                )
+                logger.debug(f"Hybrid search scores: {rrf_info}")
+
             logger.debug(
                 f"Retrieved {len(memories)} memories for query '{query_preview}':\n" +
                 "\n".join(
-                    f"  - Memory {m.id} (user_id={m.user_id}, similarity={m.similarity:.3f}): "
+                    f"  - Memory {m.id} (user_id={m.user_id}, sim={m.similarity:.3f}): "
                     f"{m.summary[:60]}{'...' if len(m.summary) > 60 else ''}"
                     for m in memories
                 )
             )
 
         return memories
+
+    async def _is_hybrid_available(self) -> bool:
+        """Check if hybrid search is available (tsv column and function exist)."""
+        if self._hybrid_available is not None:
+            return self._hybrid_available
+
+        try:
+            # Check if tsv column exists
+            result = await self.db.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'memories' AND column_name = 'tsv'
+                )
+            """)
+            self._hybrid_available = result
+            if not result:
+                logger.warning("Hybrid search unavailable: tsv column not found. Run migration 012.")
+            return result
+        except Exception as e:
+            logger.warning(f"Hybrid search check failed: {e}")
+            self._hybrid_available = False
+            return False
+
+    async def _retrieve_hybrid(
+        self,
+        query: str,
+        embedding: list[float],
+        user_id: int,
+        context_privacy: str,
+        guild_id: Optional[int],
+        channel_id: Optional[int],
+        top_k: int,
+    ) -> list[asyncpg.Record]:
+        """Execute hybrid search using the SQL function."""
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+        try:
+            rows = await self.db.fetch(
+                """SELECT * FROM hybrid_memory_search($1, $2::vector, $3, $4, $5, $6, $7, $8)""",
+                query,
+                embedding_str,
+                user_id,
+                context_privacy,
+                guild_id,
+                channel_id,
+                top_k,
+                self.config.hybrid_candidate_limit,
+            )
+            logger.info(f"Hybrid search returned {len(rows)} results")
+            return rows
+        except Exception as e:
+            logger.error(f"Hybrid search failed, falling back to semantic: {e}")
+            # Mark hybrid as unavailable to avoid repeated failures
+            self._hybrid_available = False
+            return []
+
+    async def _retrieve_semantic(
+        self,
+        embedding: list[float],
+        user_id: int,
+        context_privacy: PrivacyLevel,
+        channel: discord.abc.Messageable,
+        top_k: int,
+    ) -> list[asyncpg.Record]:
+        """Fallback semantic-only search."""
+        sql, params = self._build_privacy_query(
+            user_id, embedding, context_privacy, channel, top_k
+        )
+        rows = await self.db.fetch(sql, *params)
+        logger.info(f"Semantic search returned {len(rows)} results")
+        return rows
 
     def _build_privacy_query(
         self,

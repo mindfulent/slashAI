@@ -59,6 +59,11 @@ class MemoryConfig:
     # Token budget for injected context
     max_memory_tokens: int = 2000
 
+    # Hybrid search settings
+    hybrid_search_enabled: bool = True
+    hybrid_candidate_limit: int = 20  # Candidates per search type for RRF
+    rrf_k: int = 60  # Smoothing constant for RRF
+
     @classmethod
     def from_env(cls) -> "MemoryConfig":
         """Create config from environment variables with defaults."""
@@ -78,6 +83,9 @@ class MemoryConfig:
             ),
             embedding_model=os.getenv("MEMORY_EMBEDDING_MODEL", "voyage-3.5-lite"),
             max_memory_tokens=int(os.getenv("MEMORY_MAX_TOKENS", "2000")),
+            hybrid_search_enabled=os.getenv("MEMORY_HYBRID_SEARCH", "true").lower() == "true",
+            hybrid_candidate_limit=int(os.getenv("MEMORY_HYBRID_CANDIDATES", "20")),
+            rrf_k=int(os.getenv("MEMORY_RRF_K", "60")),
         )
 
 

@@ -58,7 +58,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 4. **`src/memory/`** - Text memory system
    - `extractor.py`: LLM topic extraction (triggers after 5 exchanges)
-   - `retriever.py`: Voyage AI + pgvector similarity search
+   - `retriever.py`: Hybrid search (lexical + semantic) with Reciprocal Rank Fusion
    - `updater.py`: ADD/MERGE logic for memory updates
    - `privacy.py`: dm/channel_restricted/guild_public/global levels
    - `manager.py`: Facade orchestrating all operations
@@ -136,6 +136,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions |
 | `ANALYTICS_ENABLED` | No | Set to "false" to disable analytics tracking (default: true) |
 | `GITHUB_TOKEN` | Recommended | GitHub personal access token for higher API rate limits |
+| `MEMORY_HYBRID_SEARCH` | No | Set to "false" to disable hybrid search (default: true) |
 
 ## Development Notes
 
@@ -184,6 +185,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 -- Scheduled Reminders (v0.9.17)
 \i migrations/010_create_scheduled_reminders.sql
 \i migrations/011_create_user_settings.sql
+
+-- Hybrid Search (v0.10.0)
+\i migrations/012_add_hybrid_search.sql
 ```
 
 ## Memory Privacy Model

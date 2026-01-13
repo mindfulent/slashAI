@@ -7,7 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- Slash command support (`/ask`, `/summarize`, `/clear`)
+- Rate limiting and token budget management
+- Multi-guild configuration support
+- User commands for build management (`/builds`, `/myprojects`)
+- Automatic milestone detection with notifications
+
+---
+
+## [0.10.0] - 2026-01-12
+
 ### Added
+
+#### Hybrid Search (Spec 010)
+Combines lexical (full-text) and semantic (vector) search using Reciprocal Rank Fusion for optimal recall across query types.
+
+**Problem Solved:**
+Semantic-only search failed for exact term queries:
+- Player names: "What did ilmango say?" → "ilmango" has no semantic meaning
+- Coordinates: "My base at x:1000" → Numbers embed poorly
+- Mod names: "Install OptiFine" → Technical terms vary in embedding
+
+**Solution:**
+- Added PostgreSQL full-text search (tsvector + GIN index) alongside pgvector
+- Reciprocal Rank Fusion (RRF) combines both result sets by rank position
+- Documents appearing in both lexical and semantic results score higher
+- No hyperparameter tuning needed (k=60 works universally)
+
+**Implementation:**
+- `tsv` column with weighted tsvector (Weight A = exact matches via 'simple', Weight B = stemmed via 'english')
+- `hybrid_memory_search()` SQL function with privacy filtering and RRF
+- Automatic trigger maintains tsvector on insert/update
+- Graceful fallback to semantic-only if migration not run
+
+**Performance:**
+- Latency increase: ~10ms per query (+10%)
+- Storage increase: ~25% per memory (minimal, only stores lexemes)
+
+**New files:**
+- `migrations/012_add_hybrid_search.sql` - tsvector column, GIN index, trigger, SQL function
+- `tests/test_hybrid_search.py` - 17 unit tests
+
+**Configuration:**
+- `MEMORY_HYBRID_SEARCH=false` to disable (enabled by default)
+
+See `docs/enhancements/010_HYBRID_SEARCH.md` for full specification.
 
 #### Database Backup System (Spec 008)
 Implemented automated backup system for the shared PostgreSQL database (used by both slashAI and theblockacademy).
@@ -71,13 +116,6 @@ Enables slashAI to read its own documentation from GitHub, improving accuracy wh
 ```
 
 See `docs/enhancements/009_GITHUB_DOC_READER.md` for full specification.
-
-### Planned
-- Slash command support (`/ask`, `/summarize`, `/clear`)
-- Rate limiting and token budget management
-- Multi-guild configuration support
-- User commands for build management (`/builds`, `/myprojects`)
-- Automatic milestone detection with notifications
 
 ---
 
@@ -1044,6 +1082,8 @@ Users can now view and manage their memories directly through Discord slash comm
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 0.10.0 | 2026-01-12 | Hybrid search (lexical + semantic RRF), database backups, GitHub doc reader |
+| 0.9.23 | 2026-01-12 | Query-relevant image retrieval |
 | 0.9.17 | 2026-01-10 | Scheduled reminders with natural language + CRON support |
 | 0.9.16 | 2026-01-09 | Native PostgreSQL analytics with slash commands and CLI tool |
 | 0.9.15 | 2026-01-03 | Fix MCP server wiping slash commands |
@@ -1102,7 +1142,9 @@ None across 0.9.x releases. All features are opt-in via environment variables.
 
 ---
 
-[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.9.17...HEAD
+[Unreleased]: https://github.com/mindfulent/slashAI/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/mindfulent/slashAI/compare/v0.9.23...v0.10.0
+[0.9.23]: https://github.com/mindfulent/slashAI/compare/v0.9.17...v0.9.23
 [0.9.17]: https://github.com/mindfulent/slashAI/compare/v0.9.16...v0.9.17
 [0.9.16]: https://github.com/mindfulent/slashAI/compare/v0.9.15...v0.9.16
 [0.9.15]: https://github.com/mindfulent/slashAI/compare/v0.9.14...v0.9.15
