@@ -159,17 +159,17 @@ class MemoryDecayJob:
         period_days = self.config.decay_period_days
         min_conf = self.config.min_confidence
 
-        # Use parameterized query with interval computed separately
+        # Use parameterized query with explicit type casts for PostgreSQL
         result = await self.db.execute(
             f"""
             UPDATE memories
             SET confidence = GREATEST(
-                $1,
+                $1::float,
                 confidence * POWER(
                     -- Relevance-weighted decay rate: base to max based on retrieval_count
-                    $2 + (($3 - $2) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10)),
+                    $2::float + (($3::float - $2::float) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10.0)),
                     -- Periods elapsed since last access
-                    FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400 / $4)
+                    FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400.0 / $4::float)
                 )
             ),
             updated_at = NOW()
@@ -177,12 +177,12 @@ class MemoryDecayJob:
               AND is_protected = FALSE
               AND last_accessed_at IS NOT NULL
               AND last_accessed_at < NOW() - INTERVAL '{period_days} days'
-              AND confidence > $1
+              AND confidence > $1::float
         """,
             min_conf,
             base_rate,
             max_rate,
-            period_days,
+            float(period_days),
         )
 
         # Parse affected row count from result (format: "UPDATE N")

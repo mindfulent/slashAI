@@ -90,30 +90,30 @@ async def run_decay(pool: asyncpg.Pool, dry_run: bool = False) -> None:
     config = MemoryConfig.from_env()
 
     if dry_run:
-        # Preview what would be decayed
+        # Preview what would be decayed (with explicit type casts for PostgreSQL)
         would_decay = await pool.fetch(
             f"""
             SELECT
                 id, user_id, topic_summary, confidence, retrieval_count, last_accessed_at,
                 confidence * POWER(
-                    $1 + (($2 - $1) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10)),
-                    FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400 / $3)
+                    $1::float + (($2::float - $1::float) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10.0)),
+                    FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400.0 / $3::float)
                 ) as new_confidence,
-                $1 + (($2 - $1) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10)) as decay_rate
+                $1::float + (($2::float - $1::float) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10.0)) as decay_rate
             FROM memories
             WHERE decay_policy = 'standard'
               AND is_protected = FALSE
               AND last_accessed_at < NOW() - INTERVAL '{config.decay_period_days} days'
-              AND confidence > $4
+              AND confidence > $4::float
             ORDER BY (confidence - confidence * POWER(
-                $1 + (($2 - $1) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10)),
-                FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400 / $3)
+                $1::float + (($2::float - $1::float) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10.0)),
+                FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400.0 / $3::float)
             )) DESC
             LIMIT 20
         """,
             config.base_decay_rate,
             config.max_decay_rate,
-            config.decay_period_days,
+            float(config.decay_period_days),
             config.min_confidence,
         )
 
