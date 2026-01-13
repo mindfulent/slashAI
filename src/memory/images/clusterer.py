@@ -37,7 +37,7 @@ class ClusterConfig:
     """Configuration for build clustering.
 
     Thresholds are calibrated for Voyage multimodal embeddings which have
-    low baseline similarity (mean ~0.19). See docs/IMAGE_MEMORY_ISSUES.md.
+    low baseline similarity (mean ~0.19). See docs/enhancements/007_IMAGE_MEMORY_FIXES.md.
     """
 
     # Similarity thresholds - calibrated for Voyage multimodal

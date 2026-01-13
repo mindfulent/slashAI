@@ -32,7 +32,7 @@ class MemoryConfig:
 
     Text memory thresholds are calibrated for voyage-3.5-lite embeddings which
     produce high baseline similarity (mean ~0.63, range 0.44-0.88).
-    See docs/IMAGE_MEMORY_ISSUES.md for calibration data.
+    See docs/enhancements/007_IMAGE_MEMORY_FIXES.md for calibration data.
     """
 
     # Retrieval settings
@@ -87,7 +87,7 @@ class ImageMemoryConfig:
 
     Image thresholds are calibrated for Voyage multimodal embeddings which
     produce low baseline similarity (mean ~0.19, range -0.04 to 1.0).
-    See docs/IMAGE_MEMORY_ISSUES.md for calibration data.
+    See docs/enhancements/007_IMAGE_MEMORY_FIXES.md for calibration data.
     """
 
     # Image analysis settings

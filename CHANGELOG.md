@@ -107,7 +107,7 @@ Build clusters now get meaningful names from 90+ structure types (was 16):
 
 ### Technical Details
 
-See [docs/IMAGE_MEMORY_ISSUES.md](docs/IMAGE_MEMORY_ISSUES.md) for full analysis and calibration data.
+See [docs/enhancements/007_IMAGE_MEMORY_FIXES.md](docs/enhancements/007_IMAGE_MEMORY_FIXES.md) for full analysis and calibration data.
 
 #### Files Modified
 - `src/claude_client.py` - Retrieval gap fix, system prompt updates, calibrated relevance labels
@@ -169,7 +169,7 @@ Claude now has visibility into memory metadata, enabling smarter handling of con
 - `src/memory/manager.py` - Added `search()` method for semantic memory search
 
 #### Design Document
-See [META_MEMORY_PLAN.md](docs/META_MEMORY_PLAN.md) for full implementation plan.
+See [006_META_MEMORY.md](docs/enhancements/006_META_MEMORY.md) for full implementation plan.
 
 ---
 
@@ -211,7 +211,7 @@ When `OWNER_ID` sets a reminder in a public channel via natural language, the re
 - `src/claude_client.py` - Auto-detect owner + public channel for channel delivery
 - `src/discord_bot.py` - Filter all bot messages from processing
 - `src/commands/analytics_commands.py` - Enhanced `/analytics users` output
-- `docs/REMINDERS_PLAN.md` - Updated with v0.9.19 enhancements
+- `docs/enhancements/005_REMINDERS.md` - Updated with v0.9.19 enhancements
 
 ---
 
@@ -538,7 +538,7 @@ The bot owner can now trigger Discord actions directly through chat conversation
   - Added `get_message_image()` method to fetch image attachments
 
 #### New Documentation
-- `docs/AGENTIC_TOOLS_PLAN.md` - Design document for this feature
+- `docs/enhancements/003_AGENTIC_TOOLS.md` - Design document for this feature
 
 #### No Breaking Changes
 - No database migrations required
