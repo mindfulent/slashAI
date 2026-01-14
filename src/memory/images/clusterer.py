@@ -304,6 +304,7 @@ class BuildClusterer:
         
         # Update cluster: increment count, update timestamps, recalculate centroid
         # Using rolling average for efficiency
+        # Note: pgvector requires float for scalar multiplication (vector * integer not supported)
         await self.db.execute(
             """
             UPDATE build_clusters SET
@@ -311,7 +312,7 @@ class BuildClusterer:
                 last_observation_at = NOW(),
                 updated_at = NOW(),
                 centroid_embedding = (
-                    (centroid_embedding * observation_count + $2::vector) / (observation_count + 1)
+                    (centroid_embedding * observation_count::real + $2::vector) / (observation_count + 1)::real
                 )
             WHERE id = $1
             """,
