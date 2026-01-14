@@ -299,25 +299,46 @@ class BuildClusterer:
             observation_id,
         )
 
-        # Convert embedding to pgvector string format
-        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
-        
-        # Update cluster: increment count, update timestamps, recalculate centroid
-        # Using rolling average for efficiency
-        # Note: pgvector requires float for scalar multiplication (vector * integer not supported)
+        # Fetch current centroid and count to calculate new centroid in Python
+        # (pgvector doesn't support scalar multiplication: vector * real)
+        row = await self.db.fetchrow(
+            "SELECT centroid_embedding, observation_count FROM build_clusters WHERE id = $1",
+            cluster_id,
+        )
+
+        if row and row["centroid_embedding"]:
+            # Parse current centroid
+            raw_centroid = row["centroid_embedding"]
+            if isinstance(raw_centroid, str):
+                current_centroid = np.array(
+                    [float(x) for x in raw_centroid.strip('[]').split(',')],
+                    dtype=np.float32
+                )
+            else:
+                current_centroid = np.array(raw_centroid, dtype=np.float32)
+
+            count = row["observation_count"]
+            new_embedding = np.array(embedding, dtype=np.float32)
+
+            # Calculate rolling average centroid
+            new_centroid = (current_centroid * count + new_embedding) / (count + 1)
+            new_centroid_str = '[' + ','.join(str(x) for x in new_centroid) + ']'
+        else:
+            # No existing centroid, use the new embedding
+            new_centroid_str = '[' + ','.join(str(x) for x in embedding) + ']'
+
+        # Update cluster with new centroid
         await self.db.execute(
             """
             UPDATE build_clusters SET
                 observation_count = observation_count + 1,
                 last_observation_at = NOW(),
                 updated_at = NOW(),
-                centroid_embedding = (
-                    (centroid_embedding * observation_count::real + $2::vector) / (observation_count + 1)::real
-                )
+                centroid_embedding = $2::vector
             WHERE id = $1
             """,
             cluster_id,
-            embedding_str,
+            new_centroid_str,
         )
 
     def _generate_cluster_name(
