@@ -265,12 +265,30 @@ class RecognitionScheduler:
                     message_parts.append("")
                     message_parts.append(f"🏆 Earned **{title_display}**")
 
-            # Location
+            # Location with BlueMap link
             coords = submission.coordinates
-            coord_str = f"{coords.get('x', '?')}, {coords.get('y', '?')}, {coords.get('z', '?')}"
+            x = coords.get('x', 0)
+            y = coords.get('y', 64)
+            z = coords.get('z', 0)
             dimension = coords.get('dimension', 'Overworld')
+
+            # Map dimension to BlueMap world name
+            world_map = {
+                'Overworld': 'world',
+                'minecraft:overworld': 'world',
+                'The Nether': 'world_nether',
+                'minecraft:the_nether': 'world_nether',
+                'The End': 'world_the_end',
+                'minecraft:the_end': 'world_the_end',
+            }
+            bluemap_world = world_map.get(dimension, 'world')
+
+            # BlueMap URL format: #world:x:y:z:zoom:rotation:tilt:0:0:perspective
+            bluemap_url = f"http://66.59.211.148:8100/#{bluemap_world}:{x}:{y}:{z}:100:0:0.5:0:0:perspective"
+            coord_str = f"{x}, {y}, {z}"
+
             message_parts.append("")
-            message_parts.append(f"📍 {coord_str} ({dimension})")
+            message_parts.append(f"📍 [{coord_str}]({bluemap_url}) ({dimension})")
 
             message_content = "\n".join(message_parts)
 
