@@ -294,6 +294,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load analytics commands: {e}", exc_info=True)
 
+                # Load Discord account linking commands (CoreCurriculum)
+                try:
+                    from commands.link_commands import LinkCommands
+                    await self.add_cog(LinkCommands(self))
+                    logger.info("Link commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load link commands: {e}", exc_info=True)
+
                 # Initialize reminder system (v0.9.17)
                 try:
                     from reminders import ReminderManager, ReminderScheduler
