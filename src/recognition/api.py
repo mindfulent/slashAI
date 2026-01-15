@@ -57,6 +57,7 @@ class PlayerProfile:
 
     uuid: str
     minecraft_username: Optional[str]
+    discord_id: Optional[str]
     recognized_builds: int
     total_submissions: int
     earned_titles: list[dict]
@@ -156,6 +157,7 @@ class RecognitionAPIClient:
             return PlayerProfile(
                 uuid=data["uuid"],
                 minecraft_username=data.get("minecraft_username"),
+                discord_id=data.get("discord_id"),
                 recognized_builds=data.get("stats", {}).get("recognized_builds", 0),
                 total_submissions=data.get("stats", {}).get("total_submissions", 0),
                 earned_titles=data.get("earned_titles", []),

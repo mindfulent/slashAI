@@ -7,11 +7,15 @@ Recognition Scheduler Module
 Background task loop for processing build submissions from Core Curriculum.
 Polls the Recognition API for pending submissions, analyzes them using Claude Vision,
 and sends results back via webhook.
+
+Includes DM approval flow - players receive a DM asking if they want to share
+their recognized build publicly before it's posted to #server-showcase.
 """
 
 import io
 import logging
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 import discord
@@ -21,9 +25,10 @@ from discord.ext import tasks
 if TYPE_CHECKING:
     from discord_bot import DiscordBot
 
-from .api import RecognitionAPIClient, Submission
+from .api import RecognitionAPIClient, Submission, PlayerProfile
 from .analyzer import BuildAnalyzer, BuildAnalysis
-from .feedback import generate_feedback
+from .approval import ApprovalView, format_dm_message
+from .feedback import generate_feedback, FeedbackMessage
 
 logger = logging.getLogger("slashAI.recognition.scheduler")
 
@@ -36,6 +41,17 @@ else:
 
 # Polling interval in seconds
 POLL_INTERVAL = int(os.getenv("RECOGNITION_POLL_INTERVAL", "60"))
+
+
+@dataclass
+class PendingApproval:
+    """Data stored for a submission pending user approval."""
+
+    submission: Submission
+    analysis: BuildAnalysis
+    feedback: FeedbackMessage
+    player_name: str
+    player_profile: Optional[PlayerProfile]
 
 
 class RecognitionScheduler:
@@ -66,6 +82,10 @@ class RecognitionScheduler:
         else:
             self.analyzer = None
             logger.warning("ANTHROPIC_API_KEY not set - recognition analysis disabled")
+
+        # Storage for submissions pending user approval
+        # Maps submission_id -> PendingApproval data
+        self._pending_approvals: dict[str, PendingApproval] = {}
 
     def start(self) -> None:
         """Start the scheduler loop."""
@@ -112,6 +132,17 @@ class RecognitionScheduler:
         """
         Process a single submission.
 
+        Flow:
+        1. Analyze with Claude Vision
+        2. Send results to Recognition API
+        3. If recognized AND player has Discord linked:
+           - DM player with assessment and approval buttons
+           - Wait for approval before announcing
+        4. If recognized but no Discord:
+           - Announce directly to channel
+        5. If not recognized:
+           - Just send DM feedback (no public announcement)
+
         Args:
             submission: The submission to process
         """
@@ -140,28 +171,47 @@ class RecognitionScheduler:
             )
             feedback = generate_feedback(submission, analysis, player_name)
 
-            # Send results back to API
+            # Send results back to API (don't share publicly yet - wait for approval)
             success = await self.api_client.submit_analysis_result(
                 submission_id=submission_id,
                 recognized=analysis.recognized,
                 assessment=feedback.dm_content,
                 title_recommendation=analysis.title_recommendation,
                 confidence=analysis.confidence,
-                share_publicly=analysis.recognized,  # Only share if recognized
+                share_publicly=False,  # Don't auto-share, wait for approval
             )
 
-            if success:
-                logger.info(f"Successfully submitted analysis for {submission_id}")
-
-                # Announce if recognized and channel is configured
-                if analysis.recognized and feedback.announcement_content:
-                    await self._announce_recognition(submission, analysis, feedback, player_name)
-
-                # DM the player
-                await self._dm_player(submission, feedback)
-
-            else:
+            if not success:
                 logger.error(f"Failed to submit analysis result for {submission_id}")
+                return
+
+            logger.info(f"Successfully submitted analysis for {submission_id}")
+
+            # Handle announcement based on recognition and Discord linkage
+            if analysis.recognized:
+                discord_id = player_profile.discord_id if player_profile else None
+
+                if discord_id:
+                    # Player has Discord linked - send DM with approval buttons
+                    await self._send_approval_dm(
+                        submission, analysis, feedback, player_name, player_profile
+                    )
+                else:
+                    # No Discord linked - announce directly
+                    logger.info(
+                        f"No Discord ID for {player_name}, announcing directly"
+                    )
+                    await self._announce_recognition(
+                        submission, analysis, feedback, player_name
+                    )
+            else:
+                # Not recognized - just log, no announcement needed
+                # Could send feedback DM here if Discord is linked
+                discord_id = player_profile.discord_id if player_profile else None
+                if discord_id:
+                    await self._send_feedback_dm(
+                        submission, analysis, feedback, player_name, player_profile
+                    )
 
         except Exception as e:
             logger.error(
@@ -262,39 +312,183 @@ class RecognitionScheduler:
         }
         return titles.get(title_slug)
 
-    async def _dm_player(self, submission: Submission, feedback) -> None:
+    async def _send_approval_dm(
+        self,
+        submission: Submission,
+        analysis: BuildAnalysis,
+        feedback: FeedbackMessage,
+        player_name: str,
+        player_profile: PlayerProfile,
+    ) -> None:
         """
-        Send feedback DM to the player.
-
-        This requires mapping Minecraft UUID to Discord ID, which is done
-        via the Recognition API's player profile.
+        Send DM to player with approval buttons for sharing.
 
         Args:
             submission: The submission
-            feedback: Generated feedback with DM content
+            analysis: The build analysis
+            feedback: Generated feedback messages
+            player_name: Player's Minecraft username
+            player_profile: Player's profile with discord_id
         """
+        if not player_profile.discord_id:
+            logger.debug(f"No Discord ID for {player_name}, cannot send approval DM")
+            return
+
         try:
-            # Get player's Discord ID from profile
-            player_profile = await self.api_client.get_player_profile(
-                submission.player_uuid
+            user = await self.bot.fetch_user(int(player_profile.discord_id))
+
+            # Store pending approval data
+            self._pending_approvals[submission.id] = PendingApproval(
+                submission=submission,
+                analysis=analysis,
+                feedback=feedback,
+                player_name=player_name,
+                player_profile=player_profile,
             )
 
-            if not player_profile:
-                logger.debug(f"No profile for player {submission.player_uuid}, skipping DM")
-                return
+            # Format the DM message
+            title_display = None
+            if analysis.title_recommendation:
+                title_display = self._get_title_display(analysis.title_recommendation)
 
-            # The profile should include discord_id if linked
-            # For now, we'll skip this step - it requires the Recognition API
-            # to store Discord ID linkage, which we can add later
-            #
-            # discord_id = getattr(player_profile, 'discord_id', None)
-            # if discord_id:
-            #     user = await self.bot.fetch_user(int(discord_id))
-            #     await user.send(feedback.dm_content)
-
-            logger.debug(
-                f"DM delivery not implemented yet for {submission.player_uuid}"
+            dm_content = format_dm_message(
+                build_name=submission.build_name,
+                player_name=player_name,
+                assessment=analysis.overall_impression,
+                recognized=True,
+                title_earned=title_display,
+                coordinates=submission.coordinates,
             )
 
+            # Create approval view with buttons
+            view = ApprovalView(
+                submission_id=submission.id,
+                on_approve=self._handle_approval,
+                on_decline=self._handle_decline,
+            )
+
+            await user.send(content=dm_content, view=view)
+            logger.info(f"Sent approval DM to {player_name} for {submission.build_name}")
+
+        except discord.NotFound:
+            logger.warning(
+                f"Discord user {player_profile.discord_id} not found, announcing directly"
+            )
+            await self._announce_recognition(submission, analysis, feedback, player_name)
+        except discord.Forbidden:
+            logger.warning(
+                f"Cannot DM user {player_profile.discord_id} (DMs disabled), announcing directly"
+            )
+            await self._announce_recognition(submission, analysis, feedback, player_name)
         except Exception as e:
-            logger.warning(f"Failed to DM player: {e}")
+            logger.error(f"Failed to send approval DM: {e}", exc_info=True)
+
+    async def _send_feedback_dm(
+        self,
+        submission: Submission,
+        analysis: BuildAnalysis,
+        feedback: FeedbackMessage,
+        player_name: str,
+        player_profile: PlayerProfile,
+    ) -> None:
+        """
+        Send feedback DM for non-recognized builds (no approval needed).
+
+        Args:
+            submission: The submission
+            analysis: The build analysis
+            feedback: Generated feedback messages
+            player_name: Player's Minecraft username
+            player_profile: Player's profile with discord_id
+        """
+        if not player_profile.discord_id:
+            return
+
+        try:
+            user = await self.bot.fetch_user(int(player_profile.discord_id))
+
+            # Format simple feedback message (no buttons needed)
+            dm_content = format_dm_message(
+                build_name=submission.build_name,
+                player_name=player_name,
+                assessment=analysis.overall_impression,
+                recognized=False,
+                coordinates=submission.coordinates,
+            )
+
+            await user.send(content=dm_content)
+            logger.info(f"Sent feedback DM to {player_name} for {submission.build_name}")
+
+        except discord.NotFound:
+            logger.debug(f"Discord user {player_profile.discord_id} not found")
+        except discord.Forbidden:
+            logger.debug(f"Cannot DM user {player_profile.discord_id} (DMs disabled)")
+        except Exception as e:
+            logger.warning(f"Failed to send feedback DM: {e}")
+
+    async def _handle_approval(
+        self, submission_id: str, interaction: discord.Interaction
+    ) -> None:
+        """
+        Handle user clicking "Share to Server" button.
+
+        Args:
+            submission_id: The submission being approved
+            interaction: The Discord interaction
+        """
+        pending = self._pending_approvals.pop(submission_id, None)
+        if not pending:
+            logger.warning(f"No pending approval found for {submission_id}")
+            await interaction.followup.send(
+                "This submission has already been processed or expired.",
+                ephemeral=True,
+            )
+            return
+
+        logger.info(
+            f"Approval received for {pending.submission.build_name} from {pending.player_name}"
+        )
+
+        # Announce to public channel
+        await self._announce_recognition(
+            pending.submission,
+            pending.analysis,
+            pending.feedback,
+            pending.player_name,
+        )
+
+        # Confirm to user
+        await interaction.followup.send(
+            f"Your build **{pending.submission.build_name}** has been shared to #server-showcase!",
+            ephemeral=True,
+        )
+
+    async def _handle_decline(
+        self, submission_id: str, interaction: discord.Interaction
+    ) -> None:
+        """
+        Handle user clicking "Keep Private" button.
+
+        Args:
+            submission_id: The submission being declined
+            interaction: The Discord interaction
+        """
+        pending = self._pending_approvals.pop(submission_id, None)
+        if not pending:
+            logger.warning(f"No pending approval found for {submission_id}")
+            await interaction.followup.send(
+                "This submission has already been processed or expired.",
+                ephemeral=True,
+            )
+            return
+
+        logger.info(
+            f"Sharing declined for {pending.submission.build_name} by {pending.player_name}"
+        )
+
+        # Confirm to user
+        await interaction.followup.send(
+            f"No problem! Your build **{pending.submission.build_name}** will remain private. "
+            "Your recognition still counts toward title progression.",
+            ephemeral=True,
+        )
