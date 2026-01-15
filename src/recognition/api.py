@@ -234,7 +234,8 @@ class RecognitionAPIClient:
             logger.warning("SLASHAI_WEBHOOK_SECRET not set - webhooks will fail auth")
             return ""
 
-        payload_bytes = json.dumps(payload).encode("utf-8")
+        # Use compact JSON (no spaces) to match JavaScript's JSON.stringify()
+        payload_bytes = json.dumps(payload, separators=(',', ':')).encode("utf-8")
         signature = hmac.new(
             self.webhook_secret.encode("utf-8"),
             payload_bytes,
