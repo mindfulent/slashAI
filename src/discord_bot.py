@@ -237,6 +237,7 @@ class DiscordBot(commands.Bot):
         self.reminder_manager = None  # Reminder system (v0.9.17)
         self.reminder_scheduler = None  # Background scheduler for reminders
         self.decay_job = None  # Memory decay job (v0.10.1)
+        self.recognition_scheduler = None  # Recognition system for build reviews
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -319,6 +320,18 @@ class DiscordBot(commands.Bot):
                     logger.error(f"Failed to initialize decay job: {e}", exc_info=True)
                     logger.warning("Memory decay disabled due to initialization failure")
 
+                # Initialize recognition scheduler for Core Curriculum
+                recognition_enabled = os.getenv("RECOGNITION_ENABLED", "false").lower() == "true"
+                if recognition_enabled:
+                    try:
+                        from recognition import RecognitionScheduler
+
+                        self.recognition_scheduler = RecognitionScheduler(self)
+                        logger.info("Recognition scheduler initialized")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize recognition scheduler: {e}", exc_info=True)
+                        logger.warning("Recognition processing disabled due to initialization failure")
+
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
                     await self._setup_image_memory(anthropic_client)
@@ -378,6 +391,10 @@ class DiscordBot(commands.Bot):
             # Start reminder scheduler (v0.9.17)
             if self.reminder_scheduler:
                 self.reminder_scheduler.start()
+
+            # Start recognition scheduler for Core Curriculum
+            if self.recognition_scheduler:
+                self.recognition_scheduler.start()
         else:
             logger.info("MCP-only mode, skipping command sync")
 
@@ -746,6 +763,9 @@ class DiscordBot(commands.Bot):
         # Stop decay job (v0.10.1)
         if self.decay_job:
             self.decay_job.stop()
+        # Stop recognition scheduler
+        if self.recognition_scheduler:
+            await self.recognition_scheduler.close()
         await analytics_shutdown()
         if self.db_pool:
             await self.db_pool.close()

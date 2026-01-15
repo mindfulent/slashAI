@@ -23,6 +23,7 @@ from .feedback import FeedbackGenerator
 from .progression import TitleProgressionEvaluator
 from .nominations import NominationReviewer
 from .api import RecognitionAPIClient
+from .scheduler import RecognitionScheduler
 
 __all__ = [
     "BuildAnalyzer",
@@ -30,6 +31,7 @@ __all__ = [
     "TitleProgressionEvaluator",
     "NominationReviewer",
     "RecognitionAPIClient",
+    "RecognitionScheduler",
 ]
 
 __version__ = "0.1.0"
