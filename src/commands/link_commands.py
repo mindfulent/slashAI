@@ -98,7 +98,7 @@ class LinkCommands(commands.Cog):
                     f"✅ **Account linked successfully!**\n\n"
                     f"Your Discord account is now linked to **{minecraft_username}**.\n\n"
                     f"You'll receive DM notifications when your builds are reviewed. "
-                    f"You can unlink anytime with `/discord unlink` in Minecraft.",
+                    f"You can unlink anytime with `/link remove` in Minecraft.",
                     ephemeral=True,
                 )
                 logger.info(
