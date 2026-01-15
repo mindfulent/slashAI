@@ -137,10 +137,26 @@ def format_dm_message(
             lines.append(f"🏆 You earned the title: **{title_earned}**")
 
         if coordinates:
-            coord_str = f"{coordinates.get('x', '?')}, {coordinates.get('y', '?')}, {coordinates.get('z', '?')}"
+            x = coordinates.get('x', 0)
+            y = coordinates.get('y', 64)
+            z = coordinates.get('z', 0)
             dimension = coordinates.get('dimension', 'Overworld')
+
+            # Map dimension to BlueMap world name
+            world_map = {
+                'Overworld': 'world',
+                'minecraft:overworld': 'world',
+                'The Nether': 'world_nether',
+                'minecraft:the_nether': 'world_nether',
+                'The End': 'world_the_end',
+                'minecraft:the_end': 'world_the_end',
+            }
+            bluemap_world = world_map.get(dimension, 'world')
+            bluemap_url = f"http://66.59.211.148:8100/#{bluemap_world}:{x}:{y}:{z}:100:0:0.5:0:0:perspective"
+
+            coord_str = f"{x}, {y}, {z}"
             lines.append("")
-            lines.append(f"📍 {coord_str} ({dimension})")
+            lines.append(f"📍 [{coord_str}]({bluemap_url}) ({dimension})")
 
         lines.append("")
         lines.append("Would you like to share this to **#server-showcase**?")
