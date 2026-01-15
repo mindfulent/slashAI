@@ -97,8 +97,8 @@ class RecognitionAPIClient:
         """Fetch pending submissions for analysis"""
         try:
             response = await self._client.get(
-                "/admin/submissions",
-                params={"status": "pending", "limit": limit},
+                "/pending",
+                params={"limit": limit},
             )
             response.raise_for_status()
             data = response.json()
