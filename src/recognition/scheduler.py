@@ -27,6 +27,10 @@ logger = logging.getLogger("slashAI.recognition.scheduler")
 
 # Channel for public announcements (optional)
 ANNOUNCEMENTS_CHANNEL_ID = os.getenv("RECOGNITION_ANNOUNCEMENTS_CHANNEL")
+if ANNOUNCEMENTS_CHANNEL_ID:
+    logger.info(f"Announcements channel configured: {ANNOUNCEMENTS_CHANNEL_ID}")
+else:
+    logger.info("No announcements channel configured (RECOGNITION_ANNOUNCEMENTS_CHANNEL not set)")
 
 # Polling interval in seconds
 POLL_INTERVAL = int(os.getenv("RECOGNITION_POLL_INTERVAL", "60"))
