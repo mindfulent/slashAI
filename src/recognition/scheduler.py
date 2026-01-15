@@ -13,13 +13,14 @@ import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
+import discord
 from discord.ext import tasks
 
 if TYPE_CHECKING:
     from discord_bot import DiscordBot
 
 from .api import RecognitionAPIClient, Submission
-from .analyzer import BuildAnalyzer
+from .analyzer import BuildAnalyzer, BuildAnalysis
 from .feedback import generate_feedback
 
 logger = logging.getLogger("slashAI.recognition.scheduler")
@@ -148,7 +149,7 @@ class RecognitionScheduler:
 
                 # Announce if recognized and channel is configured
                 if analysis.recognized and feedback.announcement_content:
-                    await self._announce_recognition(submission, feedback, player_name)
+                    await self._announce_recognition(submission, analysis, feedback, player_name)
 
                 # DM the player
                 await self._dm_player(submission, feedback)
@@ -162,17 +163,19 @@ class RecognitionScheduler:
             )
 
     async def _announce_recognition(
-        self, submission: Submission, feedback, player_name: str
+        self, submission: Submission, analysis: BuildAnalysis, feedback, player_name: str
     ) -> None:
         """
-        Announce a recognized build in the announcements channel.
+        Announce a recognized build in the announcements channel with screenshots.
 
         Args:
             submission: The submission
+            analysis: The build analysis results
             feedback: Generated feedback with announcement content
             player_name: Player's Minecraft username
         """
         if not ANNOUNCEMENTS_CHANNEL_ID:
+            logger.debug("No announcements channel configured, skipping announcement")
             return
 
         try:
@@ -182,12 +185,67 @@ class RecognitionScheduler:
             if channel is None:
                 channel = await self.bot.fetch_channel(channel_id)
 
-            if channel and feedback.announcement_content:
-                await channel.send(feedback.announcement_content)
-                logger.info(f"Announced recognition for {submission.build_name}")
+            if not channel:
+                logger.warning(f"Could not find announcements channel {channel_id}")
+                return
+
+            # Create embed with first screenshot as main image
+            embed = discord.Embed(
+                title=f"✨ {submission.build_name}",
+                description=analysis.overall_impression,
+                color=discord.Color.gold(),
+            )
+            embed.set_author(name=f"Build by {player_name}")
+
+            # Add first screenshot as main embed image
+            if submission.screenshot_urls:
+                embed.set_image(url=submission.screenshot_urls[0])
+
+            # Add strengths as a field
+            if analysis.strengths:
+                strengths_text = "\n".join(f"• {s}" for s in analysis.strengths[:3])
+                embed.add_field(name="Highlights", value=strengths_text, inline=False)
+
+            # Add title earned if any
+            if analysis.title_recommendation:
+                title_display = self._get_title_display(analysis.title_recommendation)
+                if title_display:
+                    embed.add_field(name="🏆 Title Earned", value=title_display, inline=True)
+
+            # Add coordinates
+            coords = submission.coordinates
+            coord_str = f"{coords.get('x', '?')}, {coords.get('y', '?')}, {coords.get('z', '?')}"
+            dimension = coords.get('dimension', 'Overworld')
+            embed.set_footer(text=f"📍 {coord_str} ({dimension})")
+
+            # Send embed
+            await channel.send(embed=embed)
+
+            # Send additional screenshots as follow-up if there are more than 1
+            if len(submission.screenshot_urls) > 1:
+                additional_urls = submission.screenshot_urls[1:]
+                # Send as simple message with image URLs (Discord will embed them)
+                for url in additional_urls:
+                    additional_embed = discord.Embed(color=discord.Color.gold())
+                    additional_embed.set_image(url=url)
+                    await channel.send(embed=additional_embed)
+
+            logger.info(f"Announced recognition for {submission.build_name} in #{channel.name}")
 
         except Exception as e:
-            logger.warning(f"Failed to announce recognition: {e}")
+            logger.warning(f"Failed to announce recognition: {e}", exc_info=True)
+
+    def _get_title_display(self, title_slug: str) -> Optional[str]:
+        """Convert title slug to display name"""
+        titles = {
+            "first-build": "First Build",
+            "apprentice-builder": "Apprentice Builder",
+            "journeyman-builder": "Journeyman Builder",
+            "master-builder": "Master Builder",
+            "featured-artist": "Featured Artist",
+            "campus-builder": "Campus Builder",
+        }
+        return titles.get(title_slug)
 
     async def _dm_player(self, submission: Submission, feedback) -> None:
         """
