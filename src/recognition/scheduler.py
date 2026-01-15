@@ -9,11 +9,13 @@ Polls the Recognition API for pending submissions, analyzes them using Claude Vi
 and sends results back via webhook.
 """
 
+import io
 import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
 import discord
+import httpx
 from discord.ext import tasks
 
 if TYPE_CHECKING:
@@ -131,10 +133,10 @@ class RecognitionScheduler:
             )
 
             # Generate feedback messages
+            # Use minecraft_username if available, otherwise fall back to UUID prefix
             player_name = (
-                player_profile.minecraft_username
-                if player_profile
-                else submission.player_uuid[:8]
+                (player_profile.minecraft_username if player_profile else None)
+                or submission.player_uuid[:8]
             )
             feedback = generate_feedback(submission, analysis, player_name)
 
@@ -172,6 +174,9 @@ class RecognitionScheduler:
         """
         Announce a recognized build in the announcements channel with screenshots.
 
+        Posts a conversational message with all screenshots attached as files
+        in a single post, like how a community member would share a build.
+
         Args:
             submission: The submission
             analysis: The build analysis results
@@ -193,46 +198,52 @@ class RecognitionScheduler:
                 logger.warning(f"Could not find announcements channel {channel_id}")
                 return
 
-            # Create embed with first screenshot as main image
-            embed = discord.Embed(
-                title=f"✨ {submission.build_name}",
-                description=analysis.overall_impression,
-                color=discord.Color.gold(),
-            )
-            embed.set_author(name=f"Build by {player_name}")
+            # Build conversational message
+            message_parts = []
 
-            # Add first screenshot as main embed image
-            if submission.screenshot_urls:
-                embed.set_image(url=submission.screenshot_urls[0])
+            # Header with build name and builder
+            message_parts.append(f"**{submission.build_name}** by {player_name} ✨")
+            message_parts.append("")
 
-            # Add strengths as a field
-            if analysis.strengths:
-                strengths_text = "\n".join(f"• {s}" for s in analysis.strengths[:3])
-                embed.add_field(name="Highlights", value=strengths_text, inline=False)
+            # Claude's overall impression (the heart of the message)
+            message_parts.append(analysis.overall_impression)
 
-            # Add title earned if any
+            # Title earned (if any)
             if analysis.title_recommendation:
                 title_display = self._get_title_display(analysis.title_recommendation)
                 if title_display:
-                    embed.add_field(name="🏆 Title Earned", value=title_display, inline=True)
+                    message_parts.append("")
+                    message_parts.append(f"🏆 Earned **{title_display}**")
 
-            # Add coordinates
+            # Location
             coords = submission.coordinates
             coord_str = f"{coords.get('x', '?')}, {coords.get('y', '?')}, {coords.get('z', '?')}"
             dimension = coords.get('dimension', 'Overworld')
-            embed.set_footer(text=f"📍 {coord_str} ({dimension})")
+            message_parts.append("")
+            message_parts.append(f"📍 {coord_str} ({dimension})")
 
-            # Send embed
-            await channel.send(embed=embed)
+            message_content = "\n".join(message_parts)
 
-            # Send additional screenshots as follow-up if there are more than 1
-            if len(submission.screenshot_urls) > 1:
-                additional_urls = submission.screenshot_urls[1:]
-                # Send as simple message with image URLs (Discord will embed them)
-                for url in additional_urls:
-                    additional_embed = discord.Embed(color=discord.Color.gold())
-                    additional_embed.set_image(url=url)
-                    await channel.send(embed=additional_embed)
+            # Download all screenshots and attach as files
+            files = []
+            async with httpx.AsyncClient() as client:
+                for i, url in enumerate(submission.screenshot_urls[:10]):  # Discord max 10 files
+                    try:
+                        response = await client.get(url)
+                        if response.status_code == 200:
+                            # Extract filename from URL or use index
+                            filename = url.split("/")[-1] or f"screenshot_{i+1}.jpg"
+                            file_data = io.BytesIO(response.content)
+                            files.append(discord.File(file_data, filename=filename))
+                    except Exception as e:
+                        logger.warning(f"Failed to download screenshot {i+1}: {e}")
+
+            # Send single message with all attachments
+            if files:
+                await channel.send(content=message_content, files=files)
+            else:
+                # Fallback: send message without images if downloads failed
+                await channel.send(content=message_content)
 
             logger.info(f"Announced recognition for {submission.build_name} in #{channel.name}")
 
