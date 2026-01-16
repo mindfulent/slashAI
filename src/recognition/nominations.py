@@ -68,14 +68,14 @@ Evaluate this nomination for:
 - Possible reciprocal nomination pattern
 - Unusual patterns but not clearly abusive
 
-**REJECT** if:
+**REJECTED** if:
 - Reason is completely generic or obviously fake
 - Clear gaming pattern (brigading, coordinated)
 - Doesn't match the nomination category
 
 ## Response Format
 
-Respond with JSON:
+Respond with ONLY a JSON object (no other text):
 ```json
 {{
   "decision": "approved",
@@ -84,6 +84,8 @@ Respond with JSON:
   "flags": []
 }}
 ```
+
+IMPORTANT: The "decision" field MUST be exactly one of: "approved", "flagged", or "rejected" (lowercase).
 
 For flags, use these identifiers:
 - "vague_reason" - Reason lacks specificity
