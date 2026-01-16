@@ -260,6 +260,23 @@ class RecognitionAPIClient:
             logger.error(f"Failed to apply admin action to nomination: {e}")
             return False
 
+    async def trigger_event_processing(self) -> int:
+        """
+        Trigger processing of ended events.
+        Returns the number of events processed.
+        """
+        try:
+            response = await self._client.post(
+                "/events/process",
+                json={},
+            )
+            response.raise_for_status()
+            data = response.json().get("data", {})
+            return data.get("events_processed", 0)
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to trigger event processing: {e}")
+            return 0
+
     def _sign_payload(self, payload: dict) -> str:
         """Generate HMAC-SHA256 signature for webhook payload"""
         if not self.webhook_secret:

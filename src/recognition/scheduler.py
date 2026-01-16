@@ -72,6 +72,7 @@ class RecognitionScheduler:
 
     Runs a loop every 60 seconds (configurable) to check for pending submissions,
     analyze them with Claude Vision, and send results back to the Recognition API.
+    Also processes ended events for teaching/attendance credits.
     """
 
     def __init__(self, bot: "DiscordBot"):
@@ -83,6 +84,7 @@ class RecognitionScheduler:
         """
         self.bot = bot
         self._started = False
+        self._loop_count = 0  # Track iterations for event processing
 
         # Initialize API client
         self.api_client = RecognitionAPIClient()
@@ -122,8 +124,10 @@ class RecognitionScheduler:
 
     @tasks.loop(seconds=POLL_INTERVAL)
     async def _process_submissions(self) -> None:
-        """Check for pending submissions and nominations and process them."""
+        """Check for pending submissions, nominations, and events to process."""
         try:
+            self._loop_count += 1
+
             # Fetch and process pending submissions
             pending = await self.api_client.get_pending_submissions(limit=5)
 
@@ -142,6 +146,10 @@ class RecognitionScheduler:
 
                 for nomination in pending_nominations:
                     await self._process_single_nomination(nomination)
+
+            # Process ended events every 5th iteration (~5 minutes)
+            if self._loop_count % 5 == 0:
+                await self._process_ended_events()
 
         except Exception as e:
             logger.error(f"Error in recognition scheduler loop: {e}", exc_info=True)
@@ -848,3 +856,21 @@ class RecognitionScheduler:
             "spirit": "\U00002728",  # Sparkles
         }
         return emojis.get(category, "\U0001F3C6")  # Trophy default
+
+    # =========================================================================
+    # EVENT PROCESSING
+    # =========================================================================
+
+    async def _process_ended_events(self) -> None:
+        """
+        Trigger processing of ended events for teaching/attendance credits.
+        Called every 5th scheduler iteration (~5 minutes).
+        """
+        try:
+            events_processed = await self.api_client.trigger_event_processing()
+
+            if events_processed > 0:
+                logger.info(f"Processed {events_processed} ended event(s)")
+
+        except Exception as e:
+            logger.error(f"Error processing ended events: {e}", exc_info=True)
