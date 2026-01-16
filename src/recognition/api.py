@@ -230,6 +230,32 @@ class RecognitionAPIClient:
             logger.error(f"Failed to submit nomination review: {e}")
             return False
 
+    async def apply_admin_nomination_action(
+        self,
+        nomination_id: str,
+        action: str,  # 'approve' or 'reject'
+        reason: str,
+        admin_id: str,
+    ) -> bool:
+        """Apply admin action to a nomination (approve/reject flagged nominations)"""
+        payload = {
+            "action": action,
+            "reason": reason,
+            "admin_id": admin_id,
+        }
+
+        try:
+            response = await self._client.post(
+                f"/admin/nominations/{nomination_id}/action",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to apply admin action to nomination: {e}")
+            return False
+
     def _sign_payload(self, payload: dict) -> str:
         """Generate HMAC-SHA256 signature for webhook payload"""
         if not self.webhook_secret:

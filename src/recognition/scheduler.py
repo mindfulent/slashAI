@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 from .api import RecognitionAPIClient, Submission, PlayerProfile, Nomination
 from .analyzer import BuildAnalyzer, BuildAnalysis
-from .approval import ApprovalView, format_dm_message
+from .approval import ApprovalView, format_dm_message, AdminNominationReviewView, format_admin_review_message
 from .feedback import generate_feedback, FeedbackMessage
 from .nominations import NominationReviewer, NominationReview
 
@@ -43,6 +43,13 @@ else:
 # Channel for nomination announcements
 NOMINATIONS_CHANNEL_ID = os.getenv("NOMINATIONS_CHANNEL_ID", "1461411967901372487")
 logger.info(f"Nominations channel configured: {NOMINATIONS_CHANNEL_ID}")
+
+# Admin user ID for flagged nomination review
+OWNER_ID = os.getenv("OWNER_ID")
+if OWNER_ID:
+    logger.info(f"Owner ID configured for admin review: {OWNER_ID}")
+else:
+    logger.warning("OWNER_ID not set - flagged nominations won't be sent for admin review")
 
 # Polling interval in seconds
 POLL_INTERVAL = int(os.getenv("RECOGNITION_POLL_INTERVAL", "60"))
@@ -591,6 +598,9 @@ class RecognitionScheduler:
             # If approved, announce to #nominations channel
             if review.decision == "approved":
                 await self._announce_nomination(nomination)
+            # If flagged, prompt admin for review
+            elif review.decision == "flagged":
+                await self._prompt_admin_review(nomination, review)
 
         except Exception as e:
             logger.error(
@@ -608,6 +618,143 @@ class RecognitionScheduler:
         # TODO: Implement actual reciprocal check via API
         # For now, return False to avoid false positives
         return False
+
+    async def _prompt_admin_review(
+        self, nomination: Nomination, review: NominationReview
+    ) -> None:
+        """
+        Send a DM to the admin (OWNER_ID) with approve/reject buttons for a flagged nomination.
+
+        Args:
+            nomination: The flagged nomination
+            review: The review result from slashAI
+        """
+        if not OWNER_ID:
+            logger.warning(
+                f"Nomination {nomination.id} flagged but OWNER_ID not set - cannot prompt admin"
+            )
+            return
+
+        try:
+            owner_id = int(OWNER_ID)
+            owner = self.bot.get_user(owner_id)
+            if owner is None:
+                owner = await self.bot.fetch_user(owner_id)
+
+            if not owner:
+                logger.error(f"Could not find owner user {owner_id}")
+                return
+
+            # Get player names
+            nominator_profile = await self.api_client.get_player_profile(
+                nomination.nominator_uuid
+            )
+            nominee_profile = await self.api_client.get_player_profile(
+                nomination.nominee_uuid
+            )
+
+            nominator_name = (
+                nominator_profile.minecraft_username if nominator_profile else None
+            ) or nomination.nominator_uuid[:8]
+            nominee_name = (
+                nominee_profile.minecraft_username if nominee_profile else None
+            ) or nomination.nominee_uuid[:8]
+
+            # Format the review message
+            message = format_admin_review_message(
+                nomination_category=nomination.category,
+                nominator_name=nominator_name,
+                nominee_name=nominee_name,
+                reason=nomination.reason,
+                slashai_notes=review.notes,
+                confidence=review.confidence,
+            )
+
+            # Create the view with callbacks
+            view = AdminNominationReviewView(
+                nomination_id=nomination.id,
+                on_approve=self._handle_admin_approve,
+                on_reject=self._handle_admin_reject,
+            )
+
+            # Send DM to owner
+            await owner.send(message, view=view)
+            logger.info(f"Sent admin review prompt for nomination {nomination.id} to owner")
+
+        except discord.Forbidden:
+            logger.error(f"Cannot DM owner {OWNER_ID} - DMs may be disabled")
+        except Exception as e:
+            logger.error(f"Error sending admin review prompt: {e}", exc_info=True)
+
+    async def _handle_admin_approve(
+        self, nomination_id: str, reason: str, interaction: discord.Interaction
+    ) -> None:
+        """
+        Handle admin approval of a flagged nomination.
+
+        Args:
+            nomination_id: The nomination ID
+            reason: Reason for approval
+            interaction: The Discord interaction
+        """
+        admin_id = str(interaction.user.id)
+
+        success = await self.api_client.apply_admin_nomination_action(
+            nomination_id=nomination_id,
+            action="approve",
+            reason=reason,
+            admin_id=admin_id,
+        )
+
+        if success:
+            await interaction.followup.send(
+                "✅ Nomination approved and added to the Honor Roll feed!",
+                ephemeral=True,
+            )
+            logger.info(f"Admin approved nomination {nomination_id}")
+
+            # Fetch the nomination details and announce it
+            # Note: We don't have the full nomination object here, so we'll just log success
+            # The announcement will be handled by the API which adds to the feed
+        else:
+            await interaction.followup.send(
+                "❌ Failed to approve nomination. Please try again or check logs.",
+                ephemeral=True,
+            )
+            logger.error(f"Failed to approve nomination {nomination_id} via admin action")
+
+    async def _handle_admin_reject(
+        self, nomination_id: str, reason: str, interaction: discord.Interaction
+    ) -> None:
+        """
+        Handle admin rejection of a flagged nomination.
+
+        Args:
+            nomination_id: The nomination ID
+            reason: Reason for rejection
+            interaction: The Discord interaction
+        """
+        admin_id = str(interaction.user.id)
+
+        success = await self.api_client.apply_admin_nomination_action(
+            nomination_id=nomination_id,
+            action="reject",
+            reason=reason,
+            admin_id=admin_id,
+        )
+
+        if success:
+            await interaction.followup.send(
+                "❌ Nomination rejected.",
+                ephemeral=True,
+            )
+            logger.info(f"Admin rejected nomination {nomination_id}")
+        else:
+            await interaction.followup.send(
+                "❌ Failed to reject nomination. Please try again or check logs.",
+                ephemeral=True,
+            )
+            logger.error(f"Failed to reject nomination {nomination_id} via admin action")
 
     async def _announce_nomination(self, nomination: Nomination) -> None:
         """

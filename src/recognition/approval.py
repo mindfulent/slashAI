@@ -170,3 +170,142 @@ def format_dm_message(
         lines.append("*Keep building! Every project is a step in your creative journey.*")
 
     return "\n".join(lines)
+
+
+class AdminNominationReviewView(discord.ui.View):
+    """
+    Discord UI View for admin review of flagged nominations.
+
+    Contains "Approve" and "Reject" buttons for the admin to decide
+    on flagged nominations that require manual review.
+    """
+
+    def __init__(
+        self,
+        nomination_id: str,
+        on_approve: Callable[[str, str, discord.Interaction], Awaitable[None]],
+        on_reject: Callable[[str, str, discord.Interaction], Awaitable[None]],
+        timeout: float = 86400.0,  # 24 hours
+    ):
+        """
+        Initialize the admin review view.
+
+        Args:
+            nomination_id: The nomination being reviewed
+            on_approve: Async callback(nomination_id, reason, interaction) when admin approves
+            on_reject: Async callback(nomination_id, reason, interaction) when admin rejects
+            timeout: How long buttons remain active (default 24h)
+        """
+        super().__init__(timeout=timeout)
+        self.nomination_id = nomination_id
+        self._on_approve = on_approve
+        self._on_reject = on_reject
+
+    @discord.ui.button(
+        label="Approve",
+        style=discord.ButtonStyle.success,
+        emoji="✅",
+        custom_id="nomination_admin_approve",
+    )
+    async def approve_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        """Handle approval - approve the flagged nomination."""
+        await interaction.response.defer()
+
+        # Disable buttons after click
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
+        try:
+            await self._on_approve(
+                self.nomination_id,
+                f"Manually approved by {interaction.user.display_name}",
+                interaction,
+            )
+        except Exception as e:
+            logger.error(f"Error in admin approval callback: {e}", exc_info=True)
+            await interaction.followup.send(
+                "Something went wrong while approving. Please try again later.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(
+        label="Reject",
+        style=discord.ButtonStyle.danger,
+        emoji="❌",
+        custom_id="nomination_admin_reject",
+    )
+    async def reject_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        """Handle rejection - reject the flagged nomination."""
+        await interaction.response.defer()
+
+        # Disable buttons after click
+        for item in self.children:
+            item.disabled = True
+        await interaction.message.edit(view=self)
+
+        try:
+            await self._on_reject(
+                self.nomination_id,
+                f"Manually rejected by {interaction.user.display_name}",
+                interaction,
+            )
+        except Exception as e:
+            logger.error(f"Error in admin rejection callback: {e}", exc_info=True)
+
+    async def on_timeout(self):
+        """Called when the view times out (24h default)."""
+        logger.debug(f"Admin review view timed out for nomination {self.nomination_id}")
+
+
+def format_admin_review_message(
+    nomination_category: str,
+    nominator_name: str,
+    nominee_name: str,
+    reason: str,
+    slashai_notes: str,
+    confidence: float,
+) -> str:
+    """
+    Format the DM message for admin review of a flagged nomination.
+
+    Args:
+        nomination_category: Category of the nomination (mentor, collaborator, etc.)
+        nominator_name: Name of the person who submitted the nomination
+        nominee_name: Name of the person being nominated
+        reason: The nomination reason text
+        slashai_notes: slashAI's review notes explaining why it was flagged
+        confidence: slashAI's confidence score
+
+    Returns:
+        Formatted message string
+    """
+    category_display = {
+        "mentor": "🎓 Mentor",
+        "collaborator": "🤝 Collaborator",
+        "community_builder": "🏠 Community Builder",
+        "innovator": "💡 Innovator",
+    }.get(nomination_category, nomination_category.title())
+
+    lines = [
+        "## 🚩 Nomination Flagged for Review",
+        "",
+        f"**Category:** {category_display}",
+        f"**Nominator:** {nominator_name}",
+        f"**Nominee:** {nominee_name}",
+        "",
+        "**Nomination Reason:**",
+        f"> {reason}",
+        "",
+        "**slashAI Assessment:**",
+        f"> {slashai_notes}",
+        f"> *Confidence: {confidence:.0%}*",
+        "",
+        "Please review and decide whether to approve or reject this nomination.",
+    ]
+
+    return "\n".join(lines)
