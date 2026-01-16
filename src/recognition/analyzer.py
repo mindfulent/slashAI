@@ -191,19 +191,24 @@ class BuildAnalyzer:
             response_text = response.content[0].text
             analysis_data = self._parse_response(response_text)
 
+            # Handle null values from Claude's JSON (key present but value is null)
+            # .get() only uses default when key is missing, not when value is None
+            raw_confidence = analysis_data.get("confidence")
+            raw_recognized = analysis_data.get("recognized")
+
             return BuildAnalysis(
-                technical_score=analysis_data.get("technical_score", 0.5),
-                palette_quality=analysis_data.get("palette_quality", ""),
-                depth_usage=analysis_data.get("depth_usage", ""),
-                proportion_balance=analysis_data.get("proportion_balance", ""),
-                detail_level=analysis_data.get("detail_level", ""),
-                style_notes=analysis_data.get("style_notes", ""),
+                technical_score=analysis_data.get("technical_score") or 0.5,
+                palette_quality=analysis_data.get("palette_quality") or "",
+                depth_usage=analysis_data.get("depth_usage") or "",
+                proportion_balance=analysis_data.get("proportion_balance") or "",
+                detail_level=analysis_data.get("detail_level") or "",
+                style_notes=analysis_data.get("style_notes") or "",
                 style_consistency=analysis_data.get("style_consistency"),
-                strengths=analysis_data.get("strengths", []),
-                areas_for_growth=analysis_data.get("areas_for_growth", []),
-                overall_impression=analysis_data.get("overall_impression", ""),
-                recognized=analysis_data.get("recognized", False),
-                confidence=analysis_data.get("confidence", 0.5),
+                strengths=analysis_data.get("strengths") or [],
+                areas_for_growth=analysis_data.get("areas_for_growth") or [],
+                overall_impression=analysis_data.get("overall_impression") or "",
+                recognized=raw_recognized if raw_recognized is not None else False,
+                confidence=raw_confidence if raw_confidence is not None else 0.5,
                 title_recommendation=analysis_data.get("title_recommendation"),
             )
 

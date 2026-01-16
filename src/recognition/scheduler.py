@@ -190,9 +190,11 @@ class RecognitionScheduler:
             # Analyze the build
             analysis = await self.analyzer.analyze(submission, player_profile)
 
+            # Defensive: handle None confidence in case of parsing issues
+            confidence_str = f"{analysis.confidence:.2f}" if analysis.confidence is not None else "N/A"
             logger.info(
                 f"Analysis complete for {submission_id}: "
-                f"recognized={analysis.recognized}, confidence={analysis.confidence:.2f}"
+                f"recognized={analysis.recognized}, confidence={confidence_str}"
             )
 
             # Generate feedback messages
