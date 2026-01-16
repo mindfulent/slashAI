@@ -25,10 +25,11 @@ from discord.ext import tasks
 if TYPE_CHECKING:
     from discord_bot import DiscordBot
 
-from .api import RecognitionAPIClient, Submission, PlayerProfile
+from .api import RecognitionAPIClient, Submission, PlayerProfile, Nomination
 from .analyzer import BuildAnalyzer, BuildAnalysis
 from .approval import ApprovalView, format_dm_message
 from .feedback import generate_feedback, FeedbackMessage
+from .nominations import NominationReviewer, NominationReview
 
 logger = logging.getLogger("slashAI.recognition.scheduler")
 
@@ -38,6 +39,10 @@ if ANNOUNCEMENTS_CHANNEL_ID:
     logger.info(f"Announcements channel configured: {ANNOUNCEMENTS_CHANNEL_ID}")
 else:
     logger.info("No announcements channel configured (RECOGNITION_ANNOUNCEMENTS_CHANNEL not set)")
+
+# Channel for nomination announcements
+NOMINATIONS_CHANNEL_ID = os.getenv("NOMINATIONS_CHANNEL_ID", "1461411967901372487")
+logger.info(f"Nominations channel configured: {NOMINATIONS_CHANNEL_ID}")
 
 # Polling interval in seconds
 POLL_INTERVAL = int(os.getenv("RECOGNITION_POLL_INTERVAL", "60"))
@@ -79,8 +84,10 @@ class RecognitionScheduler:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if api_key:
             self.analyzer = BuildAnalyzer(api_key)
+            self.nomination_reviewer = NominationReviewer(api_key)
         else:
             self.analyzer = None
+            self.nomination_reviewer = None
             logger.warning("ANTHROPIC_API_KEY not set - recognition analysis disabled")
 
         # Storage for submissions pending user approval
@@ -108,9 +115,9 @@ class RecognitionScheduler:
 
     @tasks.loop(seconds=POLL_INTERVAL)
     async def _process_submissions(self) -> None:
-        """Check for pending submissions and process them."""
+        """Check for pending submissions and nominations and process them."""
         try:
-            # Fetch pending submissions
+            # Fetch and process pending submissions
             pending = await self.api_client.get_pending_submissions(limit=5)
 
             if pending:
@@ -118,6 +125,16 @@ class RecognitionScheduler:
 
             for submission in pending:
                 await self._process_single_submission(submission)
+
+            # Fetch and process pending nominations
+            if self.nomination_reviewer:
+                pending_nominations = await self.api_client.get_pending_nominations(limit=5)
+
+                if pending_nominations:
+                    logger.info(f"Processing {len(pending_nominations)} pending nomination(s)")
+
+                for nomination in pending_nominations:
+                    await self._process_single_nomination(nomination)
 
         except Exception as e:
             logger.error(f"Error in recognition scheduler loop: {e}", exc_info=True)
@@ -510,3 +527,175 @@ class RecognitionScheduler:
             "Your recognition still counts toward title progression.",
             ephemeral=True,
         )
+
+    # =========================================================================
+    # NOMINATION PROCESSING
+    # =========================================================================
+
+    async def _process_single_nomination(self, nomination: Nomination) -> None:
+        """
+        Process a single peer nomination.
+
+        Flow:
+        1. Review with Claude for anti-gaming patterns
+        2. Send decision back to Recognition API
+        3. If approved, announce to #nominations channel
+
+        Args:
+            nomination: The nomination to process
+        """
+        nomination_id = nomination.id
+        logger.info(
+            f"Processing nomination {nomination_id}: "
+            f"{nomination.category} nomination"
+        )
+
+        try:
+            # Get context for anti-gaming checks
+            # TODO: Add actual counts from API
+            nominator_recent_count = 0
+            nominee_total_count = 0
+
+            # Check for reciprocal nomination pattern
+            is_reciprocal = await self._check_reciprocal(
+                nomination.nominator_uuid, nomination.nominee_uuid
+            )
+
+            # Review the nomination
+            review = await self.nomination_reviewer.review(
+                nomination,
+                nominator_recent_count=nominator_recent_count,
+                nominee_total_count=nominee_total_count,
+                is_reciprocal=is_reciprocal,
+            )
+
+            logger.info(
+                f"Nomination review complete for {nomination_id}: "
+                f"decision={review.decision}, confidence={review.confidence:.2f}"
+            )
+
+            # Send results back to API
+            success = await self.api_client.submit_nomination_review(
+                nomination_id=nomination_id,
+                decision=review.decision,
+                notes=review.notes,
+                confidence=review.confidence,
+            )
+
+            if not success:
+                logger.error(f"Failed to submit nomination review for {nomination_id}")
+                return
+
+            logger.info(f"Successfully submitted nomination review for {nomination_id}")
+
+            # If approved, announce to #nominations channel
+            if review.decision == "approved":
+                await self._announce_nomination(nomination)
+
+        except Exception as e:
+            logger.error(
+                f"Error processing nomination {nomination_id}: {e}", exc_info=True
+            )
+
+    async def _check_reciprocal(
+        self, nominator_uuid: str, nominee_uuid: str
+    ) -> bool:
+        """
+        Check if nominee has recently nominated the nominator (reciprocal pattern).
+
+        This is a simple anti-gaming check. Returns True if suspicious.
+        """
+        # TODO: Implement actual reciprocal check via API
+        # For now, return False to avoid false positives
+        return False
+
+    async def _announce_nomination(self, nomination: Nomination) -> None:
+        """
+        Announce an approved nomination to the #nominations channel.
+
+        Args:
+            nomination: The approved nomination
+        """
+        if not NOMINATIONS_CHANNEL_ID:
+            logger.debug("No nominations channel configured, skipping announcement")
+            return
+
+        try:
+            channel_id = int(NOMINATIONS_CHANNEL_ID)
+            channel = self.bot.get_channel(channel_id)
+
+            if channel is None:
+                channel = await self.bot.fetch_channel(channel_id)
+
+            if not channel:
+                logger.warning(f"Could not find nominations channel {channel_id}")
+                return
+
+            # Get player names from API
+            nominator_profile = await self.api_client.get_player_profile(
+                nomination.nominator_uuid
+            )
+            nominee_profile = await self.api_client.get_player_profile(
+                nomination.nominee_uuid
+            )
+
+            nominator_name = (
+                nominator_profile.minecraft_username if nominator_profile else None
+            ) or nomination.nominator_uuid[:8]
+            nominee_name = (
+                nominee_profile.minecraft_username if nominee_profile else None
+            ) or nomination.nominee_uuid[:8]
+
+            # Build announcement message
+            category_display = self._get_category_display(nomination.category)
+            category_emoji = self._get_category_emoji(nomination.category)
+
+            message_parts = []
+
+            # Header
+            message_parts.append(f"{category_emoji} **{category_display} Recognition**")
+            message_parts.append("")
+
+            # Content
+            if nomination.anonymous:
+                message_parts.append(
+                    f"**{nominee_name}** was nominated by a fellow community member:"
+                )
+            else:
+                message_parts.append(
+                    f"**{nominee_name}** was nominated by **{nominator_name}**:"
+                )
+
+            message_parts.append("")
+            message_parts.append(f"> {nomination.reason}")
+
+            message_content = "\n".join(message_parts)
+
+            await channel.send(content=message_content)
+            logger.info(
+                f"Announced {nomination.category} nomination for {nominee_name} "
+                f"in #{channel.name}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to announce nomination: {e}", exc_info=True)
+
+    def _get_category_display(self, category: str) -> str:
+        """Convert category slug to display name."""
+        categories = {
+            "mentor": "Mentor",
+            "collaborator": "Collaborator",
+            "helper": "Helper",
+            "spirit": "Community Spirit",
+        }
+        return categories.get(category, category.title())
+
+    def _get_category_emoji(self, category: str) -> str:
+        """Get emoji for nomination category."""
+        emojis = {
+            "mentor": "\U0001F393",  # Graduation cap
+            "collaborator": "\U0001F91D",  # Handshake
+            "helper": "\U0001F4AC",  # Speech bubble
+            "spirit": "\U00002728",  # Sparkles
+        }
+        return emojis.get(category, "\U0001F3C6")  # Trophy default
