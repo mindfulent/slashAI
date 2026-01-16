@@ -175,6 +175,8 @@ class RecognitionAPIClient:
         title_recommendation: Optional[str] = None,
         confidence: float = 0.8,
         share_publicly: bool = True,
+        announcement_text: Optional[str] = None,
+        screenshot_urls: Optional[list[str]] = None,
     ) -> bool:
         """Send analysis results back to the Recognition API via webhook"""
         payload = {
@@ -184,6 +186,8 @@ class RecognitionAPIClient:
             "title_recommendation": title_recommendation,
             "confidence": confidence,
             "share_publicly": share_publicly,
+            "announcement_text": announcement_text,
+            "screenshot_urls": screenshot_urls,
         }
 
         # Sign the webhook payload

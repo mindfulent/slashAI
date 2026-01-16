@@ -203,6 +203,8 @@ class RecognitionScheduler:
                 title_recommendation=analysis.title_recommendation,
                 confidence=analysis.confidence,
                 share_publicly=False,  # Don't auto-share, wait for approval
+                announcement_text=analysis.overall_impression,  # Clean text for feed/Discord
+                screenshot_urls=submission.screenshot_urls,  # All screenshots
             )
 
             if not success:
