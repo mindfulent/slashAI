@@ -277,6 +277,26 @@ class RecognitionAPIClient:
             logger.error(f"Failed to trigger event processing: {e}")
             return 0
 
+    async def share_submission(self, submission_id: str) -> bool:
+        """
+        Share a recognized build to the public achievement feed.
+        Called when user clicks "Share to Server" button in the approval DM.
+        """
+        payload = {"submission_id": submission_id}
+        signature = self._sign_payload(payload)
+
+        try:
+            response = await self._client.post(
+                f"/submissions/{submission_id}/share",
+                json=payload,
+                headers={"X-SlashAI-Signature": signature},
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to share submission: {e}")
+            return False
+
     async def report_message_posted(
         self, submission_id: str, discord_message_id: str
     ) -> bool:

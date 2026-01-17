@@ -512,7 +512,17 @@ class RecognitionScheduler:
             f"Approval received for {pending.submission.build_name} from {pending.player_name}"
         )
 
-        # Announce to public channel
+        # Add to public achievement feed (website visibility)
+        shared = await self.api_client.share_submission(pending.submission.id)
+        if not shared:
+            logger.error(f"Failed to share submission {pending.submission.id} to feed")
+            await interaction.followup.send(
+                "Something went wrong while sharing to the website. Please try again later.",
+                ephemeral=True,
+            )
+            return
+
+        # Announce to public Discord channel
         await self._announce_recognition(
             pending.submission,
             pending.analysis,
