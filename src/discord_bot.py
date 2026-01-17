@@ -1235,9 +1235,10 @@ class WebhookServer:
 
             # Set author with player's Minecraft avatar (like DeanBot)
             if player_uuid:
-                # Normalize UUID (remove hyphens for Crafatar)
+                # Normalize UUID (remove hyphens)
                 clean_uuid = player_uuid.replace('-', '')
-                avatar_url = f"https://crafatar.com/avatars/{clean_uuid}?size=64&overlay"
+                # Use MC-Heads (Crafatar is unreliable)
+                avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
                 logger.info(f"Title grant avatar URL: {avatar_url}")
                 embed.set_author(
                     name=f"{config['emoji']} {player_name} earned the {title_name} title!",
