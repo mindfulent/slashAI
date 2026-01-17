@@ -1145,12 +1145,15 @@ class WebhookServer:
             if not player_name or not to_gamemode:
                 return web.json_response({"error": "Missing required fields"}, status=400)
 
-            # Build the announcement message
-            # Format: 🎮 **slashAI** switched to Creative (after 2h 15m in Survival)
+            # Build the embed - blue color for gamemode changes
+            # Color: 0x5865F2 (Discord blurple)
+            embed = discord.Embed(color=0x5865F2)
+
+            # Format: 🎮 slashdaemon switched to Creative (after 10m in Survival)
             if time_in_previous and from_gamemode:
-                message = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
+                embed.description = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
             else:
-                message = f"🎮 **{player_name}** switched to {to_gamemode}"
+                embed.description = f"🎮 **{player_name}** switched to {to_gamemode}"
 
             # Get the server-chat channel ID (default to #server-chat)
             channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
@@ -1161,7 +1164,7 @@ class WebhookServer:
                     channel = await self.bot.fetch_channel(int(channel_id))
 
                 if channel:
-                    await channel.send(message)
+                    await channel.send(embed=embed)
                     logger.info(f"Announced gamemode change: {player_name} -> {to_gamemode}")
                     return web.json_response({"success": True})
                 else:
@@ -1200,20 +1203,21 @@ class WebhookServer:
             if not player_name or not title_name:
                 return web.json_response({"error": "Missing required fields"}, status=400)
 
-            # Choose emoji based on tier
-            tier_emojis = {
-                'entry': '🌱',
-                'bronze': '🥉',
-                'silver': '🥈',
-                'gold': '🥇',
-                'legendary': '✨'
+            # Choose emoji and color based on tier
+            tier_config = {
+                'entry': {'emoji': '🌱', 'color': 0x77B255},      # Green
+                'bronze': {'emoji': '🥉', 'color': 0xCD7F32},     # Bronze
+                'silver': {'emoji': '🥈', 'color': 0xC0C0C0},     # Silver
+                'gold': {'emoji': '🥇', 'color': 0xFFD700},       # Gold
+                'legendary': {'emoji': '✨', 'color': 0x9B59B6},  # Purple
             }
-            emoji = tier_emojis.get(title_tier, '🏆')
+            config = tier_config.get(title_tier, {'emoji': '🏆', 'color': 0xFFD700})
 
-            # Build the announcement message
-            message = f"{emoji} **{player_name}** earned the **{title_name}** title!"
+            # Build the embed
+            embed = discord.Embed(color=config['color'])
+            embed.description = f"{config['emoji']} **{player_name}** earned the **{title_name}** title!"
             if reason:
-                message += f"\n> {reason}"
+                embed.description += f"\n> {reason}"
 
             # Get the server-chat channel ID (default to #server-chat)
             channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
@@ -1224,7 +1228,7 @@ class WebhookServer:
                     channel = await self.bot.fetch_channel(int(channel_id))
 
                 if channel:
-                    await channel.send(message)
+                    await channel.send(embed=embed)
                     logger.info(f"Announced title grant: {player_name} earned {title_name}")
                     return web.json_response({"success": True})
                 else:
