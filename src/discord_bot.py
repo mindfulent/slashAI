@@ -25,6 +25,7 @@ Integrates with memory system for persistent context.
 
 import asyncio
 import io
+import json
 import os
 import re
 import time
@@ -32,6 +33,7 @@ from typing import Optional
 
 import asyncpg
 import discord
+from aiohttp import web
 from anthropic import AsyncAnthropic
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -1051,8 +1053,92 @@ class DiscordBot(commands.Bot):
         return results[:limit]
 
 
+class WebhookServer:
+    """
+    Simple HTTP server for receiving webhooks from theblockacademy backend.
+    Runs alongside the Discord bot to handle recognition-related webhooks.
+    """
+
+    def __init__(self, bot: DiscordBot):
+        self.bot = bot
+        self.app = web.Application()
+        self.app.router.add_post('/recognition/delete-message', self.handle_delete_message)
+        self.app.router.add_get('/health', self.handle_health)
+        self.runner: Optional[web.AppRunner] = None
+
+    async def handle_health(self, request: web.Request) -> web.Response:
+        """Health check endpoint."""
+        return web.json_response({"status": "ok"})
+
+    async def handle_delete_message(self, request: web.Request) -> web.Response:
+        """Handle request to delete a Discord message."""
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            message_id = data.get('discord_message_id')
+            channel_id = data.get('channel_id')
+
+            if not message_id:
+                return web.json_response({"error": "Missing discord_message_id"}, status=400)
+
+            # Use the announcements channel if not specified
+            if not channel_id:
+                channel_id = os.getenv('RECOGNITION_ANNOUNCEMENTS_CHANNEL')
+
+            if not channel_id:
+                logger.warning("No channel ID provided and RECOGNITION_ANNOUNCEMENTS_CHANNEL not set")
+                return web.json_response({"error": "No channel ID available"}, status=400)
+
+            # Delete the message
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if channel:
+                    message = await channel.fetch_message(int(message_id))
+                    await message.delete()
+                    logger.info(f"Deleted Discord message {message_id} from channel {channel_id}")
+                    return web.json_response({"success": True})
+                else:
+                    logger.warning(f"Channel {channel_id} not found")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+            except discord.NotFound:
+                logger.warning(f"Message {message_id} not found (may already be deleted)")
+                return web.json_response({"success": True, "note": "Message already deleted"})
+            except discord.Forbidden:
+                logger.error(f"No permission to delete message {message_id}")
+                return web.json_response({"error": "No permission to delete"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling delete-message webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def start(self, port: int = 8000):
+        """Start the webhook server."""
+        self.runner = web.AppRunner(self.app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, '0.0.0.0', port)
+        await site.start()
+        logger.info(f"Webhook server started on port {port}")
+
+    async def stop(self):
+        """Stop the webhook server."""
+        if self.runner:
+            await self.runner.cleanup()
+            logger.info("Webhook server stopped")
+
+
 async def main():
-    """Run the bot standalone (chatbot mode)."""
+    """Run the bot standalone (chatbot mode) with webhook server."""
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         print("Error: DISCORD_BOT_TOKEN environment variable not set")
@@ -1060,7 +1146,19 @@ async def main():
         return
 
     bot = DiscordBot()
-    await bot.start(token)
+
+    # Start webhook server if port is configured
+    webhook_port = int(os.getenv("WEBHOOK_SERVER_PORT", "8000"))
+    webhook_server = WebhookServer(bot)
+
+    try:
+        # Start webhook server first
+        await webhook_server.start(webhook_port)
+
+        # Then start the Discord bot (this blocks until bot disconnects)
+        await bot.start(token)
+    finally:
+        await webhook_server.stop()
 
 
 if __name__ == "__main__":
