@@ -1140,6 +1140,7 @@ class WebhookServer:
         try:
             data = await request.json()
             player_name = data.get('player_name')
+            player_uuid = data.get('player_uuid')
             from_gamemode = data.get('from_gamemode')
             to_gamemode = data.get('to_gamemode')
             time_in_previous = data.get('time_in_previous')
@@ -1153,9 +1154,17 @@ class WebhookServer:
 
             # Format: 🎮 slashdaemon switched to Creative (after 10m in Survival)
             if time_in_previous and from_gamemode:
-                embed.description = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
+                description = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
             else:
-                embed.description = f"🎮 **{player_name}** switched to {to_gamemode}"
+                description = f"🎮 **{player_name}** switched to {to_gamemode}"
+
+            # Add player avatar if UUID provided (using MC-Heads API)
+            if player_uuid:
+                clean_uuid = player_uuid.replace('-', '')
+                avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
+                embed.set_author(name=description, icon_url=avatar_url)
+            else:
+                embed.description = description
 
             # Get the server-chat channel ID (default to #server-chat)
             channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
