@@ -1196,6 +1196,7 @@ class WebhookServer:
 
         try:
             data = await request.json()
+            logger.info(f"Title grant webhook data: {data}")  # Debug: log full payload
             player_name = data.get('player_name')
             player_uuid = data.get('player_uuid')  # For avatar
             player_discord_id = data.get('player_discord_id')  # For @mention
@@ -1204,6 +1205,8 @@ class WebhookServer:
             title_tier = data.get('title_tier', 'entry')
             title_category = data.get('title_category', 'craft')
             reason = data.get('reason')
+
+            logger.info(f"Title grant: player_uuid={player_uuid}, player_discord_id={player_discord_id}")
 
             if not player_name or not title_name:
                 return web.json_response({"error": "Missing required fields"}, status=400)
@@ -1235,6 +1238,7 @@ class WebhookServer:
                 # Normalize UUID (remove hyphens for Crafatar)
                 clean_uuid = player_uuid.replace('-', '')
                 avatar_url = f"https://crafatar.com/avatars/{clean_uuid}?size=64&overlay"
+                logger.info(f"Title grant avatar URL: {avatar_url}")
                 embed.set_author(
                     name=f"{config['emoji']} {player_name} earned the {title_name} title!",
                     icon_url=avatar_url
@@ -1242,6 +1246,7 @@ class WebhookServer:
                 if description_parts:
                     embed.description = "\n".join(description_parts)
             else:
+                logger.warning(f"Title grant: No player_uuid provided, using fallback without avatar")
                 # Fallback without avatar
                 embed.description = f"{config['emoji']} **{player_name}** earned the **{title_name}** title!"
                 if description_parts:
