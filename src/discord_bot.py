@@ -1063,6 +1063,7 @@ class WebhookServer:
         self.bot = bot
         self.app = web.Application()
         self.app.router.add_post('/recognition/delete-message', self.handle_delete_message)
+        self.app.router.add_post('/server/delete-message', self.handle_delete_message)  # Alias for title revoke
         self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
         self.app.router.add_post('/server/title-grant', self.handle_title_grant)
         self.app.router.add_get('/health', self.handle_health)
@@ -1082,11 +1083,12 @@ class WebhookServer:
 
         try:
             data = await request.json()
-            message_id = data.get('discord_message_id')
+            # Accept both 'discord_message_id' and 'message_id' for flexibility
+            message_id = data.get('discord_message_id') or data.get('message_id')
             channel_id = data.get('channel_id')
 
             if not message_id:
-                return web.json_response({"error": "Missing discord_message_id"}, status=400)
+                return web.json_response({"error": "Missing message_id or discord_message_id"}, status=400)
 
             # Use the announcements channel if not specified
             if not channel_id:
@@ -1228,9 +1230,13 @@ class WebhookServer:
                     channel = await self.bot.fetch_channel(int(channel_id))
 
                 if channel:
-                    await channel.send(embed=embed)
-                    logger.info(f"Announced title grant: {player_name} earned {title_name}")
-                    return web.json_response({"success": True})
+                    message = await channel.send(embed=embed)
+                    logger.info(f"Announced title grant: {player_name} earned {title_name} (msg_id={message.id})")
+                    return web.json_response({
+                        "success": True,
+                        "message_id": str(message.id),
+                        "channel_id": str(channel.id)
+                    })
                 else:
                     logger.warning(f"Channel {channel_id} not found for title announcement")
                     return web.json_response({"error": "Channel not found"}, status=404)
