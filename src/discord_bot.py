@@ -1152,11 +1152,11 @@ class WebhookServer:
             # Color: 0x5865F2 (Discord blurple)
             embed = discord.Embed(color=0x5865F2)
 
-            # Format: 🎮 slashdaemon switched to Creative (after 10m in Survival)
+            # Format: slashdaemon switched to Creative after 10m in Survival 🎮
             if time_in_previous and from_gamemode:
-                description = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
+                description = f"{player_name} switched to {to_gamemode} after {time_in_previous} in {from_gamemode} 🎮"
             else:
-                description = f"🎮 **{player_name}** switched to {to_gamemode}"
+                description = f"{player_name} switched to {to_gamemode} 🎮"
 
             # Add player avatar if UUID provided (using MC-Heads API)
             if player_uuid:
