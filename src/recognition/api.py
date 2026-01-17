@@ -39,6 +39,15 @@ class Submission:
 
 
 @dataclass
+class PendingDeletion:
+    """Pending Discord message deletion from the Recognition API"""
+
+    submission_id: str
+    discord_message_id: str
+    build_name: str
+
+
+@dataclass
 class Nomination:
     """Peer nomination from the Recognition API"""
 
@@ -94,8 +103,10 @@ class RecognitionAPIClient:
         """Close the HTTP client"""
         await self._client.aclose()
 
-    async def get_pending_submissions(self, limit: int = 10) -> list[Submission]:
-        """Fetch pending submissions for analysis"""
+    async def get_pending_submissions(
+        self, limit: int = 10
+    ) -> tuple[list[Submission], list[PendingDeletion]]:
+        """Fetch pending submissions and pending deletions (piggybacked on same request)"""
         try:
             response = await self._client.get(
                 "/pending",
@@ -104,7 +115,7 @@ class RecognitionAPIClient:
             response.raise_for_status()
             data = response.json()
 
-            return [
+            submissions = [
                 Submission(
                     id=s["id"],
                     player_uuid=s["player_uuid"],
@@ -117,9 +128,20 @@ class RecognitionAPIClient:
                 )
                 for s in data.get("data", [])
             ]
+
+            pending_deletions = [
+                PendingDeletion(
+                    submission_id=d["submission_id"],
+                    discord_message_id=d["discord_message_id"],
+                    build_name=d["build_name"],
+                )
+                for d in data.get("pending_deletions", [])
+            ]
+
+            return submissions, pending_deletions
         except httpx.HTTPError as e:
             logger.error(f"Failed to fetch pending submissions: {e}")
-            return []
+            return [], []
 
     async def get_pending_nominations(self, limit: int = 10) -> list[Nomination]:
         """Fetch pending nominations for review"""
@@ -295,6 +317,22 @@ class RecognitionAPIClient:
             return True
         except httpx.HTTPError as e:
             logger.error(f"Failed to share submission: {e}")
+            return False
+
+    async def confirm_deletion(self, submission_id: str) -> bool:
+        """
+        Confirm Discord message was deleted.
+        Called after successfully deleting a Discord message for a soft-deleted submission.
+        """
+        try:
+            response = await self._client.post(
+                f"/deletions/{submission_id}/confirm",
+                json={},
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to confirm deletion: {e}")
             return False
 
     async def report_message_posted(

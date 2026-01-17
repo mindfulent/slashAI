@@ -25,7 +25,7 @@ from discord.ext import tasks
 if TYPE_CHECKING:
     from discord_bot import DiscordBot
 
-from .api import RecognitionAPIClient, Submission, PlayerProfile, Nomination
+from .api import RecognitionAPIClient, Submission, PlayerProfile, Nomination, PendingDeletion
 from .analyzer import BuildAnalyzer, BuildAnalysis
 from .approval import ApprovalView, format_dm_message, AdminNominationReviewView, format_admin_review_message
 from .feedback import generate_feedback, FeedbackMessage
@@ -124,18 +124,25 @@ class RecognitionScheduler:
 
     @tasks.loop(seconds=POLL_INTERVAL)
     async def _process_submissions(self) -> None:
-        """Check for pending submissions, nominations, and events to process."""
+        """Check for pending submissions, nominations, deletions, and events to process."""
         try:
             self._loop_count += 1
 
-            # Fetch and process pending submissions
-            pending = await self.api_client.get_pending_submissions(limit=5)
+            # Fetch pending submissions and pending deletions (piggybacked on same request)
+            pending, pending_deletions = await self.api_client.get_pending_submissions(limit=5)
 
             if pending:
                 logger.info(f"Processing {len(pending)} pending submission(s)")
 
             for submission in pending:
                 await self._process_single_submission(submission)
+
+            # Process pending Discord message deletions
+            if pending_deletions:
+                logger.info(f"Processing {len(pending_deletions)} pending deletion(s)")
+
+            for deletion in pending_deletions:
+                await self._process_pending_deletion(deletion)
 
             # Fetch and process pending nominations
             if self.nomination_reviewer:
@@ -895,3 +902,58 @@ class RecognitionScheduler:
 
         except Exception as e:
             logger.error(f"Error processing ended events: {e}", exc_info=True)
+
+    # =========================================================================
+    # DELETION PROCESSING
+    # =========================================================================
+
+    async def _process_pending_deletion(self, deletion: PendingDeletion) -> None:
+        """
+        Process a pending Discord message deletion.
+
+        When a player deletes their submission in-game, the Discord message
+        in #server-showcase should also be deleted.
+
+        Args:
+            deletion: The pending deletion info with message ID
+        """
+        try:
+            if not ANNOUNCEMENTS_CHANNEL_ID:
+                logger.warning("Cannot process deletion: RECOGNITION_ANNOUNCEMENTS_CHANNEL not configured")
+                return
+
+            channel = self.bot.get_channel(int(ANNOUNCEMENTS_CHANNEL_ID))
+            if not channel:
+                logger.error(f"Announcements channel {ANNOUNCEMENTS_CHANNEL_ID} not found")
+                return
+
+            # Try to delete the Discord message
+            try:
+                message = await channel.fetch_message(int(deletion.discord_message_id))
+                await message.delete()
+                logger.info(
+                    f"Deleted Discord message {deletion.discord_message_id} "
+                    f"for submission {deletion.submission_id}: {deletion.build_name}"
+                )
+            except discord.NotFound:
+                logger.info(
+                    f"Discord message {deletion.discord_message_id} already deleted "
+                    f"for submission {deletion.submission_id}"
+                )
+            except discord.Forbidden:
+                logger.error(
+                    f"No permission to delete message {deletion.discord_message_id} "
+                    f"in channel {ANNOUNCEMENTS_CHANNEL_ID}"
+                )
+                return  # Don't confirm if we couldn't delete
+
+            # Confirm deletion to API (clears the pending flag)
+            confirmed = await self.api_client.confirm_deletion(deletion.submission_id)
+            if not confirmed:
+                logger.warning(f"Failed to confirm deletion for {deletion.submission_id}")
+
+        except Exception as e:
+            logger.error(
+                f"Error processing deletion for {deletion.submission_id}: {e}",
+                exc_info=True,
+            )
