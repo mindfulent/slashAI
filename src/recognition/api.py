@@ -25,6 +25,59 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class OtherContributor:
+    """A contributor to a build other than the submitter"""
+
+    player_name: Optional[str]
+    player_uuid: str
+    block_count: int
+    percentage: float
+
+
+@dataclass
+class OwnershipStats:
+    """Block ownership statistics from Ledger database"""
+
+    total_blocks: int
+    submitter_blocks: int
+    submitter_percentage: float
+    contributor_count: int
+    other_contributors: list[OtherContributor]
+    ledger_sync_time: Optional[str]
+    data_age_minutes: int
+    query_radius: int
+    low_ownership_flag: bool      # submitter_percentage < 25
+    collaborative_build: bool     # contributor_count >= 3
+    new_player_flag: bool         # submitter has < 500 total blocks on server
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "OwnershipStats":
+        """Create OwnershipStats from API response dict"""
+        contributors = [
+            OtherContributor(
+                player_name=c.get("player_name"),
+                player_uuid=c["player_uuid"],
+                block_count=c["block_count"],
+                percentage=c["percentage"],
+            )
+            for c in data.get("other_contributors", [])
+        ]
+        return cls(
+            total_blocks=data["total_blocks"],
+            submitter_blocks=data["submitter_blocks"],
+            submitter_percentage=data["submitter_percentage"],
+            contributor_count=data["contributor_count"],
+            other_contributors=contributors,
+            ledger_sync_time=data.get("ledger_sync_time"),
+            data_age_minutes=data.get("data_age_minutes", -1),
+            query_radius=data.get("query_radius", 25),
+            low_ownership_flag=data.get("low_ownership_flag", False),
+            collaborative_build=data.get("collaborative_build", False),
+            new_player_flag=data.get("new_player_flag", False),
+        )
+
+
+@dataclass
 class Submission:
     """Build submission from the Recognition API"""
 
@@ -36,6 +89,7 @@ class Submission:
     coordinates: dict[str, Any]
     submission_type: str  # 'submission' or 'feedback'
     status: str
+    ownership_stats: Optional[OwnershipStats] = None
 
 
 @dataclass

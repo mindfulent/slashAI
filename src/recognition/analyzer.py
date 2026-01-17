@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import httpx
 import anthropic
 
-from .api import Submission, PlayerProfile
+from .api import Submission, PlayerProfile, OwnershipStats
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ You're reviewing a build submission from a community member. Your role is to:
 Build Name: {build_name}
 Description: {description}
 Type: {submission_type} (submission = seeking recognition, feedback = just wanting feedback)
-
+{ownership_context}
 IMPORTANT: Always refer to this build as "{build_name}" in your response. Do not rename or re-describe the build - use the exact name the player provided.
 
 ## Analysis Task
@@ -161,12 +161,16 @@ class BuildAnalyzer:
             player_context = "No previous submission history available."
             style_comparison = ""
 
+        # Build ownership context (from Ledger block logs)
+        ownership_context = self._format_ownership_context(submission.ownership_stats)
+
         # Format the prompt
         prompt = ANALYSIS_PROMPT.format(
             player_context=player_context,
             build_name=submission.build_name,
             description=submission.description or "No description provided",
             submission_type=submission.submission_type,
+            ownership_context=ownership_context,
             style_comparison_prompt=style_comparison,
         )
 
@@ -278,6 +282,70 @@ class BuildAnalyzer:
         if profile.active_title:
             lines.append(f"Current title: {profile.active_title.get('name', 'None')}")
 
+        return "\n".join(lines)
+
+    def _format_ownership_context(self, stats: Optional[OwnershipStats]) -> str:
+        """
+        Format ownership statistics as context for the prompt.
+
+        Provides block placement data from Ledger to help verify
+        the submitter actually built what they're submitting.
+        """
+        if stats is None:
+            return ""
+
+        lines = []
+        lines.append("")
+        lines.append("## Ownership Verification (from server block logs)")
+
+        # Basic stats
+        lines.append(f"Build area analyzed: {stats.query_radius} block radius")
+        lines.append(f"Total blocks placed: {stats.total_blocks}")
+        lines.append(
+            f"Submitter placed: {stats.submitter_blocks} ({stats.submitter_percentage}%)"
+        )
+        lines.append(f"Other contributors: {len(stats.other_contributors)}")
+
+        # List top contributors if any
+        if stats.other_contributors:
+            for contrib in stats.other_contributors[:3]:
+                name = contrib.player_name or contrib.player_uuid[:8]
+                lines.append(
+                    f"  - {name}: {contrib.block_count} blocks ({contrib.percentage}%)"
+                )
+
+        # Flags and warnings
+        if stats.low_ownership_flag:
+            lines.append("")
+            lines.append(
+                "⚠️ LOW OWNERSHIP: Submitter placed less than 25% of blocks."
+            )
+            lines.append(
+                "Consider whether this is a legitimate collaborative build or potential attribution issue."
+            )
+
+        if stats.collaborative_build:
+            lines.append("")
+            lines.append(
+                "ℹ️ COLLABORATIVE BUILD: 3+ contributors detected. "
+                "This may be a group project."
+            )
+
+        if stats.new_player_flag:
+            lines.append("")
+            lines.append(
+                "ℹ️ NEW PLAYER: Submitter has less than 500 total blocks placed on server."
+            )
+
+        # Data freshness
+        if stats.data_age_minutes >= 0:
+            if stats.data_age_minutes > 360:  # 6 hours
+                lines.append("")
+                lines.append(
+                    f"Note: Block log data is {stats.data_age_minutes} minutes old."
+                )
+
+        lines.append("")
         return "\n".join(lines)
 
     def _parse_response(self, response_text: str) -> dict:
