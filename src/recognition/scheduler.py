@@ -256,7 +256,7 @@ class RecognitionScheduler:
 
     async def _announce_recognition(
         self, submission: Submission, analysis: BuildAnalysis, feedback, player_name: str
-    ) -> None:
+    ) -> Optional[str]:
         """
         Announce a recognized build in the announcements channel with screenshots.
 
@@ -268,10 +268,13 @@ class RecognitionScheduler:
             analysis: The build analysis results
             feedback: Generated feedback with announcement content
             player_name: Player's Minecraft username
+
+        Returns:
+            The Discord message ID if posted successfully, None otherwise
         """
         if not ANNOUNCEMENTS_CHANNEL_ID:
             logger.debug("No announcements channel configured, skipping announcement")
-            return
+            return None
 
         try:
             channel_id = int(ANNOUNCEMENTS_CHANNEL_ID)
@@ -282,7 +285,7 @@ class RecognitionScheduler:
 
             if not channel:
                 logger.warning(f"Could not find announcements channel {channel_id}")
-                return
+                return None
 
             # Build conversational message
             message_parts = []
@@ -344,15 +347,21 @@ class RecognitionScheduler:
 
             # Send single message with all attachments
             if files:
-                await channel.send(content=message_content, files=files)
+                message = await channel.send(content=message_content, files=files)
             else:
                 # Fallback: send message without images if downloads failed
-                await channel.send(content=message_content)
+                message = await channel.send(content=message_content)
 
             logger.info(f"Announced recognition for {submission.build_name} in #{channel.name}")
 
+            # Report message ID back to API for deletion tracking
+            await self.api_client.report_message_posted(submission.id, str(message.id))
+
+            return str(message.id)
+
         except Exception as e:
             logger.warning(f"Failed to announce recognition: {e}", exc_info=True)
+            return None
 
     def _get_title_display(self, title_slug: str) -> Optional[str]:
         """Convert title slug to display name"""

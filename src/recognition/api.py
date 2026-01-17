@@ -277,6 +277,31 @@ class RecognitionAPIClient:
             logger.error(f"Failed to trigger event processing: {e}")
             return 0
 
+    async def report_message_posted(
+        self, submission_id: str, discord_message_id: str
+    ) -> bool:
+        """
+        Report Discord message ID to Recognition API after posting to showcase.
+        This allows the API to track which message to delete if the submission is deleted.
+        """
+        payload = {
+            "submission_id": submission_id,
+            "discord_message_id": discord_message_id,
+        }
+        signature = self._sign_payload(payload)
+
+        try:
+            response = await self._client.post(
+                "/webhook/message-posted",
+                json=payload,
+                headers={"X-SlashAI-Signature": signature},
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to report message posted: {e}")
+            return False
+
     def _sign_payload(self, payload: dict) -> str:
         """Generate HMAC-SHA256 signature for webhook payload"""
         if not self.webhook_secret:
