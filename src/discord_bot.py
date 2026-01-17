@@ -1125,10 +1125,13 @@ class WebhookServer:
 
     async def handle_gamemode_change(self, request: web.Request) -> web.Response:
         """Handle gamemode change announcement webhook from theblockacademy backend."""
+        logger.info(f"Received gamemode-change webhook request from {request.remote}")
+
         # Verify API key
         auth_header = request.headers.get('Authorization', '')
         expected_key = os.getenv('SLASHAI_API_KEY')
         if expected_key and auth_header != f'Bearer {expected_key}':
+            logger.warning(f"Gamemode webhook unauthorized - got '{auth_header[:20]}...' expected 'Bearer {expected_key[:10]}...'")
             return web.json_response({"error": "Unauthorized"}, status=401)
 
         try:
