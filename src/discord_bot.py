@@ -1197,6 +1197,9 @@ class WebhookServer:
         try:
             data = await request.json()
             player_name = data.get('player_name')
+            player_uuid = data.get('player_uuid')  # For avatar
+            player_discord_id = data.get('player_discord_id')  # For @mention
+            granted_by_discord_id = data.get('granted_by_discord_id')  # For granter @mention
             title_name = data.get('title_name')
             title_tier = data.get('title_tier', 'entry')
             title_category = data.get('title_category', 'craft')
@@ -1215,11 +1218,39 @@ class WebhookServer:
             }
             config = tier_config.get(title_tier, {'emoji': '🏆', 'color': 0xFFD700})
 
-            # Build the embed
+            # Build the embed with player avatar
             embed = discord.Embed(color=config['color'])
-            embed.description = f"{config['emoji']} **{player_name}** earned the **{title_name}** title!"
+
+            # Build description with optional granter mention
+            description_parts = []
             if reason:
-                embed.description += f"\n> {reason}"
+                # If reason mentions "Granted by", add granter @mention if available
+                if granted_by_discord_id and "Granted by" in reason:
+                    description_parts.append(f"> Granted by <@{granted_by_discord_id}>")
+                else:
+                    description_parts.append(f"> {reason}")
+
+            # Set author with player's Minecraft avatar (like DeanBot)
+            if player_uuid:
+                # Normalize UUID (remove hyphens for Crafatar)
+                clean_uuid = player_uuid.replace('-', '')
+                avatar_url = f"https://crafatar.com/avatars/{clean_uuid}?size=64&overlay"
+                embed.set_author(
+                    name=f"{config['emoji']} {player_name} earned the {title_name} title!",
+                    icon_url=avatar_url
+                )
+                if description_parts:
+                    embed.description = "\n".join(description_parts)
+            else:
+                # Fallback without avatar
+                embed.description = f"{config['emoji']} **{player_name}** earned the **{title_name}** title!"
+                if description_parts:
+                    embed.description += "\n" + "\n".join(description_parts)
+
+            # Build mention content for notification (mentions in embeds don't notify)
+            mention_content = None
+            if player_discord_id:
+                mention_content = f"<@{player_discord_id}>"
 
             # Get the server-chat channel ID (default to #server-chat)
             channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
@@ -1230,7 +1261,7 @@ class WebhookServer:
                     channel = await self.bot.fetch_channel(int(channel_id))
 
                 if channel:
-                    message = await channel.send(embed=embed)
+                    message = await channel.send(content=mention_content, embed=embed)
                     logger.info(f"Announced title grant: {player_name} earned {title_name} (msg_id={message.id})")
                     return web.json_response({
                         "success": True,
