@@ -69,6 +69,8 @@ Build Name: {build_name}
 Description: {description}
 Type: {submission_type} (submission = seeking recognition, feedback = just wanting feedback)
 
+IMPORTANT: Always refer to this build as "{build_name}" in your response. Do not rename or re-describe the build - use the exact name the player provided.
+
 ## Analysis Task
 
 Look at the attached screenshot(s) and provide:
