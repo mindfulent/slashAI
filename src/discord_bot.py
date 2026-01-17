@@ -1250,7 +1250,7 @@ class WebhookServer:
                 avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
                 logger.info(f"Title grant avatar URL: {avatar_url}")
                 embed.set_author(
-                    name=f"{config['emoji']} {player_name} earned the {title_name} title!",
+                    name=f"{player_name} earned the {title_name} title! {config['emoji']}",
                     icon_url=avatar_url
                 )
                 if description_parts:
@@ -1258,7 +1258,7 @@ class WebhookServer:
             else:
                 logger.warning(f"Title grant: No player_uuid provided, using fallback without avatar")
                 # Fallback without avatar
-                embed.description = f"{config['emoji']} **{player_name}** earned the **{title_name}** title!"
+                embed.description = f"**{player_name}** earned the **{title_name}** title! {config['emoji']}"
                 if description_parts:
                     embed.description += "\n" + "\n".join(description_parts)
 
