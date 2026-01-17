@@ -1063,6 +1063,7 @@ class WebhookServer:
         self.bot = bot
         self.app = web.Application()
         self.app.router.add_post('/recognition/delete-message', self.handle_delete_message)
+        self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
         self.app.router.add_get('/health', self.handle_health)
         self.runner: Optional[web.AppRunner] = None
 
@@ -1120,6 +1121,57 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error handling delete-message webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_gamemode_change(self, request: web.Request) -> web.Response:
+        """Handle gamemode change announcement webhook from theblockacademy backend."""
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            player_name = data.get('player_name')
+            from_gamemode = data.get('from_gamemode')
+            to_gamemode = data.get('to_gamemode')
+            time_in_previous = data.get('time_in_previous')
+
+            if not player_name or not to_gamemode:
+                return web.json_response({"error": "Missing required fields"}, status=400)
+
+            # Build the announcement message
+            # Format: 🎮 **slashAI** switched to Creative (after 2h 15m in Survival)
+            if time_in_previous and from_gamemode:
+                message = f"🎮 **{player_name}** switched to {to_gamemode} (after {time_in_previous} in {from_gamemode})"
+            else:
+                message = f"🎮 **{player_name}** switched to {to_gamemode}"
+
+            # Get the server-chat channel ID (default to #server-chat)
+            channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
+
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if channel:
+                    await channel.send(message)
+                    logger.info(f"Announced gamemode change: {player_name} -> {to_gamemode}")
+                    return web.json_response({"success": True})
+                else:
+                    logger.warning(f"Channel {channel_id} not found for gamemode announcement")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+            except discord.Forbidden:
+                logger.error(f"No permission to send message in channel {channel_id}")
+                return web.json_response({"error": "No permission to send"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling gamemode-change webhook: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):
