@@ -1064,6 +1064,7 @@ class WebhookServer:
         self.app = web.Application()
         self.app.router.add_post('/recognition/delete-message', self.handle_delete_message)
         self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
+        self.app.router.add_post('/server/title-grant', self.handle_title_grant)
         self.app.router.add_get('/health', self.handle_health)
         self.runner: Optional[web.AppRunner] = None
 
@@ -1175,6 +1176,69 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error handling gamemode-change webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_title_grant(self, request: web.Request) -> web.Response:
+        """Handle title grant announcement webhook from theblockacademy backend."""
+        logger.info(f"Received title-grant webhook request from {request.remote}")
+
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            logger.warning(f"Title grant webhook unauthorized")
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            player_name = data.get('player_name')
+            title_name = data.get('title_name')
+            title_tier = data.get('title_tier', 'entry')
+            title_category = data.get('title_category', 'craft')
+            reason = data.get('reason')
+
+            if not player_name or not title_name:
+                return web.json_response({"error": "Missing required fields"}, status=400)
+
+            # Choose emoji based on tier
+            tier_emojis = {
+                'entry': '🌱',
+                'bronze': '🥉',
+                'silver': '🥈',
+                'gold': '🥇',
+                'legendary': '✨'
+            }
+            emoji = tier_emojis.get(title_tier, '🏆')
+
+            # Build the announcement message
+            message = f"{emoji} **{player_name}** earned the **{title_name}** title!"
+            if reason:
+                message += f"\n> {reason}"
+
+            # Get the server-chat channel ID (default to #server-chat)
+            channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
+
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if channel:
+                    await channel.send(message)
+                    logger.info(f"Announced title grant: {player_name} earned {title_name}")
+                    return web.json_response({"success": True})
+                else:
+                    logger.warning(f"Channel {channel_id} not found for title announcement")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+            except discord.Forbidden:
+                logger.error(f"No permission to send message in channel {channel_id}")
+                return web.json_response({"error": "No permission to send"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling title-grant webhook: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):
