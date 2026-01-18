@@ -240,10 +240,15 @@ class RecognitionScheduler:
                         submission, analysis, feedback, player_name, player_profile
                     )
                 else:
-                    # No Discord linked - announce directly
+                    # No Discord linked - announce directly and add to feed
                     logger.info(
                         f"No Discord ID for {player_name}, announcing directly"
                     )
+                    # Add to public achievement feed (website visibility)
+                    shared = await self.api_client.share_submission(submission.id)
+                    if not shared:
+                        logger.error(f"Failed to share submission {submission.id} to feed")
+                    # Announce to public Discord channel
                     await self._announce_recognition(
                         submission, analysis, feedback, player_name
                     )
@@ -444,11 +449,19 @@ class RecognitionScheduler:
             logger.warning(
                 f"Discord user {player_profile.discord_id} not found, announcing directly"
             )
+            # Add to public achievement feed (website visibility)
+            shared = await self.api_client.share_submission(submission.id)
+            if not shared:
+                logger.error(f"Failed to share submission {submission.id} to feed")
             await self._announce_recognition(submission, analysis, feedback, player_name)
         except discord.Forbidden:
             logger.warning(
                 f"Cannot DM user {player_profile.discord_id} (DMs disabled), announcing directly"
             )
+            # Add to public achievement feed (website visibility)
+            shared = await self.api_client.share_submission(submission.id)
+            if not shared:
+                logger.error(f"Failed to share submission {submission.id} to feed")
             await self._announce_recognition(submission, analysis, feedback, player_name)
         except Exception as e:
             logger.error(f"Failed to send approval DM: {e}", exc_info=True)
