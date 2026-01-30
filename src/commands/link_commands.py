@@ -61,6 +61,8 @@ class LinkCommands(commands.Cog):
         name="verify",
         description="Link your Discord account to Minecraft using a code from /discord link",
     )
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.describe(code="The linking code from Minecraft (e.g., TBA-A1B2C3)")
     async def verify(self, interaction, code: str):
         """
