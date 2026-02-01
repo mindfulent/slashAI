@@ -149,7 +149,10 @@ class RecognitionAPIClient:
 
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Accept": "application/json",
+            },
             timeout=30.0,
         )
 
@@ -328,7 +331,6 @@ class RecognitionAPIClient:
             response = await self._client.post(
                 f"/admin/nominations/{nomination_id}/action",
                 json=payload,
-                headers={"Authorization": f"Bearer {self.api_key}"},
             )
             response.raise_for_status()
             return True
