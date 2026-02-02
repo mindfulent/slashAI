@@ -200,42 +200,43 @@ class StreamCraftCommands(commands.Cog):
 
     @streamcraft_group.command(name="servers")
     @owner_only()
-    @app_commands.describe(server_name="Optional server name filter")
-    async def servers(self, interaction: discord.Interaction, server_name: str = None):
+    @app_commands.describe(server_id="Optional license ID to view details for a specific server")
+    async def servers(self, interaction: discord.Interaction, server_id: int = None):
         """Per-server StreamCraft usage summary."""
         await interaction.response.defer(ephemeral=True)
 
-        if server_name:
+        if server_id:
             rows = await self.db.fetch(
                 """
-                SELECT sl.server_name, sl.state, sl.tier,
+                SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
-                WHERE sl.server_name ILIKE $1
-                GROUP BY sl.id, sl.server_name, sl.state, sl.tier
+                WHERE sl.id = $1
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier
                 ORDER BY total_minutes DESC
                 """,
-                f"%{server_name}%",
+                server_id,
             )
         else:
             rows = await self.db.fetch(
                 """
-                SELECT sl.server_name, sl.state, sl.tier,
+                SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
-                GROUP BY sl.id, sl.server_name, sl.state, sl.tier
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier
                 ORDER BY total_minutes DESC
                 """
             )
 
         if not rows:
-            await interaction.followup.send("No StreamCraft servers found.", ephemeral=True)
+            msg = f"No server found with ID `{server_id}`." if server_id else "No StreamCraft servers found."
+            await interaction.followup.send(msg, ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -248,8 +249,9 @@ class StreamCraftCommands(commands.Cog):
             mins = f"{row['total_minutes']:.1f}" if row["total_minutes"] else "0"
             cost = f"${row['total_cost']:.4f}" if row["total_cost"] else "$0.00"
             embed.add_field(
-                name=f"{row['server_name'] or 'Unknown'} ({row['state']})",
+                name=f"#{row['id']} — {row['server_name'] or 'Unknown'} ({row['state']})",
                 value=(
+                    f"Server ID: `{row['sid']}`\n"
                     f"Tier: {row['tier'] or 'N/A'} | Sessions: {row['sessions']:,}\n"
                     f"Minutes: {mins} | Cost: {cost}"
                 ),
