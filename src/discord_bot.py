@@ -296,6 +296,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load analytics commands: {e}", exc_info=True)
 
+                # Load StreamCraft slash commands (owner-only)
+                try:
+                    from commands.streamcraft_commands import StreamCraftCommands
+                    await self.add_cog(StreamCraftCommands(self, self.db_pool))
+                    logger.info("StreamCraft commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load StreamCraft commands: {e}", exc_info=True)
+
                 # Load Discord account linking commands (CoreCurriculum)
                 try:
                     from commands.link_commands import LinkCommands
