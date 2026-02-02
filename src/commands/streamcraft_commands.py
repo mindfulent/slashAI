@@ -84,7 +84,7 @@ class StreamCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT server_name, license_key, state, tier, credit_remaining,
-                   last_validated, expires_at
+                   last_validated, expires_at, server_ip
             FROM streamcraft_licenses
             ORDER BY created_at DESC
             """
@@ -106,11 +106,13 @@ class StreamCraftCommands(commands.Cog):
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
 
+            ip = row["server_ip"] or "N/A"
+
             embed.add_field(
                 name=f"{row['server_name'] or 'Unknown'} ({row['state']})",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"Credit: {credit} | Validated: {validated}\n"
+                    f"IP: {ip} | Credit: {credit} | Validated: {validated}\n"
                     f"Expires: {expires}"
                 ),
                 inline=False,
@@ -209,13 +211,14 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
+                       sl.server_ip,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE sl.id = $1
-                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier, sl.server_ip
                 ORDER BY total_minutes DESC
                 """,
                 server_id,
@@ -224,12 +227,13 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
+                       sl.server_ip,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
-                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier, sl.server_ip
                 ORDER BY total_minutes DESC
                 """
             )
@@ -248,11 +252,12 @@ class StreamCraftCommands(commands.Cog):
         for row in rows[:25]:
             mins = f"{row['total_minutes']:.1f}" if row["total_minutes"] else "0"
             cost = f"${row['total_cost']:.4f}" if row["total_cost"] else "$0.00"
+            ip = row["server_ip"] or "N/A"
             embed.add_field(
                 name=f"#{row['id']} — {row['server_name'] or 'Unknown'} ({row['state']})",
                 value=(
                     f"Server ID: `{row['sid']}`\n"
-                    f"Tier: {row['tier'] or 'N/A'} | Sessions: {row['sessions']:,}\n"
+                    f"IP: {ip} | Tier: {row['tier'] or 'N/A'} | Sessions: {row['sessions']:,}\n"
                     f"Minutes: {mins} | Cost: {cost}"
                 ),
                 inline=False,
