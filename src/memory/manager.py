@@ -304,6 +304,105 @@ class MemoryManager:
         logger.info(f"Popular memories query (scope={scope}) returned {len(results)} results")
         return results
 
+    async def create_community_observation(
+        self,
+        message_id: int,
+        channel_id: int,
+        guild_id: int,
+        author_id: int,
+        content: str,
+    ) -> Optional[int]:
+        """
+        Create a community observation memory from a reacted message (v0.12.4).
+
+        This enables reaction-triggered passive observation of community content.
+        When a message receives a reaction but has no memory link, we create a
+        lightweight "community_observation" memory to capture the content.
+
+        Args:
+            message_id: Discord message ID
+            channel_id: Discord channel ID
+            guild_id: Discord guild ID
+            author_id: Message author's user ID
+            content: Message content
+
+        Returns:
+            Memory ID if created, None on failure or if already linked
+        """
+        try:
+            # Double-check no link exists (race condition protection)
+            existing = await self.db.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM memory_message_links WHERE message_id = $1)",
+                message_id,
+            )
+            if existing:
+                return None
+
+            # Truncate content for summary (keep it concise)
+            summary = content[:500] if len(content) > 500 else content
+
+            # Generate embedding for the content
+            embedding = await self.retriever._embed(summary, input_type="document")
+            embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+            # Create the memory
+            memory_id = await self.db.fetchval(
+                """
+                INSERT INTO memories (
+                    user_id, topic_summary, raw_dialogue, memory_type,
+                    privacy_level, confidence, guild_id, channel_id, embedding
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector)
+                RETURNING id
+                """,
+                author_id,
+                summary,
+                content,
+                "community_observation",
+                "guild_public",
+                0.5,  # Moderate confidence (not LLM-extracted)
+                guild_id,
+                channel_id,
+                embedding_str,
+            )
+
+            if memory_id:
+                # Create memory-message link
+                await self.db.execute(
+                    """
+                    INSERT INTO memory_message_links (memory_id, message_id, channel_id, contribution_type)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (memory_id, message_id) DO NOTHING
+                    """,
+                    memory_id,
+                    message_id,
+                    channel_id,
+                    "community_observation",
+                )
+                logger.info(
+                    f"Created community observation memory {memory_id} for message {message_id} "
+                    f"(author={author_id}, channel={channel_id})"
+                )
+
+                # Track analytics
+                track(
+                    "community_observation_created",
+                    "memory",
+                    user_id=author_id,
+                    channel_id=channel_id,
+                    guild_id=guild_id,
+                    properties={
+                        "memory_id": memory_id,
+                        "message_id": message_id,
+                        "content_length": len(content),
+                    },
+                )
+
+            return memory_id
+
+        except Exception as e:
+            logger.error(f"Error creating community observation: {e}", exc_info=True)
+            return None
+
     async def get_build_context(
         self, user_id: int, channel: discord.abc.Messageable
     ) -> str:

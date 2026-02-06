@@ -600,8 +600,69 @@ class DiscordBot(commands.Bot):
                         "message_author_id": message_author_id,
                     },
                 )
+
+                # v0.12.4: Create community observation if message has no memory link
+                await self._maybe_create_community_observation(payload, message_author_id)
+
         except Exception as e:
             logger.error(f"Error storing reaction: {e}", exc_info=True)
+
+    async def _maybe_create_community_observation(
+        self,
+        payload: discord.RawReactionActionEvent,
+        message_author_id: int,
+    ):
+        """
+        Create a community observation memory if the reacted message has no memory link.
+
+        This enables passive observation of community content through reactions (v0.12.4).
+        """
+        # Only for guild messages
+        if not payload.guild_id:
+            return
+
+        # Need memory system
+        if not self.claude_client or not self.claude_client.memory:
+            return
+
+        try:
+            # Check if message already has a memory link
+            has_link = await self.reaction_store.has_memory_link(payload.message_id)
+            if has_link:
+                return
+
+            # Fetch the message to get content
+            channel = self.get_channel(payload.channel_id)
+            if not channel:
+                return
+
+            try:
+                message = await channel.fetch_message(payload.message_id)
+            except discord.NotFound:
+                logger.debug(f"Message {payload.message_id} not found for community observation")
+                return
+            except discord.Forbidden:
+                return
+
+            # Skip bot messages and empty messages
+            if message.author.bot or not message.content:
+                return
+
+            # Skip very short messages (likely not meaningful)
+            if len(message.content) < 10:
+                return
+
+            # Create community observation
+            await self.claude_client.memory.create_community_observation(
+                message_id=payload.message_id,
+                channel_id=payload.channel_id,
+                guild_id=payload.guild_id,
+                author_id=message_author_id,
+                content=message.content,
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating community observation: {e}", exc_info=True)
 
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         """

@@ -323,6 +323,27 @@ class ReactionStore:
             logger.error(f"Error getting memory IDs for message: {e}", exc_info=True)
             return []
 
+    async def has_memory_link(self, message_id: int) -> bool:
+        """
+        Check if a message has any memory links (v0.12.4).
+
+        Args:
+            message_id: Discord message ID
+
+        Returns:
+            True if message has at least one memory link
+        """
+        try:
+            result = await self.db.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM memory_message_links WHERE message_id = $1)",
+                message_id,
+            )
+            return result or False
+
+        except Exception as e:
+            logger.error(f"Error checking memory link: {e}", exc_info=True)
+            return False
+
     async def get_reactions_for_memory(
         self,
         memory_id: int,

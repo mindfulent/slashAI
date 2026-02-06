@@ -16,6 +16,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.4] - 2026-02-06
+
+### Added
+- **Reaction-triggered community observations**: Passive memory creation from reacted messages
+  - When a message receives a reaction but has no memory link, automatically create a "community_observation" memory
+  - Captures community-curated content without requiring @mentions
+  - New `MemoryManager.create_community_observation()` method
+  - New `ReactionStore.has_memory_link()` check
+
+### How It Works
+1. User A posts a message in a public channel
+2. User B reacts to that message with 🔥
+3. slashAI checks if the message has any memory links
+4. If not, creates a lightweight memory from the message content
+5. Links the message to the new memory
+6. Now `get_popular_memories` can find community-engaged content
+
+### Technical Details
+- `memory_type = "community_observation"` for these passive memories
+- `confidence = 0.5` (moderate, since not LLM-extracted)
+- `privacy_level = "guild_public"` for all observations
+- Skips bot messages, DMs, and very short messages (<10 chars)
+- Generates embedding for semantic search compatibility
+- No database migration required (uses existing tables)
+
+---
+
 ## [0.12.3] - 2026-02-06
 
 ### Added
