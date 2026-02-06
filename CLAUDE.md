@@ -217,6 +217,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 \i migrations/014b_create_memory_message_links.sql
 \i migrations/014c_add_reaction_metadata.sql
 \i migrations/014d_update_hybrid_search_for_reactions.sql
+
+-- Community Observations (v0.12.4)
+\i migrations/014e_add_community_observation_type.sql
 ```
 
 ## Memory Privacy Model

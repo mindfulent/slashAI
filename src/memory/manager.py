@@ -350,7 +350,7 @@ class MemoryManager:
                 """
                 INSERT INTO memories (
                     user_id, topic_summary, raw_dialogue, memory_type,
-                    privacy_level, confidence, guild_id, channel_id, embedding
+                    privacy_level, confidence, origin_guild_id, origin_channel_id, embedding
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector)
                 RETURNING id
                 """,

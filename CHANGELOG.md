@@ -39,7 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `privacy_level = "guild_public"` for all observations
 - Skips bot messages, DMs, and very short messages (<10 chars)
 - Generates embedding for semantic search compatibility
-- No database migration required (uses existing tables)
+
+### Migration Required
+- **`migrations/014e_add_community_observation_type.sql`**: Adds 'community_observation' to memory_type constraint and makes embedding nullable
+
+### Backfill Script
+- **`scripts/backfill_community_observations.py`**: Creates observations for existing reacted messages
+- Run: `python scripts/backfill_community_observations.py --guild <id> --apply`
 
 ---
 
