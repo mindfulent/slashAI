@@ -123,7 +123,8 @@ Trigger-based history table capturing all memory operations. Enables debugging a
 | 010-011 | Reminders | scheduled_reminders, user_settings |
 | 012 | Hybrid Search (010) | tsvector column, GIN index, trigger |
 | 013 | Confidence Decay (011) | decay_policy, retrieval_count, is_protected |
-| 014 | Audit Log (013) | memories_history table with trigger |
+| 014a-d | Reaction Memory (014) | message_reactions, memory_message_links, reaction_summary |
+| 015 | Audit Log (013) | memories_history table with trigger (TBD) |
 
 *Note: GitHub Doc Reader (009) and Deterministic Export (012) require no migrations.*
 
@@ -135,3 +136,4 @@ Trigger-based history table capturing all memory operations. Enables debugging a
 | 2026-01-12 | Added DATABASE_BACKUP_SPEC (008) |
 | 2026-01-12 | Created Memvid-inspired specs (010-013) |
 | 2026-01-12 | Added GitHub Doc Reader (009) |
+| 2026-02-06 | Implemented Reaction-Based Memory Signals (014) - v0.12.0 |
