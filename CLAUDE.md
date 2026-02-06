@@ -63,6 +63,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `privacy.py`: dm/channel_restricted/guild_public/global levels
    - `manager.py`: Facade orchestrating all operations
    - `config.py`: Configurable thresholds (env-overridable)
+   - `decay.py`: Confidence decay job (episodic memories decay over time)
 
 5. **`src/memory/images/`** - Image memory system
    - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering)
@@ -71,12 +72,28 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `narrator.py`: Generates progression narratives
    - `storage.py`: DigitalOcean Spaces (S3-compatible)
 
-6. **`src/reminders/`** - Scheduled reminders system (v0.9.17)
+6. **`src/reminders/`** - Scheduled reminders system
    - `time_parser.py`: Natural language + CRON parsing
    - `manager.py`: Database operations for reminders
    - `scheduler.py`: Background task loop for delivery (60s interval)
 
-7. **`src/tools/`** - Agentic tools for the chatbot
+7. **`src/recognition/`** - Core Curriculum integration for AI-assisted build reviews
+   - `analyzer.py`: Vision-based analysis of Minecraft screenshots
+   - `feedback.py`: Constructive feedback generation for craft development
+   - `progression.py`: Title progression evaluation
+   - `nominations.py`: Anti-gaming checks for peer nominations
+   - `api.py`: Recognition API client for theblockacademy backend
+   - `scheduler.py`: Background polling for pending submissions
+
+8. **`src/commands/`** - Discord slash commands
+   - `memory_commands.py`: `/memories` command group for user memory management
+   - `reminder_commands.py`: `/remind` command group
+   - `analytics_commands.py`: `/analytics` owner-only commands
+   - `link_commands.py`: `/verify` for Minecraft-Discord account linking
+   - `streamcraft_commands.py`: `/streamcraft` owner-only license/usage queries
+   - `views.py`: Pagination and confirmation UI components
+
+9. **`src/tools/`** - Agentic tools for the chatbot
    - `github_docs.py`: Read-only access to slashAI documentation via GitHub API
 
 ## MCP Tools
@@ -138,6 +155,8 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `GITHUB_TOKEN` | Recommended | GitHub personal access token for higher API rate limits |
 | `MEMORY_HYBRID_SEARCH` | No | Set to "false" to disable hybrid search (default: true) |
 | `MEMORY_DECAY_ENABLED` | No | Set to "false" to disable confidence decay (default: true) |
+| `RECOGNITION_API_URL` | For recognition | theblockacademy Recognition API URL |
+| `RECOGNITION_API_KEY` | For recognition | API key for recognition webhooks |
 
 ## Development Notes
 
@@ -216,7 +235,7 @@ When a user posts an image:
 4. **Clustering** - Observation assigned to or creates a build cluster based on embedding similarity
 5. **Narration** - On demand, generates progression narratives for build clusters
 
-## CLI Tools (v0.9.10+)
+## CLI Tools
 
 The `scripts/` directory contains debugging and maintenance tools:
 
@@ -261,7 +280,7 @@ python scripts/memory_decay_cli.py unprotect 42                       # Remove p
 python scripts/memory_decay_cli.py pending                            # Show memories pending deletion
 ```
 
-## Discord Slash Commands (v0.9.11+)
+## Memory Slash Commands
 
 Users can manage their memories directly through Discord slash commands:
 
@@ -279,9 +298,9 @@ Users can manage their memories directly through Discord slash commands:
 - You can only delete your own memories
 - Mentions shows read-only view of others' guild_public memories
 
-## Analytics Commands (v0.9.16+)
+## Analytics Commands (Owner-Only)
 
-Owner-only slash commands for viewing bot analytics (requires `OWNER_ID` env var):
+Slash commands for viewing bot analytics (requires `OWNER_ID` env var):
 
 | Command | Description |
 |---------|-------------|
@@ -295,7 +314,26 @@ Owner-only slash commands for viewing bot analytics (requires `OWNER_ID` env var
 
 **Event tracking:** Analytics events are tracked automatically for messages, API calls, memory operations, commands, and errors. Set `ANALYTICS_ENABLED=false` to disable.
 
-## Reminder Commands (v0.9.17+)
+## StreamCraft Commands (Owner-Only)
+
+Owner-only slash commands for viewing StreamCraft license, usage, and streaming data:
+
+| Command | Description |
+|---------|-------------|
+| `/streamcraft licenses` | List all licenses |
+| `/streamcraft player <name_or_uuid>` | Player usage lookup |
+| `/streamcraft servers [server_id]` | Per-server usage summary |
+| `/streamcraft active` | Currently active rooms and participants |
+
+## Account Linking
+
+| Command | Description |
+|---------|-------------|
+| `/verify <code>` | Link Discord to Minecraft using a code from `/discord link` in-game |
+
+Used by CoreCurriculum recognition system for DM notifications when builds are reviewed.
+
+## Reminder Commands
 
 Users can schedule reminders via slash commands or natural language:
 
@@ -330,7 +368,7 @@ Users can schedule reminders via slash commands or natural language:
 
 **Memory not being stored:**
 - Ensure `MEMORY_ENABLED=true` and `DATABASE_URL` + `VOYAGE_API_KEY` are set
-- Check migration status: all 11 migrations must be applied
+- Check migration status: all 13 migrations must be applied
 - Verify pgvector extension is enabled: `SELECT * FROM pg_extension WHERE extname = 'vector';`
 
 **MCP tools return "Discord bot not initialized":**
@@ -386,17 +424,16 @@ docs/
 ├── MEMORY_TECHSPEC.md       # Text memory specification
 ├── MEMORY_PRIVACY.md        # Privacy model
 ├── MEMORY_IMAGES.md         # Image memory specification
+├── MULTI_AGENT.md           # Plan for multi-bot architecture (Fabricord replacement)
 ├── PRD.md                   # Product requirements
 ├── enhancements/            # Feature specifications
 │   ├── README.md            # Enhancement index and roadmap
-│   ├── 001_MEMORY_ATTRIBUTION.md  # v0.9.10
-│   ├── 002_MEMORY_MANAGEMENT.md   # v0.9.11
-│   ├── 003_AGENTIC_TOOLS.md       # v0.9.12
-│   ├── 004_ANALYTICS.md           # v0.9.16
-│   ├── 005_REMINDERS.md           # v0.9.17
-│   ├── 006_META_MEMORY.md         # v0.9.20
-│   ├── 007_IMAGE_MEMORY_FIXES.md  # v0.9.22
-│   └── 008-013_*.md               # Planned features
+│   ├── 001-007_*.md         # Implemented (memory, tools, analytics, reminders)
+│   ├── 008_DATABASE_BACKUP.md     # Manual backup system
+│   ├── 009_GITHUB_DOC_READER.md   # GitHub docs tool
+│   ├── 010_HYBRID_SEARCH.md       # v0.10.0
+│   ├── 011_CONFIDENCE_DECAY.md    # v0.10.1
+│   └── 012-013_*.md               # Planned features
 └── research/                # Background research
     ├── MEMVID_COMPARISON.md       # Memory system comparison
     └── MEMVID_LESSONS_ANALYSIS.md # Lessons learned
