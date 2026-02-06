@@ -15,9 +15,11 @@ slashAI operates in two complementary modes:
 1. **Discord Chatbot** - Mention `@slashAI` or DM the bot to have natural conversations powered by Claude Sonnet 4.5
 2. **MCP Server** - Expose Discord operations as tools that Claude Code can invoke directly
 
-The bot owner can also trigger Discord actions directly through chat (v0.9.12+).
+The core features (AI chat, memory, MCP tools, reminders) are **general-purpose** and work for any Discord community. The codebase also includes **optional extensions** built for [The Block Academy](https://theblock.academy) Minecraft community, which serve as examples of community-specific integrations.
 
-## Features
+## Core Features
+
+These features are general-purpose and work for any Discord community.
 
 ### Chatbot Mode
 - Natural conversation with Claude Sonnet 4.5's intelligence
@@ -28,17 +30,16 @@ The bot owner can also trigger Discord actions directly through chat (v0.9.12+).
 - Automatic message chunking for responses exceeding Discord's 2000 character limit
 - File attachment reading (.md, .txt, .py, etc.)
 
-### Persistent Memory (v0.9.1+)
+### Persistent Memory
 - **Cross-session memory** - Bot remembers facts, preferences, and context between conversations
 - **Privacy-aware retrieval** - Four privacy levels (dm, channel_restricted, guild_public, global)
+- **Hybrid search** - Combines lexical (full-text) and semantic (vector) search
 - **LLM-based extraction** - Automatic topic extraction after 5 message exchanges
-- **Semantic search** - Voyage AI embeddings with pgvector for relevant memory retrieval
 - **ADD/MERGE logic** - Intelligently updates existing memories vs creating new ones
-- **Memory attribution** (v0.9.10+) - Clear indication of WHO each memory belongs to
-- **Pronoun-neutral format** (v0.9.10+) - Memories stored without assumed pronouns
-- **Memory introspection** (v0.9.20+) - Metadata on relevance, confidence, privacy, and recency helps Claude weight conflicting info
+- **Memory attribution** - Clear indication of WHO each memory belongs to
+- **Confidence decay** - Old episodic memories decay over time; frequently-accessed ones persist
 
-### Memory Management (v0.9.11+)
+### Memory Management
 Users can view and manage their memories via Discord slash commands:
 - `/memories list` - Browse stored memories with pagination and privacy filters
 - `/memories search <query>` - Search memories by text
@@ -49,7 +50,7 @@ Users can view and manage their memories via Discord slash commands:
 
 All command responses are private (ephemeral). Users can only delete their own memories.
 
-### Scheduled Reminders (v0.9.17+)
+### Scheduled Reminders
 Set reminders that get delivered via DM at a specified time:
 - **Natural language** - "remind me in 2 hours", "tomorrow at 10am", "next Monday 3pm"
 - **Recurring** - "every weekday at 9am", "every 2 hours", full CRON expressions
@@ -57,35 +58,67 @@ Set reminders that get delivered via DM at a specified time:
 - **Timezone support** - Each user can set their preferred timezone
 - **Channel delivery** - Bot owner can set reminders that post to specific channels
 
-The bot owner can also set reminders via natural language in chat: "remind me at 10am to check the server"
+### Agentic Tools (Owner-Only)
+The bot owner can trigger Discord actions directly through chat:
+- Ask the bot to "post in #announcements" via DM
+- Request message edits or deletions
+- Read messages from other channels for context
+- Describe images from past messages (fetches and analyzes via Vision API)
+- Search memories explicitly ("what do you remember about X?")
+- All actions require explicit owner request (never automatic)
 
-### Image Memory (v0.9.2+)
+Set `OWNER_ID` environment variable to your Discord user ID to enable.
+
+### MCP Server Mode
+Expose Discord operations as tools for Claude Code:
+- **`send_message`** - Post messages to any channel the bot can access
+- **`edit_message`** - Modify existing bot messages
+- **`delete_message`** - Delete bot messages
+- **`read_messages`** - Fetch recent message history from channels
+- **`search_messages`** - Search messages with optional channel/author filters
+- **`list_channels`** - Enumerate available text channels
+- **`get_channel_info`** - Retrieve channel metadata (topic, category, etc.)
+
+### Analytics (Owner-Only)
+Track bot usage, performance, and errors:
+- `/analytics summary` - 24-hour overview (messages, users, tokens, errors)
+- `/analytics dau` - Daily active users over time
+- `/analytics tokens` - Token usage and cost estimates
+- CLI tool: `scripts/analytics_query.py` for command-line queries
+
+---
+
+## The Block Academy Extensions
+
+These modules are specific to [The Block Academy](https://theblock.academy) Minecraft community. They demonstrate how to extend slashAI for community-specific use cases and can be removed or replaced for other deployments.
+
+### Image Memory (Minecraft Builds)
 - **Build tracking** - Recognizes and tracks Minecraft build projects over time
 - **Visual analysis** - Claude Vision for structured image description and tagging
 - **Multimodal embeddings** - Voyage multimodal-3 for semantic image similarity
 - **Build clustering** - Automatically groups related images into project clusters
 - **Progression narratives** - Generates stories about a user's build journey
 - **Content moderation** - Active moderation for policy violations
-- **Persistent storage** - DigitalOcean Spaces for permanent image storage
 
-### Agentic Tools (v0.9.12+)
-The bot owner can trigger Discord actions directly through chat:
-- Ask the bot to "post in #announcements" via DM
-- Request message edits or deletions
-- Read messages from other channels for context
-- Describe images from past messages (fetches and analyzes via Vision API)
-- Search memories explicitly ("what do you remember about X?") (v0.9.20+)
-- All actions require explicit owner request (never automatic)
+### Core Curriculum Recognition System
+AI-assisted build reviews for the recognition program:
+- **Vision-based analysis** - Claude evaluates builds for technical skill and style
+- **Feedback generation** - Constructive, encouraging feedback for each submission
+- **DM approval flow** - Players approve before public announcement
+- **Discord announcements** - Multi-image embeds with BlueMap coordinate links
+- **Nomination processing** - Peer nominations with anti-gaming checks
+- **Server event webhooks** - Gamemode changes, title grants, attendance credits
 
-Set `OWNER_ID` environment variable to your Discord user ID to enable.
+### Account Linking
+- `/verify <code>` - Link Discord to Minecraft using a code from in-game `/discord link`
+- Enables DM notifications when builds are reviewed
 
-### MCP Server Mode
-- **`send_message`** - Post messages to any channel the bot can access
-- **`edit_message`** - Modify existing bot messages
-- **`delete_message`** - Delete bot messages
-- **`read_messages`** - Fetch recent message history from channels
-- **`list_channels`** - Enumerate available text channels
-- **`get_channel_info`** - Retrieve channel metadata (topic, category, etc.)
+### StreamCraft Commands (Owner-Only)
+View StreamCraft video conferencing license and usage data:
+- `/streamcraft licenses` - List all licenses
+- `/streamcraft player <name>` - Player usage lookup
+- `/streamcraft servers` - Per-server usage summary
+- `/streamcraft active` - Currently active streams
 
 ## Quick Start
 
@@ -166,30 +199,33 @@ Then in Claude Code:
 
 ### Environment Variables
 
+**Core (required for basic operation):**
+
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | Yes | Discord bot token from Developer Portal |
 | `ANTHROPIC_API_KEY` | For chatbot | Anthropic API key for Claude access |
 | `DATABASE_URL` | For memory | PostgreSQL connection string with pgvector |
 | `VOYAGE_API_KEY` | For memory | Voyage AI API key for embeddings |
-| `MEMORY_ENABLED` | No | Set to "true" to enable text memory (v0.9.1+) |
-| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory (v0.9.2+) |
+| `MEMORY_ENABLED` | No | Set to "true" to enable text memory |
+| `OWNER_ID` | No | Discord user ID for owner-only features |
+| `ANALYTICS_ENABLED` | No | Set to "true" to enable usage analytics |
+
+**TBA Extensions (optional, for The Block Academy features):**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `IMAGE_MEMORY_ENABLED` | No | Set to "true" to enable image memory |
 | `DO_SPACES_KEY` | For images | DigitalOcean Spaces access key |
 | `DO_SPACES_SECRET` | For images | DigitalOcean Spaces secret key |
-| `DO_SPACES_BUCKET` | For images | Spaces bucket name (default: slashai-images) |
-| `DO_SPACES_REGION` | For images | Spaces region (default: nyc3) |
-| `IMAGE_MODERATION_ENABLED` | No | Set to "false" to disable content moderation |
-| `MOD_CHANNEL_ID` | No | Discord channel ID for moderation alerts |
-| `OWNER_ID` | For tools | Discord user ID allowed to trigger agentic actions (v0.9.12+) |
-| `ANALYTICS_ENABLED` | No | Set to "true" to enable usage analytics (v0.9.16+) |
+| `DO_SPACES_BUCKET` | For images | Spaces bucket name |
+| `RECOGNITION_API_URL` | For recognition | Core Curriculum API URL |
+| `RECOGNITION_API_KEY` | For recognition | API key for recognition webhooks |
+| `RECOGNITION_ANNOUNCEMENTS_CHANNEL` | No | Channel for build announcements |
 
 ### Customizing the Personality
 
-Edit the `DEFAULT_SYSTEM_PROMPT` in `src/claude_client.py` to customize how the bot responds. The current prompt is tuned for:
-- Thoughtful, pragmatic responses with dry wit
-- Technical depth (especially Minecraft automation, AI/ML)
-- Direct communication without excessive enthusiasm
-- Minimal emoji usage
+Edit the `DEFAULT_SYSTEM_PROMPT` in `src/claude_client.py` to customize how the bot responds. You can tune it for your community's tone, interests, and communication style.
 
 ## Architecture
 
@@ -230,86 +266,71 @@ Edit the `DEFAULT_SYSTEM_PROMPT` in `src/claude_client.py` to customize how the 
 ```
 slashAI/
 ├── src/
-│   ├── __init__.py
-│   ├── discord_bot.py      # Discord client, event handlers, chatbot logic
-│   ├── mcp_server.py       # MCP server with tool definitions
-│   ├── claude_client.py    # Anthropic API wrapper, conversation management
-│   ├── commands/           # Discord slash commands (v0.9.11+)
-│   │   ├── __init__.py
-│   │   ├── memory_commands.py  # /memories command group
-│   │   ├── reminder_commands.py # /remind command group (v0.9.17+)
-│   │   └── views.py            # Pagination and confirmation UIs
-│   ├── reminders/          # Scheduled reminders (v0.9.17+)
-│   │   ├── __init__.py
-│   │   ├── time_parser.py      # Natural language + CRON parsing
-│   │   ├── manager.py          # Database operations
-│   │   └── scheduler.py        # Background delivery loop
-│   └── memory/             # Memory system (v0.9.1+)
-│       ├── __init__.py
-│       ├── config.py       # Memory configuration
-│       ├── privacy.py      # Privacy level classification
-│       ├── extractor.py    # LLM topic extraction
-│       ├── retriever.py    # Voyage AI + pgvector retrieval
-│       ├── updater.py      # ADD/MERGE memory logic
-│       ├── manager.py      # Memory system facade
-│       └── images/         # Image memory (v0.9.2+)
-│           ├── __init__.py
-│           ├── observer.py     # Pipeline entry point
-│           ├── analyzer.py     # Claude Vision + Voyage embeddings
-│           ├── clusterer.py    # Build project grouping
-│           ├── narrator.py     # Progression narratives
-│           └── storage.py      # DO Spaces integration
-├── migrations/             # Database migrations
-│   ├── 001_enable_pgvector.sql
-│   ├── 002_create_memories.sql
-│   ├── 003_create_sessions.sql
-│   ├── 004_add_indexes.sql
-│   ├── 005_create_build_clusters.sql
-│   ├── 006_create_image_observations.sql
-│   ├── 007_create_image_moderation_and_indexes.sql
-│   ├── 008_add_deletion_log.sql
-│   ├── 009_create_analytics.sql
-│   ├── 010_create_scheduled_reminders.sql
-│   └── 011_create_user_settings.sql
-├── scripts/                # CLI tools (v0.9.10+)
-│   ├── migrate_memory_format.py  # Convert memories to pronoun-neutral format
-│   ├── memory_inspector.py       # Debug and inspect memory system
-│   └── analytics_query.py        # CLI for analytics queries (v0.9.16+)
-├── docs/
-│   ├── ARCHITECTURE.md             # High-level architecture overview
-│   ├── MEMORY_TECHSPEC.md          # Text memory specification
-│   ├── MEMORY_PRIVACY.md           # Privacy model documentation
-│   ├── MEMORY_IMAGES.md            # Image memory specification
-│   ├── PRD.md                      # Product requirements document
-│   ├── enhancements/               # Feature specs (001-013)
-│   │   ├── README.md               # Enhancement index and roadmap
-│   │   └── *.md                    # Individual enhancement specs
-│   └── research/                   # Research and analysis
-│       └── MEMVID_*.md             # Memory system comparisons
-├── .do/
-│   └── app.yaml            # DigitalOcean App Platform config
-├── .env.example            # Environment variable template
-├── .gitignore
-├── CHANGELOG.md            # Version history
-├── CLAUDE.md               # Claude Code project instructions
-├── Procfile                # Process definition for deployment
-├── README.md               # This file
-├── requirements.txt        # Python dependencies
-└── runtime.txt             # Python version specification
+│   ├── discord_bot.py          # Discord client, event handlers, chatbot logic
+│   ├── mcp_server.py           # MCP server with tool definitions
+│   ├── claude_client.py        # Anthropic API wrapper, conversation management
+│   ├── analytics.py            # Usage tracking and metrics
+│   │
+│   ├── commands/               # Discord slash commands
+│   │   ├── memory_commands.py      # /memories command group
+│   │   ├── reminder_commands.py    # /remind command group
+│   │   ├── analytics_commands.py   # /analytics (owner-only)
+│   │   ├── link_commands.py        # /verify (TBA-specific)
+│   │   ├── streamcraft_commands.py # /streamcraft (TBA-specific)
+│   │   └── views.py                # Pagination and confirmation UIs
+│   │
+│   ├── memory/                 # Core memory system
+│   │   ├── extractor.py            # LLM topic extraction
+│   │   ├── retriever.py            # Hybrid search (lexical + semantic)
+│   │   ├── updater.py              # ADD/MERGE memory logic
+│   │   ├── decay.py                # Confidence decay background job
+│   │   └── images/                 # Image memory (TBA-specific)
+│   │       ├── observer.py             # Pipeline entry point
+│   │       ├── analyzer.py             # Claude Vision + Voyage embeddings
+│   │       ├── clusterer.py            # Build project grouping
+│   │       └── storage.py              # DO Spaces integration
+│   │
+│   ├── reminders/              # Scheduled reminders
+│   │   ├── time_parser.py          # Natural language + CRON parsing
+│   │   ├── manager.py              # Database operations
+│   │   └── scheduler.py            # Background delivery loop
+│   │
+│   ├── recognition/            # Core Curriculum integration (TBA-specific)
+│   │   ├── analyzer.py             # Vision-based build analysis
+│   │   ├── feedback.py             # Feedback generation
+│   │   ├── nominations.py          # Nomination review
+│   │   ├── api.py                  # Recognition API client
+│   │   └── scheduler.py            # Background processing
+│   │
+│   └── tools/                  # Agentic tools
+│       └── github_docs.py          # Read slashAI docs from GitHub
+│
+├── migrations/                 # Database migrations (001-013)
+├── scripts/                    # CLI tools
+│   ├── memory_inspector.py         # Debug memory system
+│   ├── analytics_query.py          # Query analytics
+│   ├── backup_db.py                # Trigger database backups
+│   └── memory_decay_cli.py         # Manage confidence decay
+│
+├── docs/                       # Documentation
+│   ├── ARCHITECTURE.md
+│   ├── MEMORY_TECHSPEC.md
+│   ├── MEMORY_PRIVACY.md
+│   └── enhancements/               # Feature specifications
+│
+├── .do/app.yaml                # DigitalOcean App Platform config
+├── CHANGELOG.md                # Version history
+├── CLAUDE.md                   # Claude Code project instructions
+└── requirements.txt            # Python dependencies
 ```
+
+**Note:** Modules marked `(TBA-specific)` can be removed for deployments outside The Block Academy.
 
 ## Deployment
 
-slashAI is designed to run as a Worker on DigitalOcean App Platform (no HTTP endpoint needed—just a persistent process).
+slashAI is designed to run as a Worker process (no HTTP endpoint needed for core features—just a persistent connection to Discord).
 
-### Current Deployment
-
-The bot runs as a worker component within the `minecraftcollege` app on DigitalOcean:
-- **App**: minecraftcollege
-- **Component**: discord-bot (Worker)
-- **Region**: SFO
-
-### Manual Deployment
+### DigitalOcean App Platform
 
 ```bash
 # Using doctl CLI
@@ -318,6 +339,13 @@ doctl apps create --spec .do/app.yaml
 # Or add to existing app as a worker component
 doctl apps update <app-id> --spec .do/app.yaml
 ```
+
+### Other Platforms
+
+Any platform that can run a persistent Python process works:
+- **Railway**, **Render**, **Fly.io** - Use `python src/discord_bot.py` as the start command
+- **VPS/Docker** - Run directly or containerize with the included dependencies
+- **Local** - Great for development; just run `python src/discord_bot.py`
 
 ## Technology Stack
 
