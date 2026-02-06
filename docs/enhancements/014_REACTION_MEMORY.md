@@ -1,10 +1,20 @@
 # Enhancement 014: Reaction-Based Memory Signals
 
-**Version**: 0.12.0
+**Version**: 0.12.0 - 0.12.4
 **Status**: Implemented
 **Author**: Slash + Claude
 **Created**: 2026-02-06
 **Implemented**: 2026-02-06
+
+## Version History
+
+| Version | Feature | Description |
+|---------|---------|-------------|
+| 0.12.0 | Core Infrastructure | Reaction capture, storage, aggregation job |
+| 0.12.1 | Reaction Visibility | Claude sees reaction data in memory context |
+| 0.12.2 | Popular Memories Tool | `get_popular_memories` agentic tool |
+| 0.12.3 | Community Filter | Exclude self-reactions from popularity queries |
+| 0.12.4 | Community Observations | Passive memory creation from reacted messages |
 
 ## Overview
 
@@ -825,42 +835,126 @@ Reactions are stored with `removed_at` timestamps:
 
 ## Part 8: Implementation Phases
 
-### Phase 1: Foundation (Week 1)
-- [ ] Migration 014a: `message_reactions` table
-- [ ] Migration 014b: `memory_message_links` table
-- [ ] Add `on_raw_reaction_add` and `on_raw_reaction_remove` event listeners
-- [ ] Implement emoji dimension mapping
-- [ ] Analytics tracking for reaction events
-- [ ] Unit tests for emoji classification
+### Phase 1: Foundation (Week 1) ✅
+- [x] Migration 014a: `message_reactions` table
+- [x] Migration 014b: `memory_message_links` table
+- [x] Add `on_raw_reaction_add` and `on_raw_reaction_remove` event listeners
+- [x] Implement emoji dimension mapping
+- [x] Analytics tracking for reaction events
+- [x] Unit tests for emoji classification
 
-### Phase 2: Storage & Linking (Week 2)
-- [ ] Store reactions in database
-- [ ] Link memories to source messages during extraction
-- [ ] Migration 014c: Add `reaction_summary` to memories
-- [ ] Backfill script (Phase 1 - slashAI messages)
+### Phase 2: Storage & Linking (Week 2) ✅
+- [x] Store reactions in database
+- [x] Link memories to source messages during extraction
+- [x] Migration 014c: Add `reaction_summary` to memories
+- [x] Backfill script (Phase 1 - slashAI messages)
 
-### Phase 3: Memory Integration (Week 3)
-- [ ] Reaction aggregation background job
-- [ ] Confidence boost calculation
-- [ ] Decay resistance integration
-- [ ] Retrieval ranking boost
+### Phase 3: Memory Integration (Week 3) ✅
+- [x] Reaction aggregation background job
+- [x] Confidence boost calculation
+- [x] Decay resistance integration
+- [x] Retrieval ranking boost
 
-### Phase 4: Advanced Features (Week 4)
-- [ ] Bidirectional memory creation (reactor preferences)
-- [ ] Extraction prompt enhancement with reaction context
-- [ ] Memory type promotion logic
-- [ ] Context-dependent emoji interpretation (Claude)
-- [ ] Backfill script (Phases 2-3)
+### Phase 4: Advanced Features (Week 4) - Partial
+- [ ] Bidirectional memory creation (reactor preferences) - Deferred
+- [ ] Extraction prompt enhancement with reaction context - Deferred
+- [ ] Memory type promotion logic - Deferred
+- [x] Context-dependent emoji interpretation (Claude)
+- [x] Backfill script (Phases 2-3)
 
 ### Phase 5: Polish & Release
-- [ ] CLI tools for reaction inspection
-- [ ] Documentation updates
-- [ ] CHANGELOG entry
-- [ ] v0.12.0 release
+- [x] CLI tools for reaction inspection
+- [x] Documentation updates
+- [x] CHANGELOG entry
+- [x] v0.12.0 release
 
 ---
 
-## Part 9: Success Metrics
+## Part 9: Post-Release Enhancements (v0.12.1 - v0.12.4)
+
+### v0.12.1 - Reaction Visibility
+
+Made reaction data visible to Claude in memory context:
+
+- Added `reaction_summary` field to `RetrievedMemory` dataclass
+- Memory metadata displays reaction count and sentiment (e.g., "[3 positive reactions]")
+- Fixed JSONB encoding bug in aggregator (`json.dumps()` for asyncpg)
+
+### v0.12.2 - Popular Memories Tool
+
+New agentic tool for querying reaction-engaged content:
+
+```python
+# Tool definition
+{
+    "name": "get_popular_memories",
+    "description": "Find memories that received community reactions",
+    "parameters": {
+        "min_reactions": "Minimum reaction count (default: 1)",
+        "sentiment": "Filter by sentiment: positive, negative, any (default: any)",
+        "limit": "Max results (default: 10)"
+    }
+}
+```
+
+Enables Claude to answer "What topics are popular?" or "What content got positive reactions?"
+
+### v0.12.3 - Community Engagement Filter
+
+Added filtering to distinguish community engagement from self-validation:
+
+```python
+# New parameters for get_popular_memories
+{
+    "scope": "community (default) or all - community excludes self-reactions",
+    "min_unique_reactors": "Minimum distinct users who reacted (default: 1)"
+}
+```
+
+**Rationale**: A user reacting to their own message isn't community feedback. The `scope: "community"` filter excludes `reactor_id = memory.user_id`.
+
+### v0.12.4 - Community Observations (Passive Memory)
+
+**Problem**: slashAI only creates memories from conversations where it's @mentioned. Rich community content in channels goes unremembered unless someone explicitly asks about it.
+
+**Solution**: When a message receives a reaction, check if it has any memory links. If not, create a lightweight "community_observation" memory.
+
+```python
+async def _maybe_create_community_observation(self, payload, message_author_id):
+    """Create observation for reacted message without memory link."""
+    # Skip DMs, bots, short messages
+    if not payload.guild_id:
+        return
+
+    # Check for existing link
+    has_link = await self.reaction_store.has_memory_link(payload.message_id)
+    if has_link:
+        return
+
+    # Fetch message and create observation
+    message = await channel.fetch_message(payload.message_id)
+    await self.memory.create_community_observation(
+        message_id=payload.message_id,
+        channel_id=payload.channel_id,
+        guild_id=payload.guild_id,
+        author_id=message.author.id,
+        content=message.content,
+    )
+```
+
+**Memory characteristics**:
+- `memory_type = "community_observation"`
+- `confidence = 0.5` (moderate, since not LLM-extracted)
+- `privacy_level = "guild_public"`
+- Embedding generated for semantic search
+
+**Migration 014e** adds `community_observation` to memory type constraint and makes embedding nullable.
+
+**Backfill script** (`scripts/backfill_community_observations.py`) creates observations for existing reacted messages.
+
+---
+
+## Part 10: Success Metrics
 
 ### Quantitative
 - Reaction capture rate: % of reactions successfully stored
@@ -875,7 +969,7 @@ Reactions are stored with `removed_at` timestamps:
 
 ---
 
-## Part 10: Future Enhancements (Post v0.12.0)
+## Part 11: Future Enhancements
 
 ### Custom Emoji Support
 - Per-server emoji mapping configuration
@@ -906,15 +1000,19 @@ Reactions are stored with `removed_at` timestamps:
 - `migrations/014a_create_message_reactions.sql`
 - `migrations/014b_create_memory_message_links.sql`
 - `migrations/014c_add_reaction_metadata.sql`
+- `migrations/014d_update_hybrid_search_for_reactions.sql`
+- `migrations/014e_add_community_observation_type.sql` (v0.12.4)
 - `scripts/backfill_reactions.py`
+- `scripts/backfill_community_observations.py` (v0.12.4)
 - `tests/test_reaction_dimensions.py`
 - `tests/test_reaction_aggregation.py`
 
 ### Modified Files
-- `src/discord_bot.py` - Add reaction event listeners
+- `src/discord_bot.py` - Add reaction event listeners, community observation trigger
 - `src/memory/extractor.py` - Create memory-message links, add reaction context
-- `src/memory/retriever.py` - Apply reaction boost to ranking
+- `src/memory/retriever.py` - Apply reaction boost to ranking, add reaction_summary to RetrievedMemory
 - `src/memory/decay.py` - Include reaction count in decay resistance
-- `src/memory/manager.py` - Orchestrate reaction processing
+- `src/memory/manager.py` - Orchestrate reaction processing, get_popular_memories, create_community_observation
+- `src/claude_client.py` - Add get_popular_memories tool, reaction label formatting
 - `src/analytics.py` - Add reaction event types
-- `CLAUDE.md` - Document reaction system
+- `CLAUDE.md` - Document reaction system and migrations
