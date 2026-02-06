@@ -201,50 +201,90 @@ class MemoryManager:
         limit: int = 5,
         min_reactions: int = 1,
         sentiment_filter: str = "positive",
+        scope: str = "community",
+        min_unique_reactors: int = 1,
     ) -> list[dict]:
         """
-        Get memories sorted by reaction engagement (v0.12.2).
+        Get memories sorted by reaction engagement (v0.12.2, enhanced v0.12.3).
 
         Args:
             limit: Max results (default 5, max 10)
             min_reactions: Minimum reaction count to include
             sentiment_filter: "positive" for sentiment > 0, "any" for all
+            scope: "community" excludes self-reactions, "all" includes everything
+            min_unique_reactors: Minimum unique users who reacted
 
         Returns:
             List of memory dicts with reaction data
         """
+        import json as json_module
+
         limit = min(limit, 10)
 
-        # Build sentiment filter
-        if sentiment_filter == "positive":
-            sentiment_clause = "AND (reaction_summary->>'sentiment_score')::float > 0"
+        if scope == "community":
+            # Query with join to filter out self-reactions (reactor != memory owner)
+            sentiment_clause = "AND r.sentiment > 0" if sentiment_filter == "positive" else ""
+
+            sql = f"""
+                SELECT
+                    m.id, m.user_id, m.topic_summary, m.raw_dialogue, m.memory_type,
+                    m.privacy_level, m.confidence, m.updated_at, m.reaction_summary,
+                    COUNT(r.id) as reaction_count,
+                    COUNT(DISTINCT r.reactor_id) as unique_reactors,
+                    AVG(r.sentiment) as avg_sentiment,
+                    ARRAY_AGG(DISTINCT r.emoji) as emoji_list
+                FROM memories m
+                JOIN memory_message_links l ON m.id = l.memory_id
+                JOIN message_reactions r ON l.message_id = r.message_id
+                WHERE r.removed_at IS NULL
+                  AND r.reactor_id != m.user_id
+                  {sentiment_clause}
+                GROUP BY m.id, m.user_id, m.topic_summary, m.raw_dialogue, m.memory_type,
+                         m.privacy_level, m.confidence, m.updated_at, m.reaction_summary
+                HAVING COUNT(r.id) >= $1
+                   AND COUNT(DISTINCT r.reactor_id) >= $2
+                ORDER BY COUNT(r.id) DESC, AVG(r.sentiment) DESC
+                LIMIT $3
+            """
+            rows = await self.db.fetch(sql, min_reactions, min_unique_reactors, limit)
         else:
-            sentiment_clause = ""
+            # Original query using pre-aggregated reaction_summary
+            sentiment_clause = "AND (reaction_summary->>'sentiment_score')::float > 0" if sentiment_filter == "positive" else ""
 
-        sql = f"""
-            SELECT
-                id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                confidence, updated_at, reaction_summary,
-                (reaction_summary->>'total_reactions')::int as reaction_count,
-                (reaction_summary->>'sentiment_score')::float as sentiment_score
-            FROM memories
-            WHERE reaction_summary IS NOT NULL
-              AND (reaction_summary->>'total_reactions')::int >= $1
-              {sentiment_clause}
-            ORDER BY (reaction_summary->>'total_reactions')::int DESC,
-                     (reaction_summary->>'sentiment_score')::float DESC
-            LIMIT $2
-        """
-
-        rows = await self.db.fetch(sql, min_reactions, limit)
+            sql = f"""
+                SELECT
+                    id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
+                    confidence, updated_at, reaction_summary,
+                    (reaction_summary->>'total_reactions')::int as reaction_count,
+                    (reaction_summary->>'unique_reactors')::int as unique_reactors,
+                    (reaction_summary->>'sentiment_score')::float as avg_sentiment,
+                    NULL as emoji_list
+                FROM memories
+                WHERE reaction_summary IS NOT NULL
+                  AND (reaction_summary->>'total_reactions')::int >= $1
+                  AND COALESCE((reaction_summary->>'unique_reactors')::int, 1) >= $2
+                  {sentiment_clause}
+                ORDER BY (reaction_summary->>'total_reactions')::int DESC,
+                         (reaction_summary->>'sentiment_score')::float DESC
+                LIMIT $3
+            """
+            rows = await self.db.fetch(sql, min_reactions, min_unique_reactors, limit)
 
         results = []
         for r in rows:
             # Parse reaction_summary if it's a string
-            reaction_summary = r["reaction_summary"]
+            reaction_summary = r.get("reaction_summary")
             if isinstance(reaction_summary, str):
-                import json
-                reaction_summary = json.loads(reaction_summary)
+                reaction_summary = json_module.loads(reaction_summary)
+
+            # Build emoji list from query or summary
+            emoji_list = r.get("emoji_list")
+            if emoji_list:
+                top_emoji = [{"emoji": e, "count": 1} for e in emoji_list[:5]]
+            elif reaction_summary:
+                top_emoji = reaction_summary.get("top_emoji", [])
+            else:
+                top_emoji = []
 
             results.append({
                 "id": r["id"],
@@ -256,11 +296,12 @@ class MemoryManager:
                 "confidence": r["confidence"] or 0.5,
                 "updated_at": r["updated_at"],
                 "reaction_count": r["reaction_count"],
-                "sentiment_score": r["sentiment_score"],
-                "reaction_summary": reaction_summary,
+                "unique_reactors": r.get("unique_reactors", 1),
+                "sentiment_score": r.get("avg_sentiment", 0),
+                "reaction_summary": {"top_emoji": top_emoji},
             })
 
-        logger.info(f"Popular memories query returned {len(results)} results")
+        logger.info(f"Popular memories query (scope={scope}) returned {len(results)} results")
         return results
 
     async def get_build_context(

@@ -289,6 +289,17 @@ DISCORD_TOOLS = [
                     "enum": ["positive", "any"],
                     "description": "Filter by sentiment: 'positive' for well-received, 'any' for all reacted content (default: positive)",
                     "default": "positive"
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["community", "all"],
+                    "description": "community = only reactions from others (excludes self-reactions), all = include all reactions (default: community)",
+                    "default": "community"
+                },
+                "min_unique_reactors": {
+                    "type": "integer",
+                    "description": "Minimum number of unique users who reacted (default 1)",
+                    "default": 1
                 }
             }
         }
@@ -1059,7 +1070,7 @@ class ClaudeClient:
                     success = True
 
             elif tool_name == "get_popular_memories":
-                # Get memories with most reactions (v0.12.2)
+                # Get memories with most reactions (v0.12.2, enhanced v0.12.3)
                 if self.memory is None:
                     result = "Memory system is not available"
                     success = False
@@ -1067,20 +1078,29 @@ class ClaudeClient:
                     limit = min(tool_input.get("limit", 5), 10)
                     min_reactions = max(tool_input.get("min_reactions", 1), 1)
                     sentiment = tool_input.get("sentiment", "positive")
+                    scope = tool_input.get("scope", "community")
+                    min_unique_reactors = max(tool_input.get("min_unique_reactors", 1), 1)
 
                     memories = await self.memory.get_popular_memories(
                         limit=limit,
                         min_reactions=min_reactions,
                         sentiment_filter=sentiment,
+                        scope=scope,
+                        min_unique_reactors=min_unique_reactors,
                     )
 
                     if not memories:
-                        result = "No memories with reactions found."
+                        if scope == "community":
+                            result = "No memories with community reactions found (reactions from users other than the memory owner)."
+                        else:
+                            result = "No memories with reactions found."
                     else:
-                        lines = [f"Found {len(memories)} memories with reactions:\n"]
+                        scope_note = " (from other users)" if scope == "community" else ""
+                        lines = [f"Found {len(memories)} memories with reactions{scope_note}:\n"]
                         for i, mem in enumerate(memories, 1):
                             # Format reaction info
                             reaction_count = mem.get("reaction_count", 0)
+                            unique_reactors = mem.get("unique_reactors", 1)
                             sentiment_score = mem.get("sentiment_score", 0)
                             sentiment_label = "positive" if sentiment_score > 0.3 else "neutral" if sentiment_score > -0.3 else "negative"
 
@@ -1090,8 +1110,9 @@ class ClaudeClient:
                             emoji_str = " ".join(e.get("emoji", "") for e in top_emoji[:3]) if top_emoji else ""
 
                             lines.append(f"{i}. {mem['summary']}")
+                            reactor_info = f"from {unique_reactors} user{'s' if unique_reactors > 1 else ''}" if unique_reactors > 1 else ""
                             lines.append(
-                                f"   Reactions: {reaction_count} ({sentiment_label}) {emoji_str}"
+                                f"   Reactions: {reaction_count} ({sentiment_label}) {reactor_info} {emoji_str}".strip()
                             )
                             lines.append(
                                 f"   Confidence: {self._confidence_label(mem['confidence'])} | "

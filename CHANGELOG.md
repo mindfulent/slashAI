@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.3] - 2026-02-06
+
+### Added
+- **Community engagement filter**: `get_popular_memories` tool now filters out self-reactions
+  - New `scope` parameter: "community" (default) excludes reactions from memory owner
+  - New `min_unique_reactors` parameter: filter by diversity of engagement
+  - Shows true community engagement, not self-validation
+
+### Changed
+- `get_popular_memories` now defaults to `scope: "community"`
+- Output shows unique reactor count when multiple users reacted
+- Empty results message explains community scope filter
+
+### Technical Details
+- Community scope uses live query joining memories → links → reactions
+- Filters where `reactor_id != memory.user_id`
+- Aggregates reaction count, unique reactors, and average sentiment at query time
+
+---
+
 ## [0.12.2] - 2026-02-06
 
 ### Added
