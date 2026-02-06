@@ -196,6 +196,73 @@ class MemoryManager:
         logger.info(f"Memory search for '{query[:30]}...' returned {len(memories)} results")
         return memories
 
+    async def get_popular_memories(
+        self,
+        limit: int = 5,
+        min_reactions: int = 1,
+        sentiment_filter: str = "positive",
+    ) -> list[dict]:
+        """
+        Get memories sorted by reaction engagement (v0.12.2).
+
+        Args:
+            limit: Max results (default 5, max 10)
+            min_reactions: Minimum reaction count to include
+            sentiment_filter: "positive" for sentiment > 0, "any" for all
+
+        Returns:
+            List of memory dicts with reaction data
+        """
+        limit = min(limit, 10)
+
+        # Build sentiment filter
+        if sentiment_filter == "positive":
+            sentiment_clause = "AND (reaction_summary->>'sentiment_score')::float > 0"
+        else:
+            sentiment_clause = ""
+
+        sql = f"""
+            SELECT
+                id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
+                confidence, updated_at, reaction_summary,
+                (reaction_summary->>'total_reactions')::int as reaction_count,
+                (reaction_summary->>'sentiment_score')::float as sentiment_score
+            FROM memories
+            WHERE reaction_summary IS NOT NULL
+              AND (reaction_summary->>'total_reactions')::int >= $1
+              {sentiment_clause}
+            ORDER BY (reaction_summary->>'total_reactions')::int DESC,
+                     (reaction_summary->>'sentiment_score')::float DESC
+            LIMIT $2
+        """
+
+        rows = await self.db.fetch(sql, min_reactions, limit)
+
+        results = []
+        for r in rows:
+            # Parse reaction_summary if it's a string
+            reaction_summary = r["reaction_summary"]
+            if isinstance(reaction_summary, str):
+                import json
+                reaction_summary = json.loads(reaction_summary)
+
+            results.append({
+                "id": r["id"],
+                "user_id": r["user_id"],
+                "summary": r["topic_summary"],
+                "raw_dialogue": r["raw_dialogue"],
+                "memory_type": r["memory_type"],
+                "privacy_level": r["privacy_level"],
+                "confidence": r["confidence"] or 0.5,
+                "updated_at": r["updated_at"],
+                "reaction_count": r["reaction_count"],
+                "sentiment_score": r["sentiment_score"],
+                "reaction_summary": reaction_summary,
+            })
+
+        logger.info(f"Popular memories query returned {len(results)} results")
+        return results
+
     async def get_build_context(
         self, user_id: int, channel: discord.abc.Messageable
     ) -> str:

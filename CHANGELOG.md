@@ -16,6 +16,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.2] - 2026-02-06
+
+### Added
+- **Popular memories tool**: New `get_popular_memories` agentic tool
+  - Query memories by reaction engagement
+  - Filter by minimum reaction count and sentiment
+  - Returns top reacted content with emoji breakdown
+  - Enables Claude to answer "what topics are popular?" directly
+
+### Technical Details
+- New `MemoryManager.get_popular_memories()` method
+- SQL query orders by reaction count and sentiment score
+- Tool output includes reaction count, sentiment label, and top emoji
+
+---
+
 ## [0.12.1] - 2026-02-06
 
 ### Added

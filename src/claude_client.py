@@ -268,6 +268,31 @@ DISCORD_TOOLS = [
             "required": ["query"]
         }
     },
+    {
+        "name": "get_popular_memories",
+        "description": "Get memories that received positive reactions from the community. Use when asked about popular topics, well-received content, or what resonates with users.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 5, max 10)",
+                    "default": 5
+                },
+                "min_reactions": {
+                    "type": "integer",
+                    "description": "Minimum reaction count to include (default 1)",
+                    "default": 1
+                },
+                "sentiment": {
+                    "type": "string",
+                    "enum": ["positive", "any"],
+                    "description": "Filter by sentiment: 'positive' for well-received, 'any' for all reacted content (default: positive)",
+                    "default": "positive"
+                }
+            }
+        }
+    },
     # GitHub documentation reader tools
     READ_GITHUB_FILE_TOOL,
     LIST_GITHUB_DOCS_TOOL,
@@ -1028,6 +1053,52 @@ class ClaudeClient:
                             )
                             if mem.raw_dialogue:
                                 snippet = mem.raw_dialogue[:150] + "..." if len(mem.raw_dialogue) > 150 else mem.raw_dialogue
+                                lines.append(f"   Context: {snippet}")
+                            lines.append("")
+                        result = "\n".join(lines)
+                    success = True
+
+            elif tool_name == "get_popular_memories":
+                # Get memories with most reactions (v0.12.2)
+                if self.memory is None:
+                    result = "Memory system is not available"
+                    success = False
+                else:
+                    limit = min(tool_input.get("limit", 5), 10)
+                    min_reactions = max(tool_input.get("min_reactions", 1), 1)
+                    sentiment = tool_input.get("sentiment", "positive")
+
+                    memories = await self.memory.get_popular_memories(
+                        limit=limit,
+                        min_reactions=min_reactions,
+                        sentiment_filter=sentiment,
+                    )
+
+                    if not memories:
+                        result = "No memories with reactions found."
+                    else:
+                        lines = [f"Found {len(memories)} memories with reactions:\n"]
+                        for i, mem in enumerate(memories, 1):
+                            # Format reaction info
+                            reaction_count = mem.get("reaction_count", 0)
+                            sentiment_score = mem.get("sentiment_score", 0)
+                            sentiment_label = "positive" if sentiment_score > 0.3 else "neutral" if sentiment_score > -0.3 else "negative"
+
+                            # Get top emoji if available
+                            reaction_summary = mem.get("reaction_summary", {})
+                            top_emoji = reaction_summary.get("top_emoji", [])
+                            emoji_str = " ".join(e.get("emoji", "") for e in top_emoji[:3]) if top_emoji else ""
+
+                            lines.append(f"{i}. {mem['summary']}")
+                            lines.append(
+                                f"   Reactions: {reaction_count} ({sentiment_label}) {emoji_str}"
+                            )
+                            lines.append(
+                                f"   Confidence: {self._confidence_label(mem['confidence'])} | "
+                                f"Updated: {self._age_label(mem['updated_at'])}"
+                            )
+                            if mem.get("raw_dialogue"):
+                                snippet = mem["raw_dialogue"][:150] + "..." if len(mem["raw_dialogue"]) > 150 else mem["raw_dialogue"]
                                 lines.append(f"   Context: {snippet}")
                             lines.append("")
                         result = "\n".join(lines)
