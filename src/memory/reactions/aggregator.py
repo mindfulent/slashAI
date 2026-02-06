@@ -13,6 +13,7 @@ updating memory metadata with reaction summaries and confidence boosts.
 Part of v0.12.0 - Reaction-Based Memory Signals.
 """
 
+import json
 import logging
 import math
 from collections import Counter
@@ -185,7 +186,7 @@ class ReactionAggregator:
                 WHERE id = $1
                 """,
                 memory_id,
-                summary,
+                json.dumps(summary),
                 confidence_boost,
             )
 
