@@ -1121,7 +1121,11 @@ class ClaudeClient:
                 confidence = self._confidence_label(mem.confidence)
                 privacy = self._privacy_label(mem.privacy_level)
                 age = self._age_label(mem.updated_at)
-                lines.append(f"  [{relevance}] [{confidence}] [{privacy}] [{age}]")
+                reaction = self._reaction_label(mem.reaction_summary)
+                metadata = f"  [{relevance}] [{confidence}] [{privacy}] [{age}]"
+                if reaction:
+                    metadata += f" [{reaction}]"
+                lines.append(metadata)
                 if mem.raw_dialogue:
                     snippet = mem.raw_dialogue[:200] + "..." if len(mem.raw_dialogue) > 200 else mem.raw_dialogue
                     lines.append(f"  *Context: {snippet}*")
@@ -1138,7 +1142,11 @@ class ClaudeClient:
                     relevance = self._relevance_label(mem.similarity)
                     confidence = self._confidence_label(mem.confidence)
                     age = self._age_label(mem.updated_at)
-                    lines.append(f"  [{relevance}] [{confidence}] [{age}]")
+                    reaction = self._reaction_label(mem.reaction_summary)
+                    metadata = f"  [{relevance}] [{confidence}] [{age}]"
+                    if reaction:
+                        metadata += f" [{reaction}]"
+                    lines.append(metadata)
 
         lines.append("\n---")
         lines.append(
@@ -1276,6 +1284,46 @@ class ClaudeClient:
         else:
             months = days // 30
             return f"{months} month{'s' if months > 1 else ''} ago"
+
+    def _reaction_label(self, reaction_summary: dict | None) -> str | None:
+        """
+        Convert reaction summary to human-readable label (v0.12.1).
+
+        Returns None if no reactions, otherwise a compact summary like:
+        - "3 positive reactions" (simple case)
+        - "5 reactions, mostly positive" (mixed sentiment)
+        - "2 reactions" (neutral)
+        """
+        if not reaction_summary:
+            return None
+
+        total = reaction_summary.get("total_reactions", 0)
+        if total == 0:
+            return None
+
+        sentiment = reaction_summary.get("sentiment_score", 0)
+        unique = reaction_summary.get("unique_reactors", total)
+
+        # Build label based on sentiment
+        if sentiment >= 0.5:
+            sentiment_desc = "positive"
+        elif sentiment <= -0.5:
+            sentiment_desc = "negative"
+        else:
+            sentiment_desc = None
+
+        # Format: "N reactions" or "N positive reactions"
+        reaction_word = "reaction" if total == 1 else "reactions"
+        if sentiment_desc:
+            label = f"{total} {sentiment_desc} {reaction_word}"
+        else:
+            label = f"{total} {reaction_word}"
+
+        # Add user count if different from total
+        if unique > 1 and unique != total:
+            label += f" from {unique} users"
+
+        return label
 
     def _build_multimodal_content(
         self, text: str, images: list[tuple[bytes, str]]

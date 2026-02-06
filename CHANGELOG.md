@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.1] - 2026-02-06
+
+### Added
+- **Explicit reaction visibility**: Claude now sees reaction data in memory context
+  - `RetrievedMemory` dataclass includes `reaction_summary` field
+  - Memory metadata displays reaction count and sentiment (e.g., "[3 positive reactions]")
+  - Enables Claude to reference community engagement in responses
+
+### Fixed
+- **Aggregator JSONB encoding**: Fixed `asyncpg.DataError` when storing reaction summaries
+  - Added `json.dumps()` for JSONB parameter encoding
+- **Reaction summary parsing**: Handle both dict and JSON string formats from database
+
+---
+
 ## [0.12.0] - 2026-02-06
 
 ### Added

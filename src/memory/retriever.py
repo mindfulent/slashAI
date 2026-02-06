@@ -55,6 +55,7 @@ class RetrievedMemory:
     similarity: float
     confidence: float  # Extraction confidence (0.0-1.0)
     updated_at: datetime
+    reaction_summary: dict | None = None  # v0.12.1: Aggregated reaction data
 
 
 class MemoryRetriever:
@@ -133,6 +134,8 @@ class MemoryRetriever:
                 similarity=self._apply_reaction_boost(r["similarity"], r),
                 confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
+                # v0.12.1: Include reaction summary for context
+                reaction_summary=self._parse_reaction_summary(r.get("reaction_summary")),
             )
             for r in rows
         ]
@@ -365,6 +368,31 @@ class MemoryRetriever:
                 memory_ids,
             )
 
+    def _parse_reaction_summary(self, reaction_summary) -> dict | None:
+        """
+        Parse reaction_summary from database, handling JSON string or dict.
+
+        Args:
+            reaction_summary: JSONB value (may be dict or JSON string)
+
+        Returns:
+            Parsed dict or None
+        """
+        if reaction_summary is None:
+            return None
+
+        if isinstance(reaction_summary, dict):
+            return reaction_summary
+
+        if isinstance(reaction_summary, str):
+            try:
+                import json
+                return json.loads(reaction_summary)
+            except (json.JSONDecodeError, ValueError):
+                return None
+
+        return None
+
     def _apply_reaction_boost(self, similarity: float, memory: asyncpg.Record) -> float:
         """
         Boost retrieval score based on reaction engagement (v0.12.0).
@@ -385,11 +413,12 @@ class MemoryRetriever:
         """
         # Check if reaction_summary exists in the record
         try:
-            reaction_summary = memory.get("reaction_summary")
+            raw_summary = memory.get("reaction_summary")
         except (KeyError, TypeError):
             # Column doesn't exist or is None
             return similarity
 
+        reaction_summary = self._parse_reaction_summary(raw_summary)
         if not reaction_summary:
             return similarity
 
