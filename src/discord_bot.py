@@ -229,6 +229,7 @@ class DiscordBot(commands.Bot):
         intents.message_content = True
         intents.guilds = True
         intents.messages = True
+        intents.reactions = True  # Reaction-based memory signals (v0.12.0)
 
         super().__init__(command_prefix="!", intents=intents)
 
@@ -240,6 +241,8 @@ class DiscordBot(commands.Bot):
         self.reminder_scheduler = None  # Background scheduler for reminders
         self.decay_job = None  # Memory decay job (v0.10.1)
         self.recognition_scheduler = None  # Recognition system for build reviews
+        self.reaction_store = None  # Reaction storage (v0.12.0)
+        self.reaction_aggregator = None  # Reaction aggregation job (v0.12.0)
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -338,6 +341,17 @@ class DiscordBot(commands.Bot):
                     logger.error(f"Failed to initialize decay job: {e}", exc_info=True)
                     logger.warning("Memory decay disabled due to initialization failure")
 
+                # Initialize reaction system (v0.12.0)
+                try:
+                    from memory.reactions import ReactionStore, ReactionAggregator
+
+                    self.reaction_store = ReactionStore(self.db_pool)
+                    self.reaction_aggregator = ReactionAggregator(self, self.db_pool)
+                    logger.info("Reaction system initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize reaction system: {e}", exc_info=True)
+                    logger.warning("Reaction tracking disabled due to initialization failure")
+
                 # Initialize recognition scheduler for Core Curriculum
                 recognition_enabled = os.getenv("RECOGNITION_ENABLED", "false").lower() == "true"
                 if recognition_enabled:
@@ -413,6 +427,10 @@ class DiscordBot(commands.Bot):
             # Start recognition scheduler for Core Curriculum
             if self.recognition_scheduler:
                 self.recognition_scheduler.start()
+
+            # Start reaction aggregator (v0.12.0)
+            if self.reaction_aggregator:
+                self.reaction_aggregator.start()
         else:
             logger.info("MCP-only mode, skipping command sync")
 
@@ -513,6 +531,158 @@ class DiscordBot(commands.Bot):
         ext = filename.rsplit(".", 1)[-1].lower()
         return ext in {"png", "jpg", "jpeg", "gif", "webp"}
 
+    # --- Reaction Event Handlers (v0.12.0) ---
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        """
+        Handle reaction additions on any message (cached or uncached).
+
+        Captures reactions as memory signals for confidence adjustment
+        and user preference inference.
+        """
+        # Skip if reaction store not initialized
+        if not self.reaction_store:
+            return
+
+        # Skip bot reactions
+        if payload.user_id == self.user.id:
+            return
+
+        # Skip custom emoji (v0.12.0 - unicode only)
+        if payload.emoji.is_custom_emoji():
+            logger.debug(f"Skipping custom emoji reaction: {payload.emoji}")
+            return
+
+        # Get emoji dimensions
+        try:
+            from memory.reactions import get_emoji_dimensions
+
+            emoji_str = str(payload.emoji)
+            dimensions = get_emoji_dimensions(emoji_str)
+        except Exception as e:
+            logger.error(f"Error getting emoji dimensions: {e}")
+            return
+
+        # Get message author (may need to fetch message)
+        message_author_id = await self._get_reaction_message_author(payload)
+        if not message_author_id:
+            logger.warning(f"Could not determine message author for reaction on {payload.message_id}")
+            return
+
+        # Store reaction
+        try:
+            reaction_id = await self.reaction_store.store_reaction(
+                message_id=payload.message_id,
+                channel_id=payload.channel_id,
+                guild_id=payload.guild_id,
+                message_author_id=message_author_id,
+                reactor_id=payload.user_id,
+                emoji=emoji_str,
+                dimensions=dimensions,
+                emoji_is_custom=False,
+            )
+            if reaction_id:
+                logger.debug(
+                    f"Stored reaction {reaction_id}: {emoji_str} by {payload.user_id} on {payload.message_id}"
+                )
+
+                # Analytics
+                track(
+                    "reaction_added",
+                    "memory",
+                    user_id=payload.user_id,
+                    channel_id=payload.channel_id,
+                    guild_id=payload.guild_id,
+                    properties={
+                        "emoji": emoji_str,
+                        "intent": dimensions.get("intent"),
+                        "sentiment": dimensions.get("sentiment"),
+                        "message_author_id": message_author_id,
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Error storing reaction: {e}", exc_info=True)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        """
+        Handle reaction removals.
+
+        Soft-deletes the reaction record so we can track churn.
+        """
+        # Skip if reaction store not initialized
+        if not self.reaction_store:
+            return
+
+        # Skip bot reactions
+        if payload.user_id == self.user.id:
+            return
+
+        # Skip custom emoji
+        if payload.emoji.is_custom_emoji():
+            return
+
+        emoji_str = str(payload.emoji)
+
+        try:
+            removed = await self.reaction_store.remove_reaction(
+                message_id=payload.message_id,
+                reactor_id=payload.user_id,
+                emoji=emoji_str,
+            )
+            if removed:
+                logger.debug(
+                    f"Marked reaction removed: {emoji_str} by {payload.user_id} on {payload.message_id}"
+                )
+
+                # Analytics
+                track(
+                    "reaction_removed",
+                    "memory",
+                    user_id=payload.user_id,
+                    channel_id=payload.channel_id,
+                    guild_id=payload.guild_id,
+                    properties={
+                        "emoji": emoji_str,
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Error removing reaction: {e}", exc_info=True)
+
+    async def _get_reaction_message_author(
+        self, payload: discord.RawReactionActionEvent
+    ) -> Optional[int]:
+        """
+        Get the author ID of the message a reaction was added to.
+
+        First tries the message cache, then fetches from Discord if needed.
+        """
+        # Try to get from cache first
+        channel = self.get_channel(payload.channel_id)
+        if channel:
+            try:
+                message = channel.get_partial_message(payload.message_id)
+                # Partial message doesn't have author, need to fetch
+                message = await channel.fetch_message(payload.message_id)
+                return message.author.id
+            except discord.NotFound:
+                logger.warning(f"Message {payload.message_id} not found")
+                return None
+            except discord.Forbidden:
+                logger.warning(f"No permission to fetch message {payload.message_id}")
+                return None
+            except Exception as e:
+                logger.error(f"Error fetching message for reaction: {e}")
+                return None
+
+        # Channel not in cache, try to fetch it
+        try:
+            channel = await self.fetch_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            return message.author.id
+        except Exception as e:
+            logger.error(f"Error fetching channel/message for reaction: {e}")
+            return None
+
     async def _handle_chat(self, message: discord.Message):
         """Generate a Claude response to a message."""
         if self.claude_client is None:
@@ -545,9 +715,23 @@ class DiscordBot(commands.Bot):
                     content=content,
                     channel=message.channel,  # Pass channel for memory privacy
                     images=images if images else None,
+                    skip_memory_tracking=True,  # We'll track with message IDs below
                 )
                 chunks = self._chunk_message(response)
-                await self._send_chunked(message.channel, response, reply_to=message)
+                response_msg = await self._send_chunked(message.channel, response, reply_to=message)
+
+                # Track message for memory extraction with message IDs (v0.12.0)
+                # This enables reaction-based memory signals
+                if self.claude_client.memory:
+                    await self.claude_client.memory.track_message(
+                        user_id=message.author.id,
+                        channel_id=message.channel.id,
+                        channel=message.channel,
+                        user_message=content,
+                        assistant_message=response,
+                        user_message_id=message.id,
+                        assistant_message_id=response_msg.id if response_msg else None,
+                    )
 
                 # Analytics: Track response sent
                 latency_ms = int((time.time() - start_time) * 1000)
@@ -781,6 +965,9 @@ class DiscordBot(commands.Bot):
         # Stop decay job (v0.10.1)
         if self.decay_job:
             self.decay_job.stop()
+        # Stop reaction aggregator (v0.12.0)
+        if self.reaction_aggregator:
+            self.reaction_aggregator.stop()
         # Stop recognition scheduler
         if self.recognition_scheduler:
             await self.recognition_scheduler.close()

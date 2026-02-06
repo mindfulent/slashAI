@@ -19,6 +19,7 @@ This directory contains implementation specifications for slashAI features—bot
 | [011](./011_CONFIDENCE_DECAY.md) | Confidence Decay | v0.10.1 | ✅ Implemented | — |
 | [012](./012_DETERMINISTIC_EXPORT.md) | Deterministic Export | — | 📋 Draft | P3 Low |
 | [013](./013_AUDIT_LOG.md) | Audit Log / Time-Travel | — | 📋 Draft | P2 Medium |
+| [014](./014_REACTION_MEMORY.md) | Reaction-Based Memory Signals | v0.12.0 | ✅ Implemented | — |
 | — | [Rate Limiting](./RATELIMIT.md) | — | 📋 Draft | TBD |
 
 ## Quick Summary
@@ -58,6 +59,9 @@ Combines lexical (BM25-style) and semantic search using Reciprocal Rank Fusion. 
 **011 - Confidence Decay** (v0.10.1)
 Relevance-weighted decay based on retrieval frequency. Frequently-accessed memories resist decay; rarely-used memories fade. Background job runs every 6 hours.
 
+**014 - Reaction-Based Memory Signals** (v0.12.0)
+Emoji reactions inform memory confidence, decay resistance, and retrieval ranking. 130+ emoji mapped across sentiment, intensity, intent, and relevance dimensions. Background aggregation every 15 minutes.
+
 ### Upcoming Features
 
 **012 - Deterministic Export** (P3)
@@ -79,12 +83,22 @@ Trigger-based history table capturing all memory operations. Enables debugging a
     └── Migration 013: decay_policy, retrieval_count
 ```
 
-### Phase 2: v0.11.x
+### Phase 2: v0.12.x ✅ Complete
+
+```
+└── 014: Reaction-Based Memory Signals ✅
+    ├── Migration 014a: message_reactions table
+    ├── Migration 014b: memory_message_links table
+    ├── Migration 014c: reaction_summary column
+    └── Migration 014d: hybrid_search update
+```
+
+### Phase 3: v0.13.x
 
 ```
 ├── 012: Deterministic Export
 ├── 013: Audit Log
-│   └── Migration 014: memories_history + trigger
+│   └── Migration 015: memories_history + trigger
 └── Rate Limiting (TBD)
 ```
 

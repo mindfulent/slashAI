@@ -16,6 +16,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.0] - 2026-02-06
+
+### Added
+
+#### Reaction-Based Memory Signals
+Emoji reactions on Discord messages now inform memory confidence, decay resistance, and retrieval ranking. This bidirectional model means a single reaction can inform memories about BOTH the message author AND the reactor.
+
+**Multi-Dimensional Emoji Classification:**
+- 100+ emoji mapped across four dimensions: sentiment, intensity, intent, relevance
+- Intent categories: agreement, disagreement, appreciation, amusement, excitement, surprise, sadness, thinking, confusion, attention, support, celebration
+- Context-dependent emoji (e.g., 💀, 🙃) flagged for Claude interpretation
+- Custom server emoji ignored in v0.12.0 (unicode only)
+
+**Reaction Storage:**
+- New `message_reactions` table tracks every reaction event
+- Soft deletion preserves reaction history for churn analysis
+- Indexes optimized for message, reactor, author, and channel queries
+
+**Memory-Message Linking:**
+- New `memory_message_links` table connects memories to source messages
+- Enables reaction aggregation for memory confidence calculation
+- Links created during memory extraction
+
+**Confidence & Decay Integration:**
+- `reaction_summary` JSONB on memories stores aggregated metrics
+- Confidence boost: -0.1 to +0.2 based on sentiment, intensity, count
+- Decay resistance: reactions count as 0.5 retrievals each
+- Controversy detection: mixed sentiment reactions reduce confidence
+
+**Retrieval Ranking Boost:**
+- Memories with positive reactions rank up to 15% higher
+- Logarithmic scaling prevents single viral message from dominating
+- Re-sorts results after applying reaction boost
+
+**Background Aggregation:**
+- Runs every 15 minutes to update memory reaction summaries
+- Calculates weighted sentiment, intensity, controversy scores
+- Top emoji and intent distribution tracking
+
+**Database Migrations:**
+- `014a_create_message_reactions.sql` - Reaction tracking table
+- `014b_create_memory_message_links.sql` - Memory-message linking
+- `014c_add_reaction_metadata.sql` - Add reaction columns to memories
+- `014d_update_hybrid_search_for_reactions.sql` - Update search function
+
+**CLI Tools:**
+- `scripts/backfill_reactions.py` - Historical reaction import
+  - Phase 1: Bot's own messages
+  - Phase 2: Threads with bot participation
+  - Phase 3: All public channel messages
+  - Supports dry-run mode and date filtering
+
+### Changed
+- `discord_bot.py`: Added `intents.reactions = True`
+- `memory/manager.py`: `track_message()` now accepts message IDs
+- `memory/decay.py`: Decay resistance includes reaction count
+- `memory/retriever.py`: Retrieval adds reaction boost to similarity
+- `claude_client.py`: `chat()` accepts `skip_memory_tracking` param
+
+### Technical Details
+- Reaction confidence boost formula: `(sentiment * 0.1 * intensity_multiplier) + count_bonus - controversy_penalty`
+- Decay resistance formula: `min(1.0, (retrieval_count + reaction_count * 0.5) / 10)`
+- Retrieval boost formula: `similarity * (1 + min(0.15, log10(total + 1) * 0.05 * sentiment))`
+
+---
+
 ## [0.11.0] - 2026-02-06
 
 ### Added

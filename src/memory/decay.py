@@ -149,10 +149,12 @@ class MemoryDecayJob:
 
         Formula: new_confidence = confidence * (effective_rate ^ periods_elapsed)
         Where:
-          effective_rate = base_rate + ((max_rate - base_rate) * min(1.0, retrieval_count / 10))
+          effective_rate = base_rate + ((max_rate - base_rate) * decay_resistance)
+          decay_resistance = min(1.0, (retrieval_count + reaction_count * 0.5) / 10)
           periods_elapsed = floor(days_since_access / decay_period_days)
 
         Memories with higher retrieval_count decay slower (0.99 vs 0.95).
+        Reactions count as 0.5 retrievals each for decay resistance (v0.12.0).
         """
         base_rate = self.config.base_decay_rate
         max_rate = self.config.max_decay_rate
@@ -160,14 +162,22 @@ class MemoryDecayJob:
         min_conf = self.config.min_confidence
 
         # Use parameterized query with explicit type casts for PostgreSQL
+        # Decay resistance now includes reaction count (0.5x weight) from reaction_summary
         result = await self.db.execute(
             f"""
             UPDATE memories
             SET confidence = GREATEST(
                 $1::float,
                 confidence * POWER(
-                    -- Relevance-weighted decay rate: base to max based on retrieval_count
-                    $2::float + (($3::float - $2::float) * LEAST(1.0, COALESCE(retrieval_count, 0)::float / 10.0)),
+                    -- Relevance-weighted decay rate: base to max based on effective retrievals
+                    -- Reactions count as 0.5 retrievals each (v0.12.0)
+                    $2::float + (($3::float - $2::float) * LEAST(
+                        1.0,
+                        (
+                            COALESCE(retrieval_count, 0)::float +
+                            COALESCE((reaction_summary->>'total_reactions')::int, 0)::float * 0.5
+                        ) / 10.0
+                    )),
                     -- Periods elapsed since last access
                     FLOOR(EXTRACT(EPOCH FROM (NOW() - last_accessed_at)) / 86400.0 / $4::float)
                 )

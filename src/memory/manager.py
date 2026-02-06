@@ -332,6 +332,8 @@ class MemoryManager:
         channel: discord.abc.Messageable,
         user_message: str,
         assistant_message: str,
+        user_message_id: Optional[int] = None,
+        assistant_message_id: Optional[int] = None,
     ):
         """
         Track a message exchange for future extraction.
@@ -342,6 +344,8 @@ class MemoryManager:
             channel: Discord channel object
             user_message: User's message content
             assistant_message: Bot's response content
+            user_message_id: Discord message ID of user's message (v0.12.0)
+            assistant_message_id: Discord message ID of bot's response (v0.12.0)
         """
         channel_privacy = await classify_channel_privacy(channel)
         guild = getattr(channel, "guild", None)
@@ -360,8 +364,17 @@ class MemoryManager:
             messages = json.loads(raw_messages) if raw_messages else []
         else:
             messages = raw_messages or []
-        messages.append({"role": "user", "content": user_message})
-        messages.append({"role": "assistant", "content": assistant_message})
+        # Include message IDs for reaction linking (v0.12.0)
+        messages.append({
+            "role": "user",
+            "content": user_message,
+            "message_id": user_message_id,
+        })
+        messages.append({
+            "role": "assistant",
+            "content": assistant_message,
+            "message_id": assistant_message_id,
+        })
 
         await self.db.execute(
             """UPDATE memory_sessions SET messages = $1::jsonb, message_count = message_count + 2,
@@ -444,11 +457,24 @@ class MemoryManager:
             )
             logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
 
+            # Extract message IDs for linking (v0.12.0)
+            message_ids = [
+                m.get("message_id")
+                for m in messages
+                if m.get("message_id") is not None
+            ]
+
             for memory, privacy_level in extracted_with_privacy:
                 logger.info(f"Storing memory: [{privacy_level.value}] {memory.summary[:50]}...")
-                await self.updater.update(
+                memory_id = await self.updater.update(
                     user_id, memory, privacy_level, channel_id, guild_id
                 )
+
+                # Link memory to source messages for reaction aggregation (v0.12.0)
+                if message_ids:
+                    await self._create_memory_message_links(
+                        memory_id, message_ids, channel_id
+                    )
 
                 # Analytics: Track memory created
                 track(
@@ -461,6 +487,7 @@ class MemoryManager:
                         "memory_type": memory.memory_type,
                         "privacy_level": privacy_level.value,
                         "confidence": memory.confidence,
+                        "linked_messages": len(message_ids),
                     },
                 )
 
@@ -487,6 +514,44 @@ class MemoryManager:
                 },
             )
             # Don't reset session on failure - will retry next threshold
+
+    async def _create_memory_message_links(
+        self,
+        memory_id: int,
+        message_ids: list[int],
+        channel_id: int,
+    ) -> None:
+        """
+        Create links between a memory and its source messages.
+
+        This enables reaction aggregation - reactions on these messages
+        will contribute to the memory's confidence/decay calculations.
+
+        Args:
+            memory_id: Memory ID
+            message_ids: List of Discord message IDs that contributed to this memory
+            channel_id: Discord channel ID
+        """
+        if not message_ids:
+            return
+
+        try:
+            # Use executemany for efficiency
+            for msg_id in message_ids:
+                await self.db.execute(
+                    """
+                    INSERT INTO memory_message_links (memory_id, message_id, channel_id, contribution_type)
+                    VALUES ($1, $2, $3, 'source')
+                    ON CONFLICT (memory_id, message_id) DO NOTHING
+                    """,
+                    memory_id,
+                    msg_id,
+                    channel_id,
+                )
+            logger.debug(f"Linked memory {memory_id} to {len(message_ids)} messages")
+        except Exception as e:
+            # Log but don't fail - linking is optional enhancement
+            logger.warning(f"Failed to create memory-message links: {e}")
 
     # =========================================================================
     # Memory Management Commands (v0.9.11)

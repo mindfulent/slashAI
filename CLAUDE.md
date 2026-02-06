@@ -211,6 +211,12 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 
 -- Confidence Decay (v0.10.1)
 \i migrations/013_add_confidence_decay.sql
+
+-- Reaction-Based Memory Signals (v0.12.0)
+\i migrations/014a_create_message_reactions.sql
+\i migrations/014b_create_memory_message_links.sql
+\i migrations/014c_add_reaction_metadata.sql
+\i migrations/014d_update_hybrid_search_for_reactions.sql
 ```
 
 ## Memory Privacy Model

@@ -502,6 +502,7 @@ class ClaudeClient:
         channel: Optional[discord.abc.Messageable] = None,
         max_tokens: int = 1024,
         images: Optional[list[tuple[bytes, str]]] = None,
+        skip_memory_tracking: bool = False,
     ) -> str:
         """
         Send a message and get a response from Claude.
@@ -515,6 +516,7 @@ class ClaudeClient:
             channel: Discord channel for memory privacy context
             max_tokens: Maximum tokens in response (default 1024)
             images: Optional list of (image_bytes, media_type) tuples
+            skip_memory_tracking: If True, caller will handle memory tracking (v0.12.0)
 
         Returns:
             Claude's response text
@@ -709,7 +711,8 @@ class ClaudeClient:
         conversation.add_message("assistant", response_text)
 
         # Track message for memory extraction
-        if self.memory and channel:
+        # Caller can skip this to handle it with message IDs (v0.12.0)
+        if self.memory and channel and not skip_memory_tracking:
             await self.memory.track_message(
                 int(user_id), int(channel_id), channel, content, response_text
             )

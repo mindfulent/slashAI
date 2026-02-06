@@ -27,6 +27,7 @@ by rank position, naturally boosting documents that appear in both.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -128,12 +129,16 @@ class MemoryRetriever:
                 raw_dialogue=r["raw_dialogue"],
                 memory_type=r["memory_type"],
                 privacy_level=PrivacyLevel(r["privacy_level"]),
-                similarity=r["similarity"],
+                # Apply reaction boost to similarity (v0.12.0)
+                similarity=self._apply_reaction_boost(r["similarity"], r),
                 confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
             )
             for r in rows
         ]
+
+        # Re-sort by boosted similarity (reaction-engaged memories rank higher)
+        memories.sort(key=lambda m: m.similarity, reverse=True)
 
         if memories:
             query_preview = query[:50] + "..." if len(query) > 50 else query
@@ -248,7 +253,8 @@ class MemoryRetriever:
         base_query = """
             SELECT
                 id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
-                confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at
+                confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at,
+                reaction_summary
             FROM memories
             WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})
@@ -358,3 +364,45 @@ class MemoryRetriever:
                 "UPDATE memories SET last_accessed_at = NOW() WHERE id = ANY($1)",
                 memory_ids,
             )
+
+    def _apply_reaction_boost(self, similarity: float, memory: asyncpg.Record) -> float:
+        """
+        Boost retrieval score based on reaction engagement (v0.12.0).
+
+        Memories with positive reactions from other users rank higher,
+        reflecting community validation of the content.
+
+        Formula: boosted = similarity * (1 + reaction_boost)
+        Where reaction_boost = min(0.15, log10(total + 1) * 0.05 * sentiment)
+        Capped at 15% boost to avoid overwhelming semantic relevance.
+
+        Args:
+            similarity: Base similarity score from vector search
+            memory: Database record with reaction_summary JSONB
+
+        Returns:
+            Boosted similarity score
+        """
+        # Check if reaction_summary exists in the record
+        try:
+            reaction_summary = memory.get("reaction_summary")
+        except (KeyError, TypeError):
+            # Column doesn't exist or is None
+            return similarity
+
+        if not reaction_summary:
+            return similarity
+
+        # Extract sentiment and count
+        sentiment = reaction_summary.get("sentiment_score", 0)
+        total = reaction_summary.get("total_reactions", 0)
+
+        # Only boost for positive sentiment
+        if sentiment <= 0 or total == 0:
+            return similarity
+
+        # Logarithmic scaling: more reactions = diminishing returns
+        # log10(1) = 0, log10(10) = 1, log10(100) = 2
+        reaction_boost = min(0.15, math.log10(total + 1) * 0.05 * sentiment)
+
+        return similarity * (1 + reaction_boost)
