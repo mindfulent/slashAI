@@ -307,6 +307,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load StreamCraft commands: {e}", exc_info=True)
 
+                # Load SynthCraft slash commands (owner-only)
+                try:
+                    from commands.synthcraft_commands import SynthCraftCommands
+                    await self.add_cog(SynthCraftCommands(self, self.db_pool))
+                    logger.info("SynthCraft commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load SynthCraft commands: {e}", exc_info=True)
+
                 # Load Discord account linking commands (CoreCurriculum)
                 try:
                     from commands.link_commands import LinkCommands
