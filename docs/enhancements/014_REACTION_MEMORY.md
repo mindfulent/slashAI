@@ -1,6 +1,6 @@
 # Enhancement 014: Reaction-Based Memory Signals
 
-**Version**: 0.12.0 - 0.12.6
+**Version**: 0.12.0 - 0.12.7
 **Status**: Implemented
 **Author**: Slash + Claude
 **Created**: 2026-02-06
@@ -17,6 +17,7 @@
 | 0.12.4 | Community Observations | Passive memory creation from reacted messages |
 | 0.12.5 | Reactor Inference | Infer reactor preferences from positive reactions |
 | 0.12.6 | Memory Promotion | Auto-promote episodic→semantic based on reactions |
+| 0.12.7 | Extraction Enhancement | Include reaction context in memory extraction |
 
 ## Overview
 
@@ -857,9 +858,9 @@ Reactions are stored with `removed_at` timestamps:
 - [x] Decay resistance integration
 - [x] Retrieval ranking boost
 
-### Phase 4: Advanced Features (Week 4) - Partial
+### Phase 4: Advanced Features (Week 4) ✅
 - [x] Bidirectional memory creation (reactor preferences) - v0.12.5
-- [ ] Extraction prompt enhancement with reaction context - Planned for v0.12.7
+- [x] Extraction prompt enhancement with reaction context - v0.12.7
 - [x] Memory type promotion logic - v0.12.6
 - [x] Context-dependent emoji interpretation (Claude)
 - [x] Backfill script (Phases 2-3)
@@ -1012,6 +1013,40 @@ if should_create_reactor_inference(dimensions, reactor_id, message_author_id):
 - `confidence = max(current, 0.8)`
 
 Semantic memories don't decay, so promoted content becomes permanent community knowledge.
+
+### v0.12.7 - Extraction Prompt Enhancement
+
+**Problem**: When extracting memories from conversations, Claude doesn't know which statements the community validated through reactions. A message with 5 🔥 reactions should probably be remembered with higher confidence than an unreacted message.
+
+**Solution**: Include reaction context in the extraction prompt so Claude can use community signals.
+
+```python
+# In manager.py _trigger_extraction:
+reaction_context = await self._get_reaction_context_for_messages(messages)
+extracted = await self.extractor.extract_with_privacy(
+    messages, channel, reaction_context=reaction_context
+)
+```
+
+**Prompt addition** (`REACTION_CONTEXT_SECTION`):
+```
+## Reaction Context
+
+The following messages received emoji reactions:
+
+- "I love copper builds..." received: 👍×3 🔥×2
+
+**How to use this information:**
+- Agreement reactions (👍, ✅) → shared community opinions
+- Excitement reactions (🔥, 🚀) → high-value content
+- Amusement reactions (😂) → humor that resonated
+
+**Confidence adjustment:**
+- Multiple positive reactions → consider higher confidence
+- Content with 🔥 from multiple users → prioritize remembering
+```
+
+This completes Phase 4 of the reaction memory feature.
 
 ---
 

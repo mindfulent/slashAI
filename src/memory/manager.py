@@ -795,9 +795,12 @@ class MemoryManager:
         )
 
         try:
+            # v0.12.7: Look up reaction context for messages
+            reaction_context = await self._get_reaction_context_for_messages(messages)
+
             logger.info(f"Extracting memories from {len(messages)} messages")
             extracted_with_privacy = await self.extractor.extract_with_privacy(
-                messages, channel
+                messages, channel, reaction_context=reaction_context
             )
             logger.info(f"Extracted {len(extracted_with_privacy)} memory topics")
 
@@ -858,6 +861,78 @@ class MemoryManager:
                 },
             )
             # Don't reset session on failure - will retry next threshold
+
+    async def _get_reaction_context_for_messages(
+        self,
+        messages: list[dict],
+    ) -> list[dict]:
+        """
+        Look up reaction data for messages to include in extraction prompt (v0.12.7).
+
+        Args:
+            messages: List of message dicts with optional 'message_id' and 'content'
+
+        Returns:
+            List of reaction context dicts with:
+            - message_id: Discord message ID
+            - content_preview: First 100 chars of message content
+            - reactions: List of {emoji, count} for active reactions
+        """
+        # Get message IDs that we can look up
+        message_ids = [
+            m.get("message_id")
+            for m in messages
+            if m.get("message_id") is not None
+        ]
+
+        if not message_ids:
+            return []
+
+        try:
+            # Query reactions for these messages
+            rows = await self.db.fetch(
+                """
+                SELECT message_id, emoji, COUNT(*) as count
+                FROM message_reactions
+                WHERE message_id = ANY($1)
+                  AND removed_at IS NULL
+                GROUP BY message_id, emoji
+                ORDER BY message_id, count DESC
+                """,
+                message_ids,
+            )
+
+            if not rows:
+                return []
+
+            # Group reactions by message_id
+            reactions_by_message: dict[int, list[dict]] = {}
+            for row in rows:
+                msg_id = row["message_id"]
+                if msg_id not in reactions_by_message:
+                    reactions_by_message[msg_id] = []
+                reactions_by_message[msg_id].append({
+                    "emoji": row["emoji"],
+                    "count": row["count"],
+                })
+
+            # Build reaction context with content previews
+            result = []
+            for msg in messages:
+                msg_id = msg.get("message_id")
+                if msg_id and msg_id in reactions_by_message:
+                    result.append({
+                        "message_id": msg_id,
+                        "content_preview": msg.get("content", "")[:100],
+                        "reactions": reactions_by_message[msg_id][:5],  # Top 5 emoji
+                    })
+
+            logger.debug(f"Found reaction context for {len(result)} messages")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error getting reaction context: {e}", exc_info=True)
+            return []
 
     async def _create_memory_message_links(
         self,

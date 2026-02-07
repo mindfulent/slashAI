@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.7] - 2026-02-06
+
+### Added
+- **Extraction prompt enhancement**: Reaction context included during memory extraction
+  - When extracting memories from conversations, Claude sees which messages received reactions
+  - Helps Claude weight importance and adjust confidence based on community validation
+  - Agreement reactions (👍) suggest shared opinions → higher confidence
+  - Excitement reactions (🔥) suggest important content → prioritize remembering
+  - Mixed reactions → note controversy in memory
+
+### How It Works
+1. User conversation accumulates to extraction threshold
+2. Before calling Claude for extraction, look up reactions on the message IDs
+3. Format reaction context: `"I love copper builds..." received: 👍×3 🔥×2`
+4. Include in extraction prompt so Claude can use community signals
+
+### Technical Details
+- New `reaction_context` parameter in `MemoryExtractor.extract_with_privacy()`
+- New `_get_reaction_context_for_messages()` in MemoryManager
+- `REACTION_CONTEXT_SECTION` added to extraction prompt
+- No migration required
+
+---
+
 ## [0.12.6] - 2026-02-06
 
 ### Added

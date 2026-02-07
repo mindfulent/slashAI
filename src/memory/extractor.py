@@ -20,10 +20,13 @@ Memory Extraction
 
 Uses Claude to extract memorable facts and topics from conversations.
 Based on RMM paper methodology.
+
+Updated in v0.12.7 - Reaction context enhancement.
 """
 
 import json
 from dataclasses import dataclass
+from typing import Optional
 
 import discord
 from anthropic import AsyncAnthropic
@@ -141,11 +144,31 @@ OUTPUT:
 
 ## Your Task
 Extract memories from the following conversation. If no memorable information is present, return `{{"extracted_memories": []}}`.
-
+{reaction_section}
 CONVERSATION:
 {conversation}
 
 OUTPUT:
+"""
+
+# Reaction context section for extraction prompt (v0.12.7)
+REACTION_CONTEXT_SECTION = """
+## Reaction Context
+
+The following messages in this conversation received emoji reactions from other community members:
+
+{reaction_summaries}
+
+**How to use this information:**
+- Agreement reactions (👍, ✅, 💯) suggest the statement reflects shared community opinions
+- Excitement reactions (🔥, 🚀, ⭐) suggest high-value or important content
+- Amusement reactions (😂, 💀) suggest humor that resonated with others
+- Appreciation reactions (❤️, 🙏) suggest helpful or valued contributions
+
+**Confidence adjustment:**
+- Statements with multiple positive reactions → consider higher confidence
+- Content that received 🔥 from multiple users → likely important to remember
+- Mixed reactions (both 👍 and 👎) → note any controversy in the memory
 """
 
 
@@ -171,6 +194,7 @@ class MemoryExtractor:
         messages: list[dict],
         channel: discord.abc.Messageable,
         model: str = "claude-sonnet-4-5-20250929",
+        reaction_context: Optional[list[dict]] = None,
     ) -> list[tuple[ExtractedMemory, PrivacyLevel]]:
         """
         Extract memories and assign privacy levels based on channel context.
@@ -179,12 +203,14 @@ class MemoryExtractor:
             messages: List of message dicts with 'role' and 'content'
             channel: Discord channel for privacy classification
             model: Claude model to use for extraction
+            reaction_context: Optional list of reaction summaries for messages (v0.12.7)
+                Each dict has: message_id, content_preview, reactions (list of emoji+count)
 
         Returns:
             List of (ExtractedMemory, PrivacyLevel) tuples
         """
         channel_privacy = await classify_channel_privacy(channel)
-        extracted = await self._extract(messages, model)
+        extracted = await self._extract(messages, model, reaction_context)
 
         results = []
         for memory in extracted:
@@ -194,12 +220,20 @@ class MemoryExtractor:
         return results
 
     async def _extract(
-        self, messages: list[dict], model: str
+        self,
+        messages: list[dict],
+        model: str,
+        reaction_context: Optional[list[dict]] = None,
     ) -> list[ExtractedMemory]:
         """Extract memorable topics from a conversation."""
         conversation = self._format_conversation(messages)
         if not conversation.strip():
             return []
+
+        # Build reaction section if we have reaction context (v0.12.7)
+        reaction_section = ""
+        if reaction_context:
+            reaction_section = self._format_reaction_section(reaction_context)
 
         response = await self.client.messages.create(
             model=model,
@@ -208,13 +242,41 @@ class MemoryExtractor:
                 {
                     "role": "user",
                     "content": MEMORY_EXTRACTION_PROMPT.format(
-                        conversation=conversation
+                        conversation=conversation,
+                        reaction_section=reaction_section,
                     ),
                 }
             ],
         )
 
         return self._parse_response(response.content[0].text)
+
+    def _format_reaction_section(self, reaction_context: list[dict]) -> str:
+        """
+        Format reaction context for inclusion in the extraction prompt.
+
+        Args:
+            reaction_context: List of dicts with message_id, content_preview, reactions
+
+        Returns:
+            Formatted reaction context section
+        """
+        if not reaction_context:
+            return ""
+
+        summaries = []
+        for ctx in reaction_context:
+            content = ctx.get("content_preview", "")[:100]
+            reactions = ctx.get("reactions", [])
+            if reactions:
+                reaction_str = " ".join(f"{r['emoji']}×{r['count']}" for r in reactions)
+                summaries.append(f'- "{content}..." received: {reaction_str}')
+
+        if not summaries:
+            return ""
+
+        reaction_summaries = "\n".join(summaries)
+        return REACTION_CONTEXT_SECTION.format(reaction_summaries=reaction_summaries)
 
     def _format_conversation(self, messages: list[dict]) -> str:
         """Format messages as User:/Assistant: lines."""
