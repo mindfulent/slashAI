@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.6] - 2026-02-06
+
+### Added
+- **Memory type promotion**: Episodic memories auto-promote to semantic based on reactions
+  - Memories with strong, consistent positive reactions become permanent (no decay)
+  - Applies to `episodic` and `community_observation` memory types
+  - Configurable thresholds via environment variables
+
+### Promotion Criteria (Defaults)
+| Criterion | Default | Env Var |
+|-----------|---------|---------|
+| Min reactions | 4 | `MEMORY_PROMOTION_MIN_REACTIONS` |
+| Min unique reactors | 3 | `MEMORY_PROMOTION_MIN_REACTORS` |
+| Min sentiment | 0.6 | `MEMORY_PROMOTION_MIN_SENTIMENT` |
+| Max controversy | 0.3 | `MEMORY_PROMOTION_MAX_CONTROVERSY` |
+| Min age (days) | 3 | `MEMORY_PROMOTION_MIN_AGE_DAYS` |
+
+### Technical Details
+- Promotion check runs after reaction aggregation (every 15 minutes)
+- Promoted memories get `memory_type = 'semantic'` and `confidence >= 0.8`
+- Semantic memories don't decay, so promoted content becomes permanent
+- Analytics event: `memory_promoted`
+- Disable with `MEMORY_PROMOTION_ENABLED=false`
+
+---
+
 ## [0.12.5] - 2026-02-06
 
 ### Added

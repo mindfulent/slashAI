@@ -83,6 +83,16 @@ class MemoryConfig:
     reinforcement_cap_episodic: float = 0.95
     reinforcement_cap_procedural: float = 0.97
 
+    # Memory promotion settings (v0.12.6)
+    # Episodic/community_observation memories can be promoted to semantic
+    # when they receive strong, consistent positive reactions
+    promotion_enabled: bool = True
+    promotion_min_reactions: int = 4  # Minimum total reactions
+    promotion_min_unique_reactors: int = 3  # Minimum distinct users
+    promotion_min_sentiment: float = 0.6  # Minimum sentiment score
+    promotion_max_controversy: float = 0.3  # Maximum controversy score
+    promotion_min_age_days: int = 3  # Must be at least this old
+
     @classmethod
     def from_env(cls) -> "MemoryConfig":
         """Create config from environment variables with defaults."""
@@ -120,6 +130,13 @@ class MemoryConfig:
             reinforcement_cap_semantic=float(os.getenv("MEMORY_REINFORCE_CAP_SEMANTIC", "0.99")),
             reinforcement_cap_episodic=float(os.getenv("MEMORY_REINFORCE_CAP_EPISODIC", "0.95")),
             reinforcement_cap_procedural=float(os.getenv("MEMORY_REINFORCE_CAP_PROCEDURAL", "0.97")),
+            # Promotion settings
+            promotion_enabled=os.getenv("MEMORY_PROMOTION_ENABLED", "true").lower() == "true",
+            promotion_min_reactions=int(os.getenv("MEMORY_PROMOTION_MIN_REACTIONS", "4")),
+            promotion_min_unique_reactors=int(os.getenv("MEMORY_PROMOTION_MIN_REACTORS", "3")),
+            promotion_min_sentiment=float(os.getenv("MEMORY_PROMOTION_MIN_SENTIMENT", "0.6")),
+            promotion_max_controversy=float(os.getenv("MEMORY_PROMOTION_MAX_CONTROVERSY", "0.3")),
+            promotion_min_age_days=int(os.getenv("MEMORY_PROMOTION_MIN_AGE_DAYS", "3")),
         )
 
 

@@ -11,17 +11,21 @@ Background job that aggregates reactions on messages linked to memories,
 updating memory metadata with reaction summaries and confidence boosts.
 
 Part of v0.12.0 - Reaction-Based Memory Signals.
+Updated in v0.12.6 - Memory Type Promotion.
 """
 
 import json
 import logging
 import math
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import asyncpg
 from discord.ext import tasks
+
+from analytics import track
+from memory.config import MemoryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +33,18 @@ logger = logging.getLogger(__name__)
 class ReactionAggregator:
     """Background job to aggregate reactions into memory metadata."""
 
-    def __init__(self, bot, db_pool: asyncpg.Pool):
+    def __init__(self, bot, db_pool: asyncpg.Pool, config: Optional[MemoryConfig] = None):
         """
         Initialize the reaction aggregator.
 
         Args:
             bot: Discord bot instance (for wait_until_ready)
             db_pool: AsyncPG connection pool
+            config: Memory configuration (optional, uses defaults if not provided)
         """
         self.bot = bot
         self.db = db_pool
+        self.config = config or MemoryConfig.from_env()
         self._started = False
 
     def start(self):
@@ -190,10 +196,111 @@ class ReactionAggregator:
                 confidence_boost,
             )
 
+            # v0.12.6: Check if memory qualifies for promotion to semantic
+            if self.config.promotion_enabled:
+                await self._check_for_promotion(memory_id, summary)
+
             return True
 
         except Exception as e:
             logger.error(f"Error aggregating memory {memory_id}: {e}", exc_info=True)
+            return False
+
+    async def _check_for_promotion(self, memory_id: int, reaction_summary: dict) -> bool:
+        """
+        Check if a memory qualifies for promotion to semantic type.
+
+        Criteria (configurable via MemoryConfig):
+        - memory_type is 'episodic' or 'community_observation'
+        - total_reactions >= promotion_min_reactions
+        - unique_reactors >= promotion_min_unique_reactors
+        - sentiment_score > promotion_min_sentiment
+        - controversy_score < promotion_max_controversy
+        - created_at < now - promotion_min_age_days
+
+        Args:
+            memory_id: Memory ID to check
+            reaction_summary: Already-computed reaction summary
+
+        Returns:
+            True if memory was promoted
+        """
+        try:
+            # Get memory details
+            memory = await self.db.fetchrow(
+                """
+                SELECT id, memory_type, user_id, created_at, topic_summary
+                FROM memories WHERE id = $1
+                """,
+                memory_id,
+            )
+
+            if not memory:
+                return False
+
+            # Only promote episodic or community_observation
+            if memory["memory_type"] not in ("episodic", "community_observation"):
+                return False
+
+            # Check reaction thresholds
+            total_reactions = reaction_summary.get("total_reactions", 0)
+            unique_reactors = reaction_summary.get("unique_reactors", 0)
+            sentiment_score = reaction_summary.get("sentiment_score", 0)
+            controversy_score = reaction_summary.get("controversy_score", 1)
+
+            if total_reactions < self.config.promotion_min_reactions:
+                return False
+
+            if unique_reactors < self.config.promotion_min_unique_reactors:
+                return False
+
+            if sentiment_score <= self.config.promotion_min_sentiment:
+                return False
+
+            if controversy_score >= self.config.promotion_max_controversy:
+                return False
+
+            # Check age
+            min_age = timedelta(days=self.config.promotion_min_age_days)
+            if memory["created_at"] > datetime.now(timezone.utc) - min_age:
+                return False
+
+            # All criteria met - promote to semantic!
+            await self.db.execute(
+                """
+                UPDATE memories
+                SET memory_type = 'semantic', confidence = GREATEST(confidence, 0.8)
+                WHERE id = $1
+                """,
+                memory_id,
+            )
+
+            logger.info(
+                f"Promoted memory {memory_id} to semantic "
+                f"(was {memory['memory_type']}, {total_reactions} reactions, "
+                f"sentiment={sentiment_score:.2f})"
+            )
+
+            # Track analytics
+            track(
+                "memory_promoted",
+                "memory",
+                user_id=memory["user_id"],
+                properties={
+                    "memory_id": memory_id,
+                    "from_type": memory["memory_type"],
+                    "to_type": "semantic",
+                    "total_reactions": total_reactions,
+                    "unique_reactors": unique_reactors,
+                    "sentiment_score": sentiment_score,
+                    "topic_preview": memory["topic_summary"][:100] if memory["topic_summary"] else None,
+                },
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error checking promotion for memory {memory_id}: {e}", exc_info=True)
             return False
 
     def _calculate_reaction_summary(self, reactions: list) -> dict:

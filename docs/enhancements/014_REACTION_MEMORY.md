@@ -1,6 +1,6 @@
 # Enhancement 014: Reaction-Based Memory Signals
 
-**Version**: 0.12.0 - 0.12.5
+**Version**: 0.12.0 - 0.12.6
 **Status**: Implemented
 **Author**: Slash + Claude
 **Created**: 2026-02-06
@@ -16,6 +16,7 @@
 | 0.12.3 | Community Filter | Exclude self-reactions from popularity queries |
 | 0.12.4 | Community Observations | Passive memory creation from reacted messages |
 | 0.12.5 | Reactor Inference | Infer reactor preferences from positive reactions |
+| 0.12.6 | Memory Promotion | Auto-promote episodic→semantic based on reactions |
 
 ## Overview
 
@@ -858,8 +859,8 @@ Reactions are stored with `removed_at` timestamps:
 
 ### Phase 4: Advanced Features (Week 4) - Partial
 - [x] Bidirectional memory creation (reactor preferences) - v0.12.5
-- [ ] Extraction prompt enhancement with reaction context - Deferred
-- [ ] Memory type promotion logic - Deferred
+- [ ] Extraction prompt enhancement with reaction context - Planned for v0.12.7
+- [x] Memory type promotion logic - v0.12.6
 - [x] Context-dependent emoji interpretation (Claude)
 - [x] Backfill script (Phases 2-3)
 
@@ -988,6 +989,29 @@ if should_create_reactor_inference(dimensions, reactor_id, message_author_id):
 - Reactor must not be the message author
 
 **Migration 014f** adds `inferred_preference` to memory type constraint.
+
+### v0.12.6 - Memory Type Promotion
+
+**Problem**: Good content discovered through reactions stays as episodic memory and eventually decays. We want highly-validated content to become permanent.
+
+**Solution**: Auto-promote `episodic` and `community_observation` memories to `semantic` when they meet reaction criteria.
+
+**Promotion criteria** (configurable via `MemoryConfig`):
+
+| Criterion | Default | Env Var |
+|-----------|---------|---------|
+| memory_type | episodic or community_observation | - |
+| total_reactions | ≥ 4 | `MEMORY_PROMOTION_MIN_REACTIONS` |
+| unique_reactors | ≥ 3 | `MEMORY_PROMOTION_MIN_REACTORS` |
+| sentiment_score | > 0.6 | `MEMORY_PROMOTION_MIN_SENTIMENT` |
+| controversy_score | < 0.3 | `MEMORY_PROMOTION_MAX_CONTROVERSY` |
+| age | > 3 days | `MEMORY_PROMOTION_MIN_AGE_DAYS` |
+
+**Implementation**: `_check_for_promotion()` in aggregator.py runs after each memory's reaction summary is updated. Promoted memories get:
+- `memory_type = 'semantic'`
+- `confidence = max(current, 0.8)`
+
+Semantic memories don't decay, so promoted content becomes permanent community knowledge.
 
 ---
 
