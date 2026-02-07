@@ -16,6 +16,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.5] - 2026-02-06
+
+### Added
+- **Bidirectional reactor preference inference**: Learn about reactor preferences from reactions
+  - When User B reacts 👍 to User A's message about "copper builds", infer User B also likes copper builds
+  - Creates `inferred_preference` memories for reactors, not just observations about content
+  - Only triggers for strong positive signals: agreement, appreciation, excitement (sentiment > 0.5)
+  - Skips self-reactions (reactor == author)
+  - New `MemoryManager.create_reactor_inference()` method
+  - New `src/memory/reactions/inference.py` module
+
+### How It Works
+1. User A posts: "I love building with copper blocks"
+2. User B reacts with 👍 (agreement intent, sentiment=1.0)
+3. slashAI creates an inferred preference memory for User B: "Agrees with: I love building with copper blocks"
+4. Now when chatting with User B, slashAI can remember their inferred preferences
+
+### Technical Details
+- `memory_type = "inferred_preference"` for these memories
+- `confidence = 0.4` (lower since inferred, not stated directly)
+- `privacy_level = "guild_public"`
+- Deduplication: One inference per (reactor, message) pair
+- Topic formatting: "Agrees with: ...", "Appreciates: ...", "Excited about: ..."
+
+### Migration Required
+- **`migrations/014f_add_inferred_preference_type.sql`**: Adds 'inferred_preference' to memory_type constraint
+
+---
+
 ## [0.12.4] - 2026-02-06
 
 ### Added

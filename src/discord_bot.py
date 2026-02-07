@@ -604,6 +604,11 @@ class DiscordBot(commands.Bot):
                 # v0.12.4: Create community observation if message has no memory link
                 await self._maybe_create_community_observation(payload, message_author_id)
 
+                # v0.12.5: Create reactor inference for strong positive reactions
+                await self._maybe_create_reactor_inference(
+                    payload, message_author_id, emoji_str, dimensions
+                )
+
         except Exception as e:
             logger.error(f"Error storing reaction: {e}", exc_info=True)
 
@@ -663,6 +668,71 @@ class DiscordBot(commands.Bot):
 
         except Exception as e:
             logger.error(f"Error creating community observation: {e}", exc_info=True)
+
+    async def _maybe_create_reactor_inference(
+        self,
+        payload: discord.RawReactionActionEvent,
+        message_author_id: int,
+        emoji_str: str,
+        dimensions: dict,
+    ):
+        """
+        Create a reactor preference inference if the reaction is a strong positive signal.
+
+        This enables bidirectional memory: learning about the REACTOR's preferences
+        based on what they react positively to (v0.12.5).
+        """
+        # Only for guild messages
+        if not payload.guild_id:
+            return
+
+        # Need memory system
+        if not self.claude_client or not self.claude_client.memory:
+            return
+
+        try:
+            from memory.reactions import should_create_reactor_inference
+
+            # Check if this reaction qualifies for inference
+            if not should_create_reactor_inference(
+                dimensions, payload.user_id, message_author_id
+            ):
+                return
+
+            # Fetch the message to get content
+            channel = self.get_channel(payload.channel_id)
+            if not channel:
+                return
+
+            try:
+                message = await channel.fetch_message(payload.message_id)
+            except discord.NotFound:
+                logger.debug(f"Message {payload.message_id} not found for reactor inference")
+                return
+            except discord.Forbidden:
+                return
+
+            # Skip bot messages and empty messages
+            if message.author.bot or not message.content:
+                return
+
+            # Skip very short messages (not enough context to infer preference)
+            if len(message.content) < 15:
+                return
+
+            # Create reactor inference
+            await self.claude_client.memory.create_reactor_inference(
+                reactor_id=payload.user_id,
+                message_content=message.content,
+                intent=dimensions.get("intent", "agreement"),
+                channel_id=payload.channel_id,
+                guild_id=payload.guild_id,
+                message_id=payload.message_id,
+                message_author_id=message_author_id,
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating reactor inference: {e}", exc_info=True)
 
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         """

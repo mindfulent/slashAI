@@ -220,6 +220,9 @@ Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL 
 
 -- Community Observations (v0.12.4)
 \i migrations/014e_add_community_observation_type.sql
+
+-- Reactor Preference Inference (v0.12.5)
+\i migrations/014f_add_inferred_preference_type.sql
 ```
 
 ## Memory Privacy Model

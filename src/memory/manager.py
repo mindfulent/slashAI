@@ -403,6 +403,143 @@ class MemoryManager:
             logger.error(f"Error creating community observation: {e}", exc_info=True)
             return None
 
+    async def create_reactor_inference(
+        self,
+        reactor_id: int,
+        message_content: str,
+        intent: str,
+        channel_id: int,
+        guild_id: int,
+        message_id: int,
+        message_author_id: int,
+    ) -> Optional[int]:
+        """
+        Create an inferred preference memory for a reactor (v0.12.5).
+
+        When a user reacts with strong agreement/appreciation/excitement,
+        we infer they share or appreciate the sentiment in the message.
+
+        Args:
+            reactor_id: Discord user ID of the person who reacted
+            message_content: Content of the message that was reacted to
+            intent: Reaction intent (agreement, appreciation, excitement)
+            channel_id: Discord channel ID
+            guild_id: Discord guild ID
+            message_id: Discord message ID that was reacted to
+            message_author_id: Discord user ID of the message author
+
+        Returns:
+            Memory ID if created, None on failure
+        """
+        try:
+            from memory.reactions.inference import format_inferred_topic
+
+            # Format the topic summary
+            topic_summary = format_inferred_topic(message_content, intent)
+
+            # Check for duplicate inference (same user, similar topic)
+            # We use a simple check: same user + same message = duplicate
+            existing = await self.db.fetchval(
+                """
+                SELECT m.id FROM memories m
+                JOIN memory_message_links l ON m.id = l.memory_id
+                WHERE m.user_id = $1
+                  AND l.message_id = $2
+                  AND m.memory_type = 'inferred_preference'
+                """,
+                reactor_id,
+                message_id,
+            )
+            if existing:
+                logger.debug(f"Skipping duplicate reactor inference for {reactor_id} on {message_id}")
+                return None
+
+            # Generate embedding for semantic search
+            try:
+                embedding = await self.retriever._embed(topic_summary, input_type="document")
+                embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            except Exception as e:
+                logger.warning(f"Could not generate embedding for reactor inference: {e}")
+                embedding_str = None
+
+            # Create the memory
+            if embedding_str:
+                memory_id = await self.db.fetchval(
+                    """
+                    INSERT INTO memories (
+                        user_id, topic_summary, raw_dialogue, memory_type,
+                        privacy_level, confidence, origin_guild_id, origin_channel_id, embedding
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector)
+                    RETURNING id
+                    """,
+                    reactor_id,
+                    topic_summary,
+                    f"Inferred from reaction to: {message_content}",
+                    "inferred_preference",
+                    "guild_public",
+                    0.4,  # Lower confidence since inferred, not stated directly
+                    guild_id,
+                    channel_id,
+                    embedding_str,
+                )
+            else:
+                memory_id = await self.db.fetchval(
+                    """
+                    INSERT INTO memories (
+                        user_id, topic_summary, raw_dialogue, memory_type,
+                        privacy_level, confidence, origin_guild_id, origin_channel_id
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING id
+                    """,
+                    reactor_id,
+                    topic_summary,
+                    f"Inferred from reaction to: {message_content}",
+                    "inferred_preference",
+                    "guild_public",
+                    0.4,
+                    guild_id,
+                    channel_id,
+                )
+
+            if memory_id:
+                # Create memory-message link
+                await self.db.execute(
+                    """
+                    INSERT INTO memory_message_links (memory_id, message_id, channel_id, contribution_type)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (memory_id, message_id) DO NOTHING
+                    """,
+                    memory_id,
+                    message_id,
+                    channel_id,
+                    "reactor_inference",
+                )
+                logger.info(
+                    f"Created reactor inference memory {memory_id} for reactor {reactor_id} "
+                    f"(intent={intent}, message={message_id})"
+                )
+
+                # Track analytics
+                track(
+                    "reactor_inference_created",
+                    "memory",
+                    user_id=reactor_id,
+                    channel_id=channel_id,
+                    guild_id=guild_id,
+                    properties={
+                        "memory_id": memory_id,
+                        "message_id": message_id,
+                        "message_author_id": message_author_id,
+                        "intent": intent,
+                    },
+                )
+
+            return memory_id
+
+        except Exception as e:
+            logger.error(f"Error creating reactor inference: {e}", exc_info=True)
+            return None
+
     async def get_build_context(
         self, user_id: int, channel: discord.abc.Messageable
     ) -> str:

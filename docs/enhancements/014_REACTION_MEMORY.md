@@ -1,6 +1,6 @@
 # Enhancement 014: Reaction-Based Memory Signals
 
-**Version**: 0.12.0 - 0.12.4
+**Version**: 0.12.0 - 0.12.5
 **Status**: Implemented
 **Author**: Slash + Claude
 **Created**: 2026-02-06
@@ -15,6 +15,7 @@
 | 0.12.2 | Popular Memories Tool | `get_popular_memories` agentic tool |
 | 0.12.3 | Community Filter | Exclude self-reactions from popularity queries |
 | 0.12.4 | Community Observations | Passive memory creation from reacted messages |
+| 0.12.5 | Reactor Inference | Infer reactor preferences from positive reactions |
 
 ## Overview
 
@@ -856,7 +857,7 @@ Reactions are stored with `removed_at` timestamps:
 - [x] Retrieval ranking boost
 
 ### Phase 4: Advanced Features (Week 4) - Partial
-- [ ] Bidirectional memory creation (reactor preferences) - Deferred
+- [x] Bidirectional memory creation (reactor preferences) - v0.12.5
 - [ ] Extraction prompt enhancement with reaction context - Deferred
 - [ ] Memory type promotion logic - Deferred
 - [x] Context-dependent emoji interpretation (Claude)
@@ -952,6 +953,42 @@ async def _maybe_create_community_observation(self, payload, message_author_id):
 
 **Backfill script** (`scripts/backfill_community_observations.py`) creates observations for existing reacted messages.
 
+### v0.12.5 - Reactor Preference Inference (Bidirectional Memory)
+
+**Problem**: Reactions tell us about both the message AND the reactor. If User B reacts 👍 to "I love building with copper", we can infer User B also likes copper—but v0.12.4 only created memories about the message author.
+
+**Solution**: Create inferred preference memories for reactors when they react with strong positive signals.
+
+```python
+from memory.reactions import should_create_reactor_inference
+
+# Check if reaction qualifies
+if should_create_reactor_inference(dimensions, reactor_id, message_author_id):
+    await memory.create_reactor_inference(
+        reactor_id=reactor_id,
+        message_content=message.content,
+        intent=dimensions["intent"],  # agreement, appreciation, excitement
+        channel_id=channel_id,
+        guild_id=guild_id,
+        message_id=message_id,
+        message_author_id=message_author_id,
+    )
+```
+
+**Memory characteristics**:
+- `memory_type = "inferred_preference"`
+- `confidence = 0.4` (lower since inferred, not directly stated)
+- `privacy_level = "guild_public"`
+- Topic format: "Agrees with: ...", "Appreciates: ...", "Excited about: ..."
+- Deduplication: One inference per (reactor, message) pair
+
+**Qualifying reactions** (from `inference.py`):
+- Intent must be: `agreement`, `appreciation`, or `excitement`
+- Sentiment must be > 0.5
+- Reactor must not be the message author
+
+**Migration 014f** adds `inferred_preference` to memory type constraint.
+
 ---
 
 ## Part 10: Success Metrics
@@ -996,12 +1033,13 @@ async def _maybe_create_community_observation(self, payload, message_author_id):
 - `src/memory/reactions/dimensions.py` - Emoji mapping
 - `src/memory/reactions/store.py` - Database operations
 - `src/memory/reactions/aggregator.py` - Summary calculation
-- `src/memory/reactions/inference.py` - Bidirectional memory logic
+- `src/memory/reactions/inference.py` - Bidirectional memory logic (v0.12.5)
 - `migrations/014a_create_message_reactions.sql`
 - `migrations/014b_create_memory_message_links.sql`
 - `migrations/014c_add_reaction_metadata.sql`
 - `migrations/014d_update_hybrid_search_for_reactions.sql`
 - `migrations/014e_add_community_observation_type.sql` (v0.12.4)
+- `migrations/014f_add_inferred_preference_type.sql` (v0.12.5)
 - `scripts/backfill_reactions.py`
 - `scripts/backfill_community_observations.py` (v0.12.4)
 - `tests/test_reaction_dimensions.py`
