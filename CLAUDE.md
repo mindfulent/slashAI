@@ -290,6 +290,12 @@ python scripts/memory_decay_cli.py candidates                         # Show con
 python scripts/memory_decay_cli.py protect 42                         # Protect memory from decay
 python scripts/memory_decay_cli.py unprotect 42                       # Remove protection
 python scripts/memory_decay_cli.py pending                            # Show memories pending deletion
+
+# Reaction Features Test (v0.12.6/v0.12.7) - Acceptance testing for reaction memory
+python scripts/test_reaction_features.py status                       # Show reaction features status
+python scripts/test_reaction_features.py promotion                    # Check promotion candidates
+python scripts/test_reaction_features.py promotion --apply            # Apply test promotion (bypass age)
+python scripts/test_reaction_features.py extraction                   # Check extraction enhancement setup
 ```
 
 ## Memory Slash Commands
