@@ -315,6 +315,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load SynthCraft commands: {e}", exc_info=True)
 
+                # Load SceneCraft slash commands (owner-only)
+                try:
+                    from commands.scenecraft_commands import SceneCraftCommands
+                    await self.add_cog(SceneCraftCommands(self, self.db_pool))
+                    logger.info("SceneCraft commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load SceneCraft commands: {e}", exc_info=True)
+
                 # Load Discord account linking commands (CoreCurriculum)
                 try:
                     from commands.link_commands import LinkCommands
