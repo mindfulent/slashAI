@@ -412,6 +412,102 @@ class SceneCraftCommands(commands.Cog):
         embed.add_field(name="After", value="EXPIRED", inline=True)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # =========================================================================
+    # /scenecraft activate_by_id
+    # =========================================================================
+
+    @scenecraft_group.command(name="activate_by_id")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to activate")
+    async def activate_by_id(self, interaction: discord.Interaction, license_id: int):
+        """Activate a specific SceneCraft license by ID."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, state, tier, exports_remaining, server_ip "
+            "FROM scenecraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["state"] == "ACTIVE" and row["tier"] == "standard":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already ACTIVE.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE scenecraft_licenses
+               SET state = 'ACTIVE', tier = 'standard',
+                   exports_remaining = NULL, expires_at = NULL,
+                   updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Activated", color=discord.Color.green())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="ACTIVE / standard (unlimited)", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft deactivate_by_id
+    # =========================================================================
+
+    @scenecraft_group.command(name="deactivate_by_id")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to deactivate")
+    async def deactivate_by_id(self, interaction: discord.Interaction, license_id: int):
+        """Deactivate a specific SceneCraft license by ID."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, state, tier, server_ip "
+            "FROM scenecraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["state"] == "EXPIRED":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already EXPIRED.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE scenecraft_licenses
+               SET state = 'EXPIRED', updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Deactivated", color=discord.Color.red())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="EXPIRED", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 async def setup(bot: commands.Bot, db_pool: asyncpg.Pool):
     """Register the SceneCraft commands cog."""
