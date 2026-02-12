@@ -17,6 +17,11 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+class EventCreationError(Exception):
+    """Raised when event creation fails with a specific error message from the API."""
+    pass
+
+
 @dataclass
 class CreatedEvent:
     """Event created via the API"""
@@ -133,7 +138,7 @@ class EventsAPIClient:
             except Exception:
                 error_body = e.response.text[:200]
             logger.error(f"Failed to create event (HTTP {e.response.status_code}): {error_body}")
-            return None
+            raise EventCreationError(error_body or f"HTTP {e.response.status_code}") from e
         except httpx.HTTPError as e:
             logger.error(f"Failed to create event: {e}")
-            return None
+            raise EventCreationError(f"Connection error: {e}") from e

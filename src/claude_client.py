@@ -39,7 +39,7 @@ from tools.github_docs import (
     handle_read_github_file,
     handle_list_github_docs,
 )
-from tools.events_api import EventsAPIClient
+from tools.events_api import EventsAPIClient, EventCreationError
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -1250,20 +1250,20 @@ class ClaudeClient:
                     result = "Error: Could not determine user identity"
                     success = False
                 else:
-                    created = await self.events_api.create_event(
-                        discord_user_id=user_id,
-                        title=tool_input["title"],
-                        event_date=tool_input["event_date"],
-                        category=tool_input["category"],
-                        description=tool_input.get("description"),
-                        duration_minutes=tool_input.get("duration_minutes", 60),
-                        location=tool_input.get("location"),
-                        timezone=tool_input.get("timezone", "America/Los_Angeles"),
-                        max_capacity=tool_input.get("max_capacity"),
-                        is_recurring=tool_input.get("is_recurring", False),
-                        recurrence_pattern=tool_input.get("recurrence_pattern"),
-                    )
-                    if created:
+                    try:
+                        created = await self.events_api.create_event(
+                            discord_user_id=user_id,
+                            title=tool_input["title"],
+                            event_date=tool_input["event_date"],
+                            category=tool_input["category"],
+                            description=tool_input.get("description"),
+                            duration_minutes=tool_input.get("duration_minutes", 60),
+                            location=tool_input.get("location"),
+                            timezone=tool_input.get("timezone", "America/Los_Angeles"),
+                            max_capacity=tool_input.get("max_capacity"),
+                            is_recurring=tool_input.get("is_recurring", False),
+                            recurrence_pattern=tool_input.get("recurrence_pattern"),
+                        )
                         result = (
                             f"Event created successfully!\n"
                             f"Title: {created.title}\n"
@@ -1272,8 +1272,8 @@ class ClaudeClient:
                             f"Now post an announcement to #events (channel 1450205631599476867)."
                         )
                         success = True
-                    else:
-                        result = "Failed to create event. The user may not have a linked/allowlisted account. Suggest using /verify to link their Discord account."
+                    except EventCreationError as e:
+                        result = f"Failed to create event: {e}"
                         success = False
 
             else:
