@@ -58,6 +58,7 @@ class SceneCraftCommands(commands.Cog):
     Commands:
     - /scenecraft licenses - List all licenses
     - /scenecraft servers - Per-server license details
+    - /scenecraft exports - Recent export events (telemetry)
     """
 
     scenecraft_group = app_commands.Group(
@@ -175,6 +176,119 @@ class SceneCraftCommands(commands.Cog):
                     f"Sessions: {exports} | Validated: {validated}\n"
                     f"Expires: {expires}"
                 ),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    # =========================================================================
+    # /scenecraft exports
+    # =========================================================================
+
+    @scenecraft_group.command(name="exports")
+    @owner_only()
+    @app_commands.describe(
+        limit="Number of recent events to show (default 10, max 25)",
+        player="Filter by player name",
+    )
+    async def exports(
+        self,
+        interaction: discord.Interaction,
+        limit: int = 10,
+        player: str = None,
+    ):
+        """View recent SceneCraft export events (telemetry)."""
+        await interaction.response.defer(ephemeral=True)
+
+        limit = min(max(1, limit), 25)
+
+        if player:
+            rows = await self.db.fetch(
+                """
+                SELECT id, event_type, player_name, player_uuid, server_address,
+                       mod_version, highlight_count, total_frames,
+                       render_width, render_height, render_fps,
+                       error_message, created_at
+                FROM scenecraft_export_events
+                WHERE LOWER(player_name) LIKE LOWER($1)
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                f"%{player}%",
+                limit,
+            )
+        else:
+            rows = await self.db.fetch(
+                """
+                SELECT id, event_type, player_name, player_uuid, server_address,
+                       mod_version, highlight_count, total_frames,
+                       render_width, render_height, render_fps,
+                       error_message, created_at
+                FROM scenecraft_export_events
+                ORDER BY created_at DESC
+                LIMIT $1
+                """,
+                limit,
+            )
+
+        if not rows:
+            msg = "No export events found."
+            if player:
+                msg = f"No export events found for player matching '{player}'."
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+
+        # Summary stats
+        total_count = await self.db.fetchval(
+            "SELECT COUNT(*) FROM scenecraft_export_events"
+        )
+        success_count = await self.db.fetchval(
+            "SELECT COUNT(*) FROM scenecraft_export_events WHERE event_type = 'export_complete'"
+        )
+        fail_count = await self.db.fetchval(
+            "SELECT COUNT(*) FROM scenecraft_export_events WHERE event_type = 'export_failed'"
+        )
+
+        embed = discord.Embed(
+            title="SceneCraft Export Events",
+            description=f"**Total:** {total_count} events ({success_count} success, {fail_count} failed)",
+            color=discord.Color.green() if fail_count == 0 else discord.Color.orange(),
+            timestamp=datetime.utcnow(),
+        )
+
+        for row in rows:
+            is_success = row["event_type"] == "export_complete"
+            icon = "\u2705" if is_success else "\u274c"
+            name = row["player_name"] or row["player_uuid"][:8]
+            ts = row["created_at"].strftime("%Y-%m-%d %H:%M") if row["created_at"] else "?"
+
+            if is_success:
+                highlights = row["highlight_count"] or "?"
+                frames = row["total_frames"] or "?"
+                res = (
+                    f"{row['render_width']}x{row['render_height']}@{row['render_fps']}fps"
+                    if row["render_width"]
+                    else "N/A"
+                )
+                value = (
+                    f"Server: {row['server_address']}\n"
+                    f"Highlights: {highlights} | Frames: {frames} | {res}\n"
+                    f"v{row['mod_version'] or '?'} | {ts}"
+                )
+            else:
+                error = row["error_message"] or "Unknown error"
+                if len(error) > 100:
+                    error = error[:97] + "..."
+                value = (
+                    f"Server: {row['server_address']}\n"
+                    f"Error: {error}\n"
+                    f"v{row['mod_version'] or '?'} | {ts}"
+                )
+
+            embed.add_field(
+                name=f"{icon} #{row['id']} — {name}",
+                value=value,
                 inline=False,
             )
 
