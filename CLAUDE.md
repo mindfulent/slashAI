@@ -91,6 +91,8 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `analytics_commands.py`: `/analytics` owner-only commands
    - `link_commands.py`: `/verify` for Minecraft-Discord account linking
    - `streamcraft_commands.py`: `/streamcraft` owner-only license/usage queries
+   - `synthcraft_commands.py`: `/synthcraft` owner-only license/usage queries
+   - `scenecraft_commands.py`: `/scenecraft` owner-only license/server queries
    - `views.py`: Pagination and confirmation UI components
 
 9. **`src/tools/`** - Agentic tools for the chatbot
@@ -342,6 +344,27 @@ Owner-only slash commands for viewing StreamCraft license, usage, and streaming 
 | `/streamcraft player <name_or_uuid>` | Player usage lookup |
 | `/streamcraft servers [server_id]` | Per-server usage summary |
 | `/streamcraft active` | Currently active rooms and participants |
+
+## SynthCraft Commands (Owner-Only)
+
+Owner-only slash commands for viewing SynthCraft license, usage, and generation data:
+
+| Command | Description |
+|---------|-------------|
+| `/synthcraft licenses` | List all licenses |
+| `/synthcraft stats` | Generation statistics (total songs, cost, active servers) |
+| `/synthcraft servers [server_id]` | Per-server usage summary |
+| `/synthcraft player <name_or_uuid>` | Player generation history |
+| `/synthcraft active` | Currently generating songs |
+
+## SceneCraft Commands (Owner-Only)
+
+Owner-only slash commands for viewing SceneCraft license and server data:
+
+| Command | Description |
+|---------|-------------|
+| `/scenecraft licenses` | List all licenses with state, tier, sessions remaining |
+| `/scenecraft servers [server_id]` | Per-server license details |
 
 ## Account Linking
 
