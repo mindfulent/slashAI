@@ -690,8 +690,10 @@ class ClaudeClient:
             }
         ]
 
-        # Combine all context sources
-        context_parts = []
+        # Combine all context sources (dynamic, not cached)
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        context_parts = [f"Current date: {now.strftime('%A, %B %d, %Y')} (UTC)"]
         if memory_context:
             context_parts.append(memory_context)
         if image_context:
