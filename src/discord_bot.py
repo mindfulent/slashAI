@@ -1408,6 +1408,7 @@ class WebhookServer:
         self.app.router.add_post('/server/delete-message', self.handle_delete_message)  # Alias for title revoke
         self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
         self.app.router.add_post('/server/title-grant', self.handle_title_grant)
+        self.app.router.add_post('/server/synthcraft-broadcast', self.handle_synthcraft_broadcast)
         self.app.router.add_get('/health', self.handle_health)
         self.runner: Optional[web.AppRunner] = None
 
@@ -1637,6 +1638,101 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error handling title-grant webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_synthcraft_broadcast(self, request: web.Request) -> web.Response:
+        """Handle SynthCraft broadcast announcement webhook from theblockacademy backend."""
+        logger.info(f"Received synthcraft-broadcast webhook request from {request.remote}")
+
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            logger.warning(f"SynthCraft broadcast webhook unauthorized")
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            song_id = data.get('song_id')
+            audio_url = data.get('audio_url')
+            dj_name = data.get('dj_name')
+            dj_uuid = data.get('dj_uuid')
+            duration_seconds = data.get('duration_seconds', 0)
+            prompt = data.get('prompt', '')
+
+            if not dj_name or not song_id:
+                return web.json_response({"error": "Missing required fields"}, status=400)
+
+            # Format duration as m:ss
+            minutes = int(duration_seconds) // 60
+            seconds = int(duration_seconds) % 60
+            duration_str = f"{minutes}:{seconds:02d}"
+
+            # Build embed - pink/magenta for music
+            embed = discord.Embed(color=0xE91E63)
+
+            if dj_uuid:
+                clean_uuid = dj_uuid.replace('-', '')
+                avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
+                embed.set_author(
+                    name=f"{dj_name} is broadcasting a song!",
+                    icon_url=avatar_url
+                )
+            else:
+                embed.set_author(name=f"{dj_name} is broadcasting a song!")
+
+            if prompt:
+                embed.description = f"> {prompt}"
+
+            embed.add_field(name="Duration", value=duration_str, inline=True)
+
+            # Get channel
+            channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
+
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if not channel:
+                    logger.warning(f"Channel {channel_id} not found for broadcast announcement")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+                # Try to download the OGG file and attach it
+                audio_file = None
+                if audio_url:
+                    try:
+                        import aiohttp
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(audio_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                                if resp.status == 200:
+                                    audio_data = await resp.read()
+                                    audio_file = discord.File(
+                                        io.BytesIO(audio_data),
+                                        filename=f"{song_id}.ogg"
+                                    )
+                                    logger.info(f"Downloaded broadcast audio ({len(audio_data)} bytes)")
+                                else:
+                                    logger.warning(f"Failed to download broadcast audio: HTTP {resp.status}")
+                    except Exception as dl_err:
+                        logger.warning(f"Failed to download broadcast audio: {dl_err}")
+
+                message = await channel.send(embed=embed, file=audio_file)
+                logger.info(f"Announced SynthCraft broadcast: {dj_name} - {song_id} (msg_id={message.id})")
+                return web.json_response({
+                    "success": True,
+                    "message_id": str(message.id),
+                    "channel_id": str(channel.id)
+                })
+
+            except discord.Forbidden:
+                logger.error(f"No permission to send message in channel {channel_id}")
+                return web.json_response({"error": "No permission to send"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling synthcraft-broadcast webhook: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):
