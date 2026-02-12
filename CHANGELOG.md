@@ -16,6 +16,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.0] - 2026-02-12
+
+### Added
+- **Discord-to-Calendar event creation**: Any allowlisted user can create TBA calendar events by chatting with slashAI
+  - Natural language event descriptions → formatted draft → confirmation → published to calendar
+  - New `create_event` community tool (available to all users, not just owner)
+  - Tool split: `DISCORD_TOOLS` (owner-only) + `COMMUNITY_TOOLS` (all users)
+  - After creation, slashAI auto-announces in #events channel with event link
+  - Backend enforces allowlist check via Discord user ID lookup (no client-side gating)
+- **Events API client** (`src/tools/events_api.py`): httpx-based client for `POST /api/events/bot`
+- **TBA backend endpoint**: `POST /events/bot` with `authenticateServer` middleware
+  - Accepts `discord_user_id` to look up the user, checks allowlist, creates event
+  - Returns event data + URL
+
+### Technical Details
+- New env vars: `EVENTS_API_URL` (default: `https://theblock.academy/api/events`), `EVENTS_API_KEY`
+- System prompt updated with event creation flow, category guide, and defaults
+- `_execute_tool()` now receives `user_id` parameter for community tool context
+- No database migrations required
+
+---
+
 ## [0.12.7] - 2026-02-06
 
 ### Added

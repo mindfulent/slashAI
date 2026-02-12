@@ -39,6 +39,7 @@ from tools.github_docs import (
     handle_read_github_file,
     handle_list_github_docs,
 )
+from tools.events_api import EventsAPIClient
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -309,6 +310,62 @@ DISCORD_TOOLS = [
     LIST_GITHUB_DOCS_TOOL,
 ]
 
+# Tools available to all users (not just owner)
+COMMUNITY_TOOLS = [
+    {
+        "name": "create_event",
+        "description": "Create an event on The Block Academy calendar. Only call after the user has confirmed the event details.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Event title (max 100 chars)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Event description (max 2000 chars)"
+                },
+                "event_date": {
+                    "type": "string",
+                    "description": "Date and time in YYYY-MM-DDTHH:MM format"
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Duration in minutes (15-480, default 60)"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Location (e.g., 'The Block Academy')"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["class", "performance", "lets-play", "lets-build"],
+                    "description": "Event category"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone (default: America/Los_Angeles)"
+                },
+                "max_capacity": {
+                    "type": "integer",
+                    "description": "Max attendees (optional)"
+                },
+                "is_recurring": {
+                    "type": "boolean",
+                    "description": "Whether this repeats"
+                },
+                "recurrence_pattern": {
+                    "type": "string",
+                    "enum": ["weekly", "biweekly", "monthly"],
+                    "description": "Recurrence pattern (required if is_recurring is true)"
+                }
+            },
+            "required": ["title", "event_date", "category"]
+        }
+    },
+]
+
 # Default system prompt for the chatbot
 DEFAULT_SYSTEM_PROMPT = """You are slashAI, an AI assistant modeled after your creator, Slash.
 
@@ -460,6 +517,37 @@ You can read your own source code documentation from GitHub:
 When discussing your own implementation details or specifications, use these tools to reference
 the actual documentation instead of relying on memory. This ensures accuracy.
 
+### Event Creation
+You can help users create events on The Block Academy calendar. When someone wants to create an event:
+
+1. Extract from their message: title, date/time, duration, category, description, location
+2. Present a formatted draft:
+   **Title:** ...
+   **Date:** ... (day of week, date, time + timezone)
+   **Duration:** ...
+   **Category:** ... (class, performance, lets-play, or lets-build)
+   **Description:** ...
+   **Location:** ...
+3. Ask for confirmation or adjustments
+4. After explicit confirmation, call `create_event`
+5. After creation, post an announcement to #events (channel 1450205631599476867) with:
+   - Event title and description
+   - Date and time
+   - Link to the event page
+6. Share the event link with the user
+
+**Category guide:**
+- `class` — structured learning sessions (workshops, tutorials)
+- `performance` — concerts, shows, recitals
+- `lets-play` — casual play sessions, jam sessions, games
+- `lets-build` — collaborative building projects
+
+Default timezone is America/Los_Angeles unless the user specifies otherwise.
+Default duration is 60 minutes.
+Default location is "The Block Academy" unless specified.
+
+This tool is available to any user with a linked and allowlisted account. If creation fails due to missing account link, suggest they use `/verify` to link their Discord account.
+
 ### What You Cannot Do
 - Search the internet or access external URLs
 - Execute code or interact with Minecraft servers directly
@@ -515,6 +603,7 @@ class ClaudeClient:
         self.model = model
         self.bot = bot  # Discord bot for tool execution
         self.owner_id = owner_id  # Owner's Discord user ID (tools only enabled for owner)
+        self.events_api = EventsAPIClient()  # Events API client (available to all users)
         # Conversation history keyed by (user_id, channel_id)
         self._conversations: dict[tuple[str, str], ConversationHistory] = defaultdict(
             ConversationHistory
@@ -624,12 +713,24 @@ class ClaudeClient:
             # Replace the last user message with multimodal content
             messages[-1] = {"role": "user", "content": message_content}
 
-        # Check if tools should be enabled (owner only)
-        tools_enabled = (
+        # Check if tools should be enabled
+        # Owner gets all tools; community users get COMMUNITY_TOOLS only
+        is_owner = (
             self.bot is not None
             and self.owner_id is not None
             and user_id == self.owner_id
         )
+        # Community tools available to any user when bot is present
+        has_community_tools = self.bot is not None
+
+        tools_enabled = is_owner or has_community_tools
+
+        # Build tool list based on user
+        active_tools = []
+        if is_owner:
+            active_tools = DISCORD_TOOLS + COMMUNITY_TOOLS
+        elif has_community_tools:
+            active_tools = COMMUNITY_TOOLS
 
         # Agentic loop - continue until we get a final text response
         max_iterations = 10  # Safety limit to prevent infinite loops
@@ -645,8 +746,8 @@ class ClaudeClient:
                 "system": system,
                 "messages": messages,
             }
-            if tools_enabled:
-                api_kwargs["tools"] = DISCORD_TOOLS
+            if tools_enabled and active_tools:
+                api_kwargs["tools"] = active_tools
 
             api_start = time.time()
             response = await self.client.messages.create(**api_kwargs)
@@ -682,7 +783,7 @@ class ClaudeClient:
                     "cache_read": cache_read,
                     "cache_creation": cache_creation,
                     "latency_ms": api_latency_ms,
-                    "has_tools": tools_enabled,
+                    "has_tools": bool(active_tools),
                 },
             )
 
@@ -718,6 +819,7 @@ class ClaudeClient:
                     tool_block.name,
                     tool_block.input,
                     source_channel=channel,
+                    user_id=user_id,
                 )
                 tool_results.append({
                     "type": "tool_result",
@@ -760,6 +862,7 @@ class ClaudeClient:
         tool_name: str,
         tool_input: dict,
         source_channel: Optional[discord.abc.Messageable] = None,
+        user_id: Optional[str] = None,
     ) -> str:
         """
         Execute a Discord tool and return the result.
@@ -768,6 +871,7 @@ class ClaudeClient:
             tool_name: Name of the tool to execute
             tool_input: Tool input parameters
             source_channel: The channel where the original message was sent (for context)
+            user_id: Discord user ID of the person who triggered the tool
 
         Returns:
             String result of the tool execution
@@ -1139,6 +1243,38 @@ class ClaudeClient:
                 ref = tool_input.get("ref", "main")
                 result = await handle_list_github_docs(subdir, ref)
                 success = not result.startswith("Error:")
+
+            elif tool_name == "create_event":
+                # Create event on TBA calendar (available to all users)
+                if not user_id:
+                    result = "Error: Could not determine user identity"
+                    success = False
+                else:
+                    created = await self.events_api.create_event(
+                        discord_user_id=user_id,
+                        title=tool_input["title"],
+                        event_date=tool_input["event_date"],
+                        category=tool_input["category"],
+                        description=tool_input.get("description"),
+                        duration_minutes=tool_input.get("duration_minutes", 60),
+                        location=tool_input.get("location"),
+                        timezone=tool_input.get("timezone", "America/Los_Angeles"),
+                        max_capacity=tool_input.get("max_capacity"),
+                        is_recurring=tool_input.get("is_recurring", False),
+                        recurrence_pattern=tool_input.get("recurrence_pattern"),
+                    )
+                    if created:
+                        result = (
+                            f"Event created successfully!\n"
+                            f"Title: {created.title}\n"
+                            f"Event ID: {created.id}\n"
+                            f"URL: {created.url}\n"
+                            f"Now post an announcement to #events (channel 1450205631599476867)."
+                        )
+                        success = True
+                    else:
+                        result = "Failed to create event. The user may not have a linked/allowlisted account. Suggest using /verify to link their Discord account."
+                        success = False
 
             else:
                 result = f"Unknown tool: {tool_name}"

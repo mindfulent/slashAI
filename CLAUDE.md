@@ -97,6 +97,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
 
 9. **`src/tools/`** - Agentic tools for the chatbot
    - `github_docs.py`: Read-only access to slashAI documentation via GitHub API
+   - `events_api.py`: TBA calendar event creation via backend API
 
 ## MCP Tools
 
@@ -115,6 +116,8 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 **Channel name resolution:** `search_messages` supports channel names (e.g., "server-general") in addition to IDs. Handles emoji prefixes and partial matching.
 
 **Agentic Tools (chatbot-only, owner via `OWNER_ID`):** `send_message`, `edit_message`, `delete_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `set_reminder`, `list_reminders`, `cancel_reminder`, `set_user_timezone`, `search_memories`, `read_github_file`, `list_github_docs` - defined in `claude_client.py:DISCORD_TOOLS`, only available when chatting with the bot as the owner.
+
+**Community Tools (chatbot, all users):** `create_event` - defined in `claude_client.py:COMMUNITY_TOOLS`, available to any user chatting with the bot. Backend enforces allowlist check via Discord user ID lookup.
 
 **GitHub Documentation Tools:**
 - `read_github_file`: Read a documentation file from the slashAI repo (path must start with "docs/")
@@ -159,6 +162,8 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `MEMORY_DECAY_ENABLED` | No | Set to "false" to disable confidence decay (default: true) |
 | `RECOGNITION_API_URL` | For recognition | theblockacademy Recognition API URL |
 | `RECOGNITION_API_KEY` | For recognition | API key for recognition webhooks |
+| `EVENTS_API_URL` | For events | theblockacademy Events API URL (default: `https://theblock.academy/api/events`) |
+| `EVENTS_API_KEY` | For events | API key for event creation (same value as `MINECRAFT_SERVER_API_KEY`) |
 
 ## Development Notes
 
