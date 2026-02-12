@@ -693,7 +693,11 @@ class ClaudeClient:
         # Combine all context sources (dynamic, not cached)
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
-        context_parts = [f"Current date: {now.strftime('%A, %B %d, %Y')} (UTC)"]
+        context_parts = [
+            f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.** "
+            f"Use this date for all time references. When generating event_date values, "
+            f"the year MUST be {now.year} (not {now.year - 1})."
+        ]
         if memory_context:
             context_parts.append(memory_context)
         if image_context:
