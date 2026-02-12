@@ -59,6 +59,8 @@ class SceneCraftCommands(commands.Cog):
     - /scenecraft licenses - List all licenses
     - /scenecraft servers - Per-server license details
     - /scenecraft exports - Recent export events (telemetry)
+    - /scenecraft activate <server_ip> - Activate a license (ACTIVE/unlimited)
+    - /scenecraft deactivate <server_ip> - Deactivate a license (EXPIRED)
     """
 
     scenecraft_group = app_commands.Group(
@@ -292,6 +294,122 @@ class SceneCraftCommands(commands.Cog):
                 inline=False,
             )
 
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft activate
+    # =========================================================================
+
+    @scenecraft_group.command(name="activate")
+    @owner_only()
+    @app_commands.describe(server_ip="Server IP address to activate")
+    async def activate(self, interaction: discord.Interaction, server_ip: str):
+        """Activate a SceneCraft license (set to ACTIVE/unlimited) by server IP."""
+        await interaction.response.defer(ephemeral=True)
+
+        rows = await self.db.fetch(
+            "SELECT id, server_name, state, tier, exports_remaining, server_ip "
+            "FROM scenecraft_licenses WHERE server_ip = $1",
+            server_ip,
+        )
+
+        if not rows:
+            await interaction.followup.send(
+                f"No license found for IP `{server_ip}`.", ephemeral=True
+            )
+            return
+
+        if len(rows) > 1:
+            lines = [f"Multiple licenses found for `{server_ip}`:"]
+            for r in rows:
+                lines.append(
+                    f"  #{r['id']} — {r['server_name'] or 'Unknown'} ({r['state']})"
+                )
+            lines.append("Use `/scenecraft activate_by_id <id>` to target one.")
+            await interaction.followup.send("\n".join(lines), ephemeral=True)
+            return
+
+        row = rows[0]
+        if row["state"] == "ACTIVE" and row["tier"] == "standard":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already ACTIVE.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE scenecraft_licenses
+               SET state = 'ACTIVE', tier = 'standard',
+                   exports_remaining = NULL, expires_at = NULL,
+                   updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Activated", color=discord.Color.green())
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=server_ip, inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="ACTIVE / standard (unlimited)", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft deactivate
+    # =========================================================================
+
+    @scenecraft_group.command(name="deactivate")
+    @owner_only()
+    @app_commands.describe(server_ip="Server IP address to deactivate")
+    async def deactivate(self, interaction: discord.Interaction, server_ip: str):
+        """Deactivate a SceneCraft license (set to EXPIRED) by server IP."""
+        await interaction.response.defer(ephemeral=True)
+
+        rows = await self.db.fetch(
+            "SELECT id, server_name, state, tier, server_ip "
+            "FROM scenecraft_licenses WHERE server_ip = $1",
+            server_ip,
+        )
+
+        if not rows:
+            await interaction.followup.send(
+                f"No license found for IP `{server_ip}`.", ephemeral=True
+            )
+            return
+
+        if len(rows) > 1:
+            lines = [f"Multiple licenses found for `{server_ip}`:"]
+            for r in rows:
+                lines.append(
+                    f"  #{r['id']} — {r['server_name'] or 'Unknown'} ({r['state']})"
+                )
+            lines.append("Use `/scenecraft deactivate_by_id <id>` to target one.")
+            await interaction.followup.send("\n".join(lines), ephemeral=True)
+            return
+
+        row = rows[0]
+        if row["state"] == "EXPIRED":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already EXPIRED.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE scenecraft_licenses
+               SET state = 'EXPIRED', updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Deactivated", color=discord.Color.red())
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=server_ip, inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="EXPIRED", inline=True)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
