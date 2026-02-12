@@ -30,11 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Accepts `discord_user_id` to look up the user, checks allowlist, creates event
   - Returns event data + URL
 
+### Fixed
+- `EventsAPIClient` now raises `EventCreationError` with the backend's actual error message instead of silently returning `None` — Claude can relay specific errors to users (e.g., "not on allowlist" vs "account not linked")
+
 ### Technical Details
 - New env vars: `EVENTS_API_URL` (default: `https://theblock.academy/api/events`), `EVENTS_API_KEY`
 - System prompt updated with event creation flow, category guide, and defaults
 - `_execute_tool()` now receives `user_id` parameter for community tool context
 - No database migrations required
+- Requires `/verify` (Discord-Minecraft linking) for event creators
 
 ---
 
