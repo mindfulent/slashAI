@@ -16,6 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.3] - 2026-02-12
+
+### Added
+- **Discord Scheduled Events update & delete sync**: Editing or deleting a TBA calendar event now syncs the change to the matching Discord Scheduled Event
+  - `PUT /events/:id` dispatches fire-and-forget webhook to `/server/event-updated` — updates title, description, time, and location
+  - `DELETE /events/:id` fetches `discord_event_id` before deleting, then dispatches to `/server/event-deleted`
+  - Graceful handling: if the Discord event was manually deleted, the webhook logs a warning and returns success
+  - External events require `location` and `end_time` on every edit call — handler always passes both
+- **Backfill endpoint**: `POST /events/sync-discord` (admin-only) creates Discord Scheduled Events for existing upcoming events that lack a `discord_event_id`
+  - Reuses existing `dispatchEventWebhook()` which stores the returned ID back in the database
+
+### Technical Details
+- New webhook helpers in `events.ts`: `dispatchEventUpdateWebhook()` and `dispatchEventDeleteWebhook()`
+- New webhook handlers in `discord_bot.py`: `handle_event_updated()` and `handle_event_deleted()`
+- Two new routes registered: `/server/event-updated` and `/server/event-deleted`
+- DELETE handler now fetches `discord_event_id` alongside `created_by` in authorization query
+
+---
+
 ## [0.13.2] - 2026-02-12
 
 ### Added

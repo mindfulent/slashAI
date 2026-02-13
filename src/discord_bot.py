@@ -1497,6 +1497,8 @@ class WebhookServer:
         self.app.router.add_post('/server/title-grant', self.handle_title_grant)
         self.app.router.add_post('/server/synthcraft-broadcast', self.handle_synthcraft_broadcast)
         self.app.router.add_post('/server/event-created', self.handle_event_created)
+        self.app.router.add_post('/server/event-updated', self.handle_event_updated)
+        self.app.router.add_post('/server/event-deleted', self.handle_event_deleted)
         self.app.router.add_get('/health', self.handle_health)
         self.runner: Optional[web.AppRunner] = None
 
@@ -1878,6 +1880,90 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error creating Discord scheduled event: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_event_updated(self, request: web.Request) -> web.Response:
+        """Update a Discord Scheduled Event when a TBA calendar event is edited."""
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            discord_event_id = data.get('discord_event_id')
+            if not discord_event_id:
+                return web.json_response({"error": "Missing discord_event_id"}, status=400)
+
+            guild = self.bot.guilds[0]
+            try:
+                scheduled_event = await guild.fetch_scheduled_event(int(discord_event_id))
+            except discord.NotFound:
+                logger.warning(f"Discord scheduled event {discord_event_id} not found (may have been deleted manually)")
+                return web.json_response({"success": True, "note": "Event not found"})
+
+            # Parse updated fields
+            from datetime import datetime, timezone, timedelta
+            title = data.get('title')
+            description = data.get('description', '')
+            event_date_str = data.get('event_date')
+            duration_minutes = data.get('duration_minutes', 60)
+            location = data.get('location', 'The Block Academy')
+
+            kwargs = {}
+            if title:
+                kwargs['name'] = title
+            if description is not None:
+                kwargs['description'] = description[:1000]
+            if event_date_str:
+                event_date = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
+                if event_date.tzinfo is None:
+                    event_date = event_date.replace(tzinfo=timezone.utc)
+                kwargs['start_time'] = event_date
+                kwargs['end_time'] = event_date + timedelta(minutes=duration_minutes)
+
+            # External events require location and end_time on every edit
+            kwargs['location'] = location or "The Block Academy"
+            if 'end_time' not in kwargs:
+                kwargs['end_time'] = scheduled_event.end_time
+
+            await scheduled_event.edit(**kwargs)
+            logger.info(f"Updated Discord scheduled event: {discord_event_id}")
+            return web.json_response({"success": True})
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error updating Discord scheduled event: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_event_deleted(self, request: web.Request) -> web.Response:
+        """Delete a Discord Scheduled Event when a TBA calendar event is deleted."""
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            discord_event_id = data.get('discord_event_id')
+            if not discord_event_id:
+                return web.json_response({"error": "Missing discord_event_id"}, status=400)
+
+            guild = self.bot.guilds[0]
+            try:
+                scheduled_event = await guild.fetch_scheduled_event(int(discord_event_id))
+                await scheduled_event.delete()
+                logger.info(f"Deleted Discord scheduled event: {discord_event_id}")
+            except discord.NotFound:
+                logger.warning(f"Discord scheduled event {discord_event_id} not found (may already be deleted)")
+
+            return web.json_response({"success": True})
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error deleting Discord scheduled event: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):
