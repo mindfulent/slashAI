@@ -1496,6 +1496,7 @@ class WebhookServer:
         self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
         self.app.router.add_post('/server/title-grant', self.handle_title_grant)
         self.app.router.add_post('/server/synthcraft-broadcast', self.handle_synthcraft_broadcast)
+        self.app.router.add_post('/server/event-created', self.handle_event_created)
         self.app.router.add_get('/health', self.handle_health)
         self.runner: Optional[web.AppRunner] = None
 
@@ -1820,6 +1821,63 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error handling synthcraft-broadcast webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_event_created(self, request: web.Request) -> web.Response:
+        """Create a Discord Scheduled Event when a TBA calendar event is created."""
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            title = data.get('title')
+            description = data.get('description', '')
+            event_date_str = data.get('event_date')
+            duration_minutes = data.get('duration_minutes', 60)
+            location = data.get('location', 'The Block Academy')
+            creator_username = data.get('creator_username', '')
+
+            if not title or not event_date_str:
+                return web.json_response({"error": "Missing title or event_date"}, status=400)
+
+            # Parse UTC timestamp from backend
+            from datetime import datetime, timezone, timedelta
+            event_date = datetime.fromisoformat(event_date_str.replace('Z', '+00:00'))
+            if event_date.tzinfo is None:
+                event_date = event_date.replace(tzinfo=timezone.utc)
+            end_time = event_date + timedelta(minutes=duration_minutes)
+
+            # Build description with creator
+            full_description = description
+            if creator_username:
+                full_description += f"\n\nHosted by {creator_username}"
+            full_description = full_description.strip()[:1000]  # Discord limit
+
+            # Create Discord Scheduled Event
+            guild = self.bot.guilds[0]
+            scheduled_event = await guild.create_scheduled_event(
+                name=title,
+                description=full_description,
+                start_time=event_date,
+                end_time=end_time,
+                entity_type=discord.EntityType.external,
+                location=location or "The Block Academy",
+                privacy_level=discord.PrivacyLevel.guild_only,
+            )
+
+            logger.info(f"Created Discord scheduled event: {scheduled_event.id} for '{title}'")
+            return web.json_response({
+                "success": True,
+                "discord_event_id": str(scheduled_event.id),
+            })
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error creating Discord scheduled event: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):

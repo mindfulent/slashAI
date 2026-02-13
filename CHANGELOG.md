@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.2] - 2026-02-12
+
+### Added
+- **Discord Scheduled Events integration**: When a TBA calendar event is created (from website or slashAI chat), a matching Discord Scheduled Event is automatically created
+  - Events appear in Discord's dedicated event bar at the top of the server
+  - Users can mark "Interested" and get notified when events start
+  - New `/server/event-created` webhook handler creates events via `guild.create_scheduled_event()`
+  - Backend stores `discord_event_id` for future update/delete sync
+  - Fire-and-forget: calendar event creation succeeds even if Discord event fails
+
+### Technical Details
+- New migration `036_event_discord_id.sql` adds nullable `discord_event_id` column to events table
+- Webhook follows `/server/title-grant` pattern (reads response body to store ID back in DB)
+- `dispatchEventWebhook()` helper in `events.ts` called after INSERT in both `POST /events` and `POST /events/bot`
+- Discord event includes title, description with "Hosted by" attribution, start/end time, and location
+
+---
+
 ## [0.13.1] - 2026-02-12
 
 ### Added
