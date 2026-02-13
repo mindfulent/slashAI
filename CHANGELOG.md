@@ -16,6 +16,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.1] - 2026-02-12
+
+### Added
+- **Reaction-based event confirmation**: Users can now click 👍 on an event draft to confirm instead of typing "yes"
+  - New `register_event_draft` community tool — Claude calls it alongside the draft message
+  - Bot adds 👍 reaction to draft messages as a visual hint
+  - Accepts 👍, ✅, 👌, 🎉, ✨ as confirmation reactions
+  - Only the original requester's reaction triggers creation (user_id check)
+  - Automatic #events announcement on reaction confirmation (same as typed flow)
+  - 30-minute TTL on pending drafts — expired drafts are pruned automatically
+  - Deduplication: if user both reacts AND types "yes", only one event is created
+  - Overwriting: requesting a new draft invalidates the previous one
+
+### Technical Details
+- New `PendingEventDraft` dataclass in `claude_client.py`
+- Draft lifecycle: `register_event_draft` → `_pending_drafts_by_context` → linked to message ID after send → `_pending_event_drafts` on bot
+- Reaction handler (`on_raw_reaction_add`) checks pending drafts before processing regular reaction signals
+- `_confirm_event_draft()` calls `EventsAPIClient` directly, bypassing Claude's agentic loop
+- System prompt updated to instruct Claude to always call `register_event_draft` when presenting drafts
+- No database migrations required
+
+---
+
 ## [0.13.0] - 2026-02-12
 
 ### Added

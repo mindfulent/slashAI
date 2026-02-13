@@ -40,7 +40,7 @@ from dotenv import load_dotenv
 from PIL import Image
 
 from analytics import track, shutdown as analytics_shutdown
-from claude_client import ClaudeClient
+from claude_client import ClaudeClient, PendingEventDraft
 
 load_dotenv()
 
@@ -243,6 +243,7 @@ class DiscordBot(commands.Bot):
         self.recognition_scheduler = None  # Recognition system for build reviews
         self.reaction_store = None  # Reaction storage (v0.12.0)
         self.reaction_aggregator = None  # Reaction aggregation job (v0.12.0)
+        self._pending_event_drafts: dict[int, "PendingEventDraft"] = {}  # Reaction-based event confirmation (v0.13.1)
         self._ready_event = asyncio.Event()
 
     async def setup_hook(self):
@@ -556,6 +557,19 @@ class DiscordBot(commands.Bot):
         Captures reactions as memory signals for confidence adjustment
         and user preference inference.
         """
+        # Check for pending event draft confirmation (v0.13.1)
+        if payload.message_id in self._pending_event_drafts:
+            draft = self._pending_event_drafts[payload.message_id]
+            # Check TTL (30 minutes)
+            from claude_client import DRAFT_TTL_SECONDS
+            if time.time() - draft.created_at > DRAFT_TTL_SECONDS:
+                self._pending_event_drafts.pop(payload.message_id, None)
+            elif str(payload.user_id) == draft.user_id:
+                emoji = str(payload.emoji)
+                if emoji in ('\U0001f44d', '\u2705', '\U0001f44c', '\U0001f389', '\u2728'):
+                    await self._confirm_event_draft(payload, draft)
+                    return  # Don't process as regular reaction
+
         # Skip if reaction store not initialized
         if not self.reaction_store:
             return
@@ -750,6 +764,67 @@ class DiscordBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error creating reactor inference: {e}", exc_info=True)
 
+    async def _confirm_event_draft(
+        self,
+        payload: discord.RawReactionActionEvent,
+        draft: "PendingEventDraft",
+    ):
+        """Create event from a confirmed draft reaction (v0.13.1)."""
+        # Remove from pending
+        self._pending_event_drafts.pop(payload.message_id, None)
+
+        channel = self.get_channel(payload.channel_id)
+        if not channel:
+            try:
+                channel = await self.fetch_channel(payload.channel_id)
+            except Exception:
+                logger.error(f"Could not fetch channel {payload.channel_id} for event draft confirmation")
+                return
+
+        try:
+            from tools.events_api import EventCreationError
+
+            created = await self.claude_client.events_api.create_event(
+                discord_user_id=draft.user_id,
+                **draft.event_details,
+            )
+
+            # Send confirmation in the channel
+            await channel.send(
+                f"Event created! **{created.title}**\n{created.url}"
+            )
+
+            # Post announcement to #events (channel 1450205631599476867)
+            try:
+                events_channel = self.get_channel(1450205631599476867)
+                if not events_channel:
+                    events_channel = await self.fetch_channel(1450205631599476867)
+
+                description = draft.event_details.get("description", "")
+                announcement = (
+                    f"**{created.title}**\n\n"
+                    f"{description}\n\n" if description else f"**{created.title}**\n\n"
+                )
+                announcement += (
+                    f"**When:** {created.event_date}\n"
+                    f"**Category:** {created.category}\n\n"
+                    f"RSVP: {created.url}"
+                )
+                await events_channel.send(announcement)
+            except Exception as e:
+                logger.error(f"Failed to post event announcement: {e}")
+
+            logger.info(
+                f"Event created via reaction: {created.title} by user {draft.user_id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create event from draft reaction: {e}", exc_info=True)
+            try:
+                await channel.send(f"Failed to create event: {e}")
+            except Exception:
+                pass
+
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         """
         Handle reaction removals.
@@ -866,6 +941,18 @@ class DiscordBot(commands.Bot):
                 )
                 chunks = self._chunk_message(response)
                 response_msg = await self._send_chunked(message.channel, response, reply_to=message)
+
+                # Link pending event draft to the response message (v0.13.1)
+                if self.claude_client and response_msg:
+                    draft_key = (str(message.author.id), str(message.channel.id))
+                    draft = self.claude_client._pending_drafts_by_context.pop(draft_key, None)
+                    if draft:
+                        draft.message_id = response_msg.id
+                        self._pending_event_drafts[response_msg.id] = draft
+                        try:
+                            await response_msg.add_reaction("\U0001f44d")  # 👍
+                        except discord.HTTPException:
+                            pass  # Non-critical if reaction fails
 
                 # Track message for memory extraction with message IDs (v0.12.0)
                 # This enables reaction-based memory signals

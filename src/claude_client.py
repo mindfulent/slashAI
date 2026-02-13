@@ -364,6 +364,58 @@ COMMUNITY_TOOLS = [
             "required": ["title", "event_date", "category"]
         }
     },
+    {
+        "name": "register_event_draft",
+        "description": "Register an event draft for reaction-based confirmation. Call this TOGETHER with presenting the draft to the user. The bot will add a 👍 reaction to your message — the user can click it to confirm, or reply with changes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Event title (max 100 chars)"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Event description (max 2000 chars)"
+                },
+                "event_date": {
+                    "type": "string",
+                    "description": "Date and time in YYYY-MM-DDTHH:MM format"
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "description": "Duration in minutes (15-480, default 60)"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "Location (e.g., 'The Block Academy')"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["class", "performance", "lets-play", "lets-build"],
+                    "description": "Event category"
+                },
+                "timezone": {
+                    "type": "string",
+                    "description": "IANA timezone (default: America/Los_Angeles)"
+                },
+                "max_capacity": {
+                    "type": "integer",
+                    "description": "Max attendees (optional)"
+                },
+                "is_recurring": {
+                    "type": "boolean",
+                    "description": "Whether this repeats"
+                },
+                "recurrence_pattern": {
+                    "type": "string",
+                    "enum": ["weekly", "biweekly", "monthly"],
+                    "description": "Recurrence pattern (required if is_recurring is true)"
+                }
+            },
+            "required": ["title", "event_date", "category"]
+        }
+    },
 ]
 
 # Default system prompt for the chatbot
@@ -521,20 +573,20 @@ the actual documentation instead of relying on memory. This ensures accuracy.
 You can help users create events on The Block Academy calendar. When someone wants to create an event:
 
 1. Extract from their message: title, date/time, duration, category, description, location
-2. Present a formatted draft:
+2. Present a formatted draft AND call `register_event_draft` with the event details in the same response:
    **Title:** ...
    **Date:** ... (day of week, date, time + timezone)
    **Duration:** ...
    **Category:** ... (class, performance, lets-play, or lets-build)
    **Description:** ...
    **Location:** ...
-3. Ask for confirmation or adjustments
-4. After confirmation, call `create_event` immediately. Confirmation includes: "yes", "looks good", "go for it", "do it", "perfect", "👍", "✅", thumbs up emoji, or any clearly affirmative response. Do NOT add filler text before or after the tool call—just call the tool.
-5. After creation, post an announcement to #events (channel 1450205631599476867) with:
-   - Event title and description
-   - Date and time
-   - Link to the event page
+   React with 👍 to confirm, or let me know if you want changes.
+3. The bot will add a 👍 reaction to your draft message — the user can click it to confirm, or reply with changes
+4. If the user replies with typed confirmation ("yes", "looks good", "go for it", "do it", "perfect", or any clearly affirmative response), call `create_event` immediately. Do NOT add filler text before or after the tool call—just call the tool.
+5. After creation (whether via typed confirmation or reaction), an announcement is posted to #events (channel 1450205631599476867) with event title, description, date/time, and link
 6. Share the event link with the user. Keep the response to ONLY the event link and key details. No "let me know if you need anything" or other filler.
+
+**Important:** When presenting an event draft, ALWAYS call `register_event_draft` in the same turn as your draft message. This enables the 👍 reaction shortcut.
 
 **Category guide:**
 - `class` — structured learning sessions (workshops, tutorials)
@@ -585,6 +637,21 @@ class ConversationHistory:
         self.messages.clear()
 
 
+@dataclass
+class PendingEventDraft:
+    """Stores a pending event draft awaiting reaction confirmation (v0.13.1)."""
+
+    user_id: str
+    channel_id: str
+    event_details: dict  # All create_event params
+    created_at: float  # time.time() for TTL
+    message_id: Optional[int] = None  # Set after message is sent to Discord
+
+
+# TTL for pending event drafts (30 minutes)
+DRAFT_TTL_SECONDS = 30 * 60
+
+
 class ClaudeClient:
     """Async client for Claude API with conversation management."""
 
@@ -608,6 +675,8 @@ class ClaudeClient:
         self._conversations: dict[tuple[str, str], ConversationHistory] = defaultdict(
             ConversationHistory
         )
+        # Pending event drafts keyed by (user_id, channel_id) (v0.13.1)
+        self._pending_drafts_by_context: dict[tuple[str, str], PendingEventDraft] = {}
         # Token usage tracking
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -1278,9 +1347,72 @@ class ClaudeClient:
                             f"Now post an announcement to #events (channel 1450205631599476867)."
                         )
                         success = True
+
+                        # Dedup: remove pending draft so reaction path doesn't double-create
+                        draft_key = (user_id, str(source_channel.id)) if source_channel else None
+                        if draft_key and draft_key in self._pending_drafts_by_context:
+                            old_draft = self._pending_drafts_by_context.pop(draft_key)
+                            if self.bot and old_draft.message_id:
+                                self.bot._pending_event_drafts.pop(old_draft.message_id, None)
+
                     except EventCreationError as e:
                         result = f"Failed to create event: {e}"
                         success = False
+
+            elif tool_name == "register_event_draft":
+                # Register event draft for reaction-based confirmation (v0.13.1)
+                if not user_id:
+                    result = "Error: Could not determine user identity"
+                    success = False
+                else:
+                    channel_id_str = str(source_channel.id) if source_channel else None
+                    if not channel_id_str:
+                        result = "Error: Could not determine channel"
+                        success = False
+                    else:
+                        draft_key = (user_id, channel_id_str)
+
+                        # Prune expired drafts
+                        now = time.time()
+                        expired = [
+                            k for k, v in self._pending_drafts_by_context.items()
+                            if now - v.created_at > DRAFT_TTL_SECONDS
+                        ]
+                        for k in expired:
+                            old = self._pending_drafts_by_context.pop(k)
+                            if self.bot and old.message_id:
+                                self.bot._pending_event_drafts.pop(old.message_id, None)
+
+                        # If overwriting an existing draft, clean up old message_id mapping
+                        if draft_key in self._pending_drafts_by_context:
+                            old_draft = self._pending_drafts_by_context[draft_key]
+                            if self.bot and old_draft.message_id:
+                                self.bot._pending_event_drafts.pop(old_draft.message_id, None)
+
+                        # Store draft details
+                        event_details = {
+                            "title": tool_input["title"],
+                            "event_date": tool_input["event_date"],
+                            "category": tool_input["category"],
+                        }
+                        for key in ("description", "duration_minutes", "location",
+                                    "timezone", "max_capacity", "is_recurring",
+                                    "recurrence_pattern"):
+                            if key in tool_input:
+                                event_details[key] = tool_input[key]
+
+                        self._pending_drafts_by_context[draft_key] = PendingEventDraft(
+                            user_id=user_id,
+                            channel_id=channel_id_str,
+                            event_details=event_details,
+                            created_at=now,
+                        )
+
+                        result = (
+                            "Draft registered. The bot will add a 👍 reaction to your message. "
+                            "User can react with 👍 to confirm or reply with changes."
+                        )
+                        success = True
 
             else:
                 result = f"Unknown tool: {tool_name}"
