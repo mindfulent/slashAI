@@ -366,6 +366,102 @@ class StreamCraftCommands(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
+    # /streamcraft activate
+    # =========================================================================
+
+    @streamcraft_group.command(name="activate")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to activate")
+    async def activate(self, interaction: discord.Interaction, license_id: int):
+        """Activate a StreamCraft license (set to ACTIVE/unlimited) by license ID."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, state, tier, credit_remaining, server_ip "
+            "FROM streamcraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["state"] == "ACTIVE" and row["tier"] == "standard":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already ACTIVE.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE streamcraft_licenses
+               SET state = 'ACTIVE', tier = 'standard',
+                   credit_remaining = NULL, expires_at = NULL,
+                   updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Activated", color=discord.Color.green())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="ACTIVE / standard (unlimited)", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /streamcraft deactivate
+    # =========================================================================
+
+    @streamcraft_group.command(name="deactivate")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to deactivate")
+    async def deactivate(self, interaction: discord.Interaction, license_id: int):
+        """Deactivate a StreamCraft license (set to EXPIRED) by license ID."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, state, tier, server_ip "
+            "FROM streamcraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["state"] == "EXPIRED":
+            await interaction.followup.send(
+                f"License #{row['id']} ({row['server_name']}) is already EXPIRED.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            """UPDATE streamcraft_licenses
+               SET state = 'EXPIRED', updated_at = NOW()
+               WHERE id = $1""",
+            row["id"],
+        )
+
+        embed = discord.Embed(title="License Deactivated", color=discord.Color.red())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
+        embed.add_field(
+            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
+        )
+        embed.add_field(name="After", value="EXPIRED", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
     # /streamcraft hide
     # =========================================================================
 
