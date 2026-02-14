@@ -51,6 +51,11 @@ def owner_only():
     return app_commands.check(predicate)
 
 
+def _display_name(row) -> str:
+    """Return label if set, otherwise server_name, otherwise 'Unknown'."""
+    return row.get("label") or row.get("server_name") or "Unknown"
+
+
 class StreamCraftCommands(commands.Cog):
     """
     Slash commands for viewing StreamCraft data (owner-only).
@@ -60,6 +65,9 @@ class StreamCraftCommands(commands.Cog):
     - /streamcraft player <name_or_uuid> - Player usage lookup
     - /streamcraft servers - Per-server usage summary
     - /streamcraft active - Currently active rooms and participants
+    - /streamcraft hide <license_id> - Hide a license from default listings
+    - /streamcraft unhide <license_id> - Unhide a license
+    - /streamcraft label <license_id> [name] - Set or clear a display label
     """
 
     streamcraft_group = app_commands.Group(
@@ -77,25 +85,32 @@ class StreamCraftCommands(commands.Cog):
 
     @streamcraft_group.command(name="licenses")
     @owner_only()
-    async def licenses(self, interaction: discord.Interaction):
+    @app_commands.describe(show_hidden="Include hidden licenses (default: False)")
+    async def licenses(self, interaction: discord.Interaction, show_hidden: bool = False):
         """List all StreamCraft licenses."""
         await interaction.response.defer(ephemeral=True)
 
         rows = await self.db.fetch(
             """
-            SELECT server_name, license_key, state, tier, credit_remaining,
-                   last_validated, expires_at, server_ip
+            SELECT id, server_name, license_key, state, tier, credit_remaining,
+                   last_validated, expires_at, server_ip, hidden, label
             FROM streamcraft_licenses
+            WHERE ($1 OR hidden = false)
             ORDER BY created_at DESC
-            """
+            """,
+            show_hidden,
         )
 
         if not rows:
             await interaction.followup.send("No StreamCraft licenses found.", ephemeral=True)
             return
 
+        title = f"StreamCraft Licenses ({len(rows)})"
+        if show_hidden:
+            title += " (incl. hidden)"
+
         embed = discord.Embed(
-            title=f"StreamCraft Licenses ({len(rows)})",
+            title=title,
             color=discord.Color.blue(),
             timestamp=datetime.utcnow(),
         )
@@ -107,9 +122,10 @@ class StreamCraftCommands(commands.Cog):
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
 
             ip = row["server_ip"] or "N/A"
+            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
             embed.add_field(
-                name=f"{row['server_name'] or 'Unknown'} ({row['state']})",
+                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
                     f"IP: {ip} | Credit: {credit} | Validated: {validated}\n"
@@ -202,23 +218,28 @@ class StreamCraftCommands(commands.Cog):
 
     @streamcraft_group.command(name="servers")
     @owner_only()
-    @app_commands.describe(server_id="Optional license ID to view details for a specific server")
-    async def servers(self, interaction: discord.Interaction, server_id: int = None):
+    @app_commands.describe(
+        server_id="Optional license ID to view details for a specific server",
+        show_hidden="Include hidden servers (default: False)",
+    )
+    async def servers(self, interaction: discord.Interaction, server_id: int = None, show_hidden: bool = False):
         """Per-server StreamCraft usage summary."""
         await interaction.response.defer(ephemeral=True)
 
         if server_id:
+            # Explicit lookup bypasses hidden filter
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip,
+                       sl.server_ip, sl.hidden, sl.label,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE sl.id = $1
-                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier, sl.server_ip
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
+                         sl.server_ip, sl.hidden, sl.label
                 ORDER BY total_minutes DESC
                 """,
                 server_id,
@@ -227,15 +248,18 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip,
+                       sl.server_ip, sl.hidden, sl.label,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
                 FROM streamcraft_licenses sl
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
-                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier, sl.server_ip
+                WHERE ($1 OR sl.hidden = false)
+                GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
+                         sl.server_ip, sl.hidden, sl.label
                 ORDER BY total_minutes DESC
-                """
+                """,
+                show_hidden,
             )
 
         if not rows:
@@ -243,8 +267,12 @@ class StreamCraftCommands(commands.Cog):
             await interaction.followup.send(msg, ephemeral=True)
             return
 
+        title = f"StreamCraft Servers ({len(rows)})"
+        if show_hidden and not server_id:
+            title += " (incl. hidden)"
+
         embed = discord.Embed(
-            title=f"StreamCraft Servers ({len(rows)})",
+            title=title,
             color=discord.Color.purple(),
             timestamp=datetime.utcnow(),
         )
@@ -253,8 +281,9 @@ class StreamCraftCommands(commands.Cog):
             mins = f"{row['total_minutes']:.1f}" if row["total_minutes"] else "0"
             cost = f"${row['total_cost']:.4f}" if row["total_cost"] else "$0.00"
             ip = row["server_ip"] or "N/A"
+            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
             embed.add_field(
-                name=f"#{row['id']} — {row['server_name'] or 'Unknown'} ({row['state']})",
+                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{row['sid']}`\n"
                     f"IP: {ip} | Tier: {row['tier'] or 'N/A'} | Sessions: {row['sessions']:,}\n"
@@ -326,6 +355,135 @@ class StreamCraftCommands(commands.Cog):
                 value=f"Last active: {last}\n{players}",
                 inline=False,
             )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /streamcraft hide
+    # =========================================================================
+
+    @streamcraft_group.command(name="hide")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to hide")
+    async def hide(self, interaction: discord.Interaction, license_id: int):
+        """Hide a license from default listings."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, hidden, label FROM streamcraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["hidden"]:
+            await interaction.followup.send(
+                f"License #{row['id']} ({_display_name(row)}) is already hidden.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            "UPDATE streamcraft_licenses SET hidden = true, updated_at = NOW() WHERE id = $1",
+            license_id,
+        )
+
+        embed = discord.Embed(title="License Hidden", color=discord.Color.dark_grey())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=_display_name(row), inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /streamcraft unhide
+    # =========================================================================
+
+    @streamcraft_group.command(name="unhide")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to unhide")
+    async def unhide(self, interaction: discord.Interaction, license_id: int):
+        """Unhide a license so it appears in default listings."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, hidden, label FROM streamcraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if not row["hidden"]:
+            await interaction.followup.send(
+                f"License #{row['id']} ({_display_name(row)}) is not hidden.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            "UPDATE streamcraft_licenses SET hidden = false, updated_at = NOW() WHERE id = $1",
+            license_id,
+        )
+
+        embed = discord.Embed(title="License Unhidden", color=discord.Color.green())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=_display_name(row), inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /streamcraft label
+    # =========================================================================
+
+    @streamcraft_group.command(name="label")
+    @owner_only()
+    @app_commands.describe(
+        license_id="License ID to label",
+        name="Display label (omit to clear)",
+    )
+    async def label(self, interaction: discord.Interaction, license_id: int, name: str = None):
+        """Set or clear a display label for a license."""
+        await interaction.response.defer(ephemeral=True)
+
+        if name and len(name) > 100:
+            await interaction.followup.send(
+                "Label must be 100 characters or fewer.", ephemeral=True
+            )
+            return
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, label FROM streamcraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        old_display = _display_name(row)
+
+        await self.db.execute(
+            "UPDATE streamcraft_licenses SET label = $2, updated_at = NOW() WHERE id = $1",
+            license_id,
+            name,
+        )
+
+        if name:
+            embed = discord.Embed(title="License Labeled", color=discord.Color.blue())
+            embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+            embed.add_field(name="Old Name", value=old_display, inline=True)
+            embed.add_field(name="New Label", value=name, inline=True)
+        else:
+            embed = discord.Embed(title="Label Cleared", color=discord.Color.light_grey())
+            embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+            embed.add_field(name="Reverted To", value=row["server_name"] or "Unknown", inline=True)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 

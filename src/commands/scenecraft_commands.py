@@ -51,6 +51,11 @@ def owner_only():
     return app_commands.check(predicate)
 
 
+def _display_name(row) -> str:
+    """Return label if set, otherwise server_name, otherwise 'Unknown'."""
+    return row.get("label") or row.get("server_name") or "Unknown"
+
+
 class SceneCraftCommands(commands.Cog):
     """
     Slash commands for viewing SceneCraft data (owner-only).
@@ -61,6 +66,9 @@ class SceneCraftCommands(commands.Cog):
     - /scenecraft exports - Recent export events (telemetry)
     - /scenecraft activate <server_ip> - Activate a license (ACTIVE/unlimited)
     - /scenecraft deactivate <server_ip> - Deactivate a license (EXPIRED)
+    - /scenecraft hide <license_id> - Hide a license from default listings
+    - /scenecraft unhide <license_id> - Unhide a license
+    - /scenecraft label <license_id> [name] - Set or clear a display label
     """
 
     scenecraft_group = app_commands.Group(
@@ -78,25 +86,32 @@ class SceneCraftCommands(commands.Cog):
 
     @scenecraft_group.command(name="licenses")
     @owner_only()
-    async def licenses(self, interaction: discord.Interaction):
+    @app_commands.describe(show_hidden="Include hidden licenses (default: False)")
+    async def licenses(self, interaction: discord.Interaction, show_hidden: bool = False):
         """List all SceneCraft licenses."""
         await interaction.response.defer(ephemeral=True)
 
         rows = await self.db.fetch(
             """
-            SELECT server_name, license_key, state, tier, exports_remaining,
-                   last_validated, expires_at, server_ip
+            SELECT id, server_name, license_key, state, tier, exports_remaining,
+                   last_validated, expires_at, server_ip, hidden, label
             FROM scenecraft_licenses
+            WHERE ($1 OR hidden = false)
             ORDER BY created_at DESC
-            """
+            """,
+            show_hidden,
         )
 
         if not rows:
             await interaction.followup.send("No SceneCraft licenses found.", ephemeral=True)
             return
 
+        title = f"SceneCraft Licenses ({len(rows)})"
+        if show_hidden:
+            title += " (incl. hidden)"
+
         embed = discord.Embed(
-            title=f"SceneCraft Licenses ({len(rows)})",
+            title=title,
             color=discord.Color.blue(),
             timestamp=datetime.utcnow(),
         )
@@ -107,9 +122,10 @@ class SceneCraftCommands(commands.Cog):
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
+            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
             embed.add_field(
-                name=f"{row['server_name'] or 'Unknown'} ({row['state']})",
+                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
                     f"IP: {ip} | Sessions: {exports} | Validated: {validated}\n"
@@ -126,16 +142,21 @@ class SceneCraftCommands(commands.Cog):
 
     @scenecraft_group.command(name="servers")
     @owner_only()
-    @app_commands.describe(server_id="Optional license ID to view details for a specific server")
-    async def servers(self, interaction: discord.Interaction, server_id: int = None):
+    @app_commands.describe(
+        server_id="Optional license ID to view details for a specific server",
+        show_hidden="Include hidden servers (default: False)",
+    )
+    async def servers(self, interaction: discord.Interaction, server_id: int = None, show_hidden: bool = False):
         """Per-server SceneCraft license details."""
         await interaction.response.defer(ephemeral=True)
 
         if server_id:
+            # Explicit lookup bypasses hidden filter
             rows = await self.db.fetch(
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
-                       server_ip, exports_remaining, last_validated, expires_at
+                       server_ip, exports_remaining, last_validated, expires_at,
+                       hidden, label
                 FROM scenecraft_licenses
                 WHERE id = $1
                 ORDER BY created_at DESC
@@ -146,10 +167,13 @@ class SceneCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
-                       server_ip, exports_remaining, last_validated, expires_at
+                       server_ip, exports_remaining, last_validated, expires_at,
+                       hidden, label
                 FROM scenecraft_licenses
+                WHERE ($1 OR hidden = false)
                 ORDER BY created_at DESC
-                """
+                """,
+                show_hidden,
             )
 
         if not rows:
@@ -157,8 +181,12 @@ class SceneCraftCommands(commands.Cog):
             await interaction.followup.send(msg, ephemeral=True)
             return
 
+        title = f"SceneCraft Servers ({len(rows)})"
+        if show_hidden and not server_id:
+            title += " (incl. hidden)"
+
         embed = discord.Embed(
-            title=f"SceneCraft Servers ({len(rows)})",
+            title=title,
             color=discord.Color.purple(),
             timestamp=datetime.utcnow(),
         )
@@ -169,9 +197,10 @@ class SceneCraftCommands(commands.Cog):
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
             sid_preview = row["sid"][:12] + "..." if row["sid"] and len(row["sid"]) > 12 else (row["sid"] or "N/A")
+            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
             embed.add_field(
-                name=f"#{row['id']} — {row['server_name'] or 'Unknown'} ({row['state']})",
+                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{sid_preview}`\n"
                     f"IP: {ip} | Tier: {row['tier'] or 'N/A'}\n"
@@ -289,7 +318,7 @@ class SceneCraftCommands(commands.Cog):
                 )
 
             embed.add_field(
-                name=f"{icon} #{row['id']} — {name}",
+                name=f"{icon} #{row['id']} \u2014 {name}",
                 value=value,
                 inline=False,
             )
@@ -323,7 +352,7 @@ class SceneCraftCommands(commands.Cog):
             lines = [f"Multiple licenses found for `{server_ip}`:"]
             for r in rows:
                 lines.append(
-                    f"  #{r['id']} — {r['server_name'] or 'Unknown'} ({r['state']})"
+                    f"  #{r['id']} \u2014 {r['server_name'] or 'Unknown'} ({r['state']})"
                 )
             lines.append("Use `/scenecraft activate_by_id <id>` to target one.")
             await interaction.followup.send("\n".join(lines), ephemeral=True)
@@ -382,7 +411,7 @@ class SceneCraftCommands(commands.Cog):
             lines = [f"Multiple licenses found for `{server_ip}`:"]
             for r in rows:
                 lines.append(
-                    f"  #{r['id']} — {r['server_name'] or 'Unknown'} ({r['state']})"
+                    f"  #{r['id']} \u2014 {r['server_name'] or 'Unknown'} ({r['state']})"
                 )
             lines.append("Use `/scenecraft deactivate_by_id <id>` to target one.")
             await interaction.followup.send("\n".join(lines), ephemeral=True)
@@ -506,6 +535,135 @@ class SceneCraftCommands(commands.Cog):
             name="Before", value=f"{row['state']} / {row['tier']}", inline=True
         )
         embed.add_field(name="After", value="EXPIRED", inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft hide
+    # =========================================================================
+
+    @scenecraft_group.command(name="hide")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to hide")
+    async def hide(self, interaction: discord.Interaction, license_id: int):
+        """Hide a license from default listings."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, hidden, label FROM scenecraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if row["hidden"]:
+            await interaction.followup.send(
+                f"License #{row['id']} ({_display_name(row)}) is already hidden.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            "UPDATE scenecraft_licenses SET hidden = true, updated_at = NOW() WHERE id = $1",
+            license_id,
+        )
+
+        embed = discord.Embed(title="License Hidden", color=discord.Color.dark_grey())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=_display_name(row), inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft unhide
+    # =========================================================================
+
+    @scenecraft_group.command(name="unhide")
+    @owner_only()
+    @app_commands.describe(license_id="License ID to unhide")
+    async def unhide(self, interaction: discord.Interaction, license_id: int):
+        """Unhide a license so it appears in default listings."""
+        await interaction.response.defer(ephemeral=True)
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, hidden, label FROM scenecraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        if not row["hidden"]:
+            await interaction.followup.send(
+                f"License #{row['id']} ({_display_name(row)}) is not hidden.",
+                ephemeral=True,
+            )
+            return
+
+        await self.db.execute(
+            "UPDATE scenecraft_licenses SET hidden = false, updated_at = NOW() WHERE id = $1",
+            license_id,
+        )
+
+        embed = discord.Embed(title="License Unhidden", color=discord.Color.green())
+        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+        embed.add_field(name="Server", value=_display_name(row), inline=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # /scenecraft label
+    # =========================================================================
+
+    @scenecraft_group.command(name="label")
+    @owner_only()
+    @app_commands.describe(
+        license_id="License ID to label",
+        name="Display label (omit to clear)",
+    )
+    async def label(self, interaction: discord.Interaction, license_id: int, name: str = None):
+        """Set or clear a display label for a license."""
+        await interaction.response.defer(ephemeral=True)
+
+        if name and len(name) > 100:
+            await interaction.followup.send(
+                "Label must be 100 characters or fewer.", ephemeral=True
+            )
+            return
+
+        row = await self.db.fetchrow(
+            "SELECT id, server_name, label FROM scenecraft_licenses WHERE id = $1",
+            license_id,
+        )
+
+        if not row:
+            await interaction.followup.send(
+                f"No license found with ID `{license_id}`.", ephemeral=True
+            )
+            return
+
+        old_display = _display_name(row)
+
+        await self.db.execute(
+            "UPDATE scenecraft_licenses SET label = $2, updated_at = NOW() WHERE id = $1",
+            license_id,
+            name,
+        )
+
+        if name:
+            embed = discord.Embed(title="License Labeled", color=discord.Color.blue())
+            embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+            embed.add_field(name="Old Name", value=old_display, inline=True)
+            embed.add_field(name="New Label", value=name, inline=True)
+        else:
+            embed = discord.Embed(title="Label Cleared", color=discord.Color.light_grey())
+            embed.add_field(name="License", value=f"#{row['id']}", inline=True)
+            embed.add_field(name="Reverted To", value=row["server_name"] or "Unknown", inline=True)
+
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
