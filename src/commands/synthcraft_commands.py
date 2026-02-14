@@ -96,10 +96,10 @@ class SynthCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, credit_remaining,
-                   last_validated, expires_at, server_ip, hidden, label
+                   last_validated, server_ip, hidden, label
             FROM synthcraft_licenses
             WHERE ($1 OR hidden = false)
-            ORDER BY created_at DESC
+            ORDER BY id ASC
             """,
             show_hidden,
         )
@@ -124,7 +124,6 @@ class SynthCraftCommands(commands.Cog):
             key_preview = row["license_key"][:8] + "..." if row["license_key"] else "N/A"
             credit = f"${row['credit_remaining']:.2f}" if row["credit_remaining"] is not None else "N/A"
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
-            expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
             geo = geo_map.get(row["server_ip"], "")
             location = f" ({geo})" if geo else ""
@@ -134,8 +133,7 @@ class SynthCraftCommands(commands.Cog):
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}\n"
-                    f"Expires: {expires}"
+                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}"
                 ),
                 inline=False,
             )
@@ -327,7 +325,7 @@ class SynthCraftCommands(commands.Cog):
             SELECT prompt, duration_seconds, status, cost_usd, created_at
             FROM synthcraft_generations
             WHERE player_name ILIKE $1 OR player_uuid = $1
-            ORDER BY created_at DESC
+            ORDER BY id ASC
             LIMIT 10
             """,
             name_or_uuid,

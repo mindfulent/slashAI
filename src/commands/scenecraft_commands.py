@@ -96,10 +96,10 @@ class SceneCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, exports_remaining,
-                   last_validated, expires_at, server_ip, hidden, label
+                   last_validated, server_ip, hidden, label
             FROM scenecraft_licenses
             WHERE ($1 OR hidden = false)
-            ORDER BY created_at DESC
+            ORDER BY id ASC
             """,
             show_hidden,
         )
@@ -124,7 +124,6 @@ class SceneCraftCommands(commands.Cog):
             key_preview = row["license_key"][:8] + "..." if row["license_key"] else "N/A"
             exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
-            expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
             geo = geo_map.get(row["server_ip"], "")
             location = f" ({geo})" if geo else ""
@@ -134,8 +133,7 @@ class SceneCraftCommands(commands.Cog):
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}\n"
-                    f"Expires: {expires}"
+                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}"
                 ),
                 inline=False,
             )
@@ -161,11 +159,11 @@ class SceneCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
-                       server_ip, exports_remaining, last_validated, expires_at,
+                       server_ip, exports_remaining, last_validated,
                        hidden, label
                 FROM scenecraft_licenses
                 WHERE id = $1
-                ORDER BY created_at DESC
+                ORDER BY id ASC
                 """,
                 server_id,
             )
@@ -173,11 +171,11 @@ class SceneCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
-                       server_ip, exports_remaining, last_validated, expires_at,
+                       server_ip, exports_remaining, last_validated,
                        hidden, label
                 FROM scenecraft_licenses
                 WHERE ($1 OR hidden = false)
-                ORDER BY created_at DESC
+                ORDER BY id ASC
                 """,
                 show_hidden,
             )
@@ -202,7 +200,6 @@ class SceneCraftCommands(commands.Cog):
         for row in rows[:25]:
             exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
-            expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
             geo = geo_map.get(row["server_ip"], "")
             location = f" ({geo})" if geo else ""
@@ -214,8 +211,7 @@ class SceneCraftCommands(commands.Cog):
                 value=(
                     f"Server ID: `{sid_preview}`\n"
                     f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'}\n"
-                    f"Sessions: {exports} | Validated: {validated}\n"
-                    f"Expires: {expires}"
+                    f"Sessions: {exports} | Validated: {validated}"
                 ),
                 inline=False,
             )
@@ -253,7 +249,7 @@ class SceneCraftCommands(commands.Cog):
                        error_message, created_at
                 FROM scenecraft_export_events
                 WHERE LOWER(player_name) LIKE LOWER($1)
-                ORDER BY created_at DESC
+                ORDER BY id ASC
                 LIMIT $2
                 """,
                 f"%{player}%",
@@ -267,7 +263,7 @@ class SceneCraftCommands(commands.Cog):
                        render_width, render_height, render_fps,
                        error_message, created_at
                 FROM scenecraft_export_events
-                ORDER BY created_at DESC
+                ORDER BY id ASC
                 LIMIT $1
                 """,
                 limit,
