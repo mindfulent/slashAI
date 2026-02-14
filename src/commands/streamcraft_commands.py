@@ -95,7 +95,7 @@ class StreamCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, credit_remaining,
-                   last_validated, server_ip, hidden, label
+                   last_validated, server_ip, hidden, label, activated_by_name
             FROM streamcraft_licenses
             WHERE ($1 OR hidden = false)
             ORDER BY id ASC
@@ -128,11 +128,13 @@ class StreamCraftCommands(commands.Cog):
             location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
+
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}"
+                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}{activated}"
                 ),
                 inline=False,
             )
@@ -234,7 +236,7 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.hidden, sl.label,
+                       sl.server_ip, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -242,7 +244,7 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE sl.id = $1
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.hidden, sl.label
+                         sl.server_ip, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY total_minutes DESC
                 """,
                 server_id,
@@ -251,7 +253,7 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.hidden, sl.label,
+                       sl.server_ip, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -259,7 +261,7 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE ($1 OR sl.hidden = false)
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.hidden, sl.label
+                         sl.server_ip, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY total_minutes DESC
                 """,
                 show_hidden,
@@ -289,12 +291,13 @@ class StreamCraftCommands(commands.Cog):
             geo = geo_map.get(row["server_ip"], "")
             location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{row['sid']}`\n"
                     f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'} | Sessions: {row['sessions']:,}\n"
-                    f"Minutes: {mins} | Cost: {cost}"
+                    f"Minutes: {mins} | Cost: {cost}{activated}"
                 ),
                 inline=False,
             )

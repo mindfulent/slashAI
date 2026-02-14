@@ -96,7 +96,7 @@ class SceneCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, exports_remaining,
-                   last_validated, server_ip, hidden, label
+                   last_validated, server_ip, hidden, label, activated_by_name
             FROM scenecraft_licenses
             WHERE ($1 OR hidden = false)
             ORDER BY id ASC
@@ -129,11 +129,13 @@ class SceneCraftCommands(commands.Cog):
             location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
+
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}"
+                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}{activated}"
                 ),
                 inline=False,
             )
@@ -160,7 +162,7 @@ class SceneCraftCommands(commands.Cog):
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
                        server_ip, exports_remaining, last_validated,
-                       hidden, label
+                       hidden, label, activated_by_name
                 FROM scenecraft_licenses
                 WHERE id = $1
                 ORDER BY id ASC
@@ -172,7 +174,7 @@ class SceneCraftCommands(commands.Cog):
                 """
                 SELECT id, server_id as sid, server_name, state, tier,
                        server_ip, exports_remaining, last_validated,
-                       hidden, label
+                       hidden, label, activated_by_name
                 FROM scenecraft_licenses
                 WHERE ($1 OR hidden = false)
                 ORDER BY id ASC
@@ -206,12 +208,14 @@ class SceneCraftCommands(commands.Cog):
             sid_preview = row["sid"][:12] + "..." if row["sid"] and len(row["sid"]) > 12 else (row["sid"] or "N/A")
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
+
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{sid_preview}`\n"
                     f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'}\n"
-                    f"Sessions: {exports} | Validated: {validated}"
+                    f"Sessions: {exports} | Validated: {validated}{activated}"
                 ),
                 inline=False,
             )

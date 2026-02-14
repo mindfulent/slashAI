@@ -96,7 +96,7 @@ class SynthCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, credit_remaining,
-                   last_validated, server_ip, hidden, label
+                   last_validated, server_ip, hidden, label, activated_by_name
             FROM synthcraft_licenses
             WHERE ($1 OR hidden = false)
             ORDER BY id ASC
@@ -129,11 +129,13 @@ class SynthCraftCommands(commands.Cog):
             location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
+
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}"
+                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}{activated}"
                 ),
                 inline=False,
             )
@@ -204,7 +206,7 @@ class SynthCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id AS sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.hidden, sl.label,
+                       sl.server_ip, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(sg.id) AS generations,
                        COALESCE(SUM(sg.cost_usd), 0) AS total_cost,
                        COALESCE(SUM(sg.duration_seconds) FILTER (WHERE sg.status = 'completed'), 0) AS total_seconds
@@ -212,7 +214,7 @@ class SynthCraftCommands(commands.Cog):
                 LEFT JOIN synthcraft_generations sg ON sg.license_id = sl.id
                 WHERE sl.id = $1
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.hidden, sl.label
+                         sl.server_ip, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY total_seconds DESC
                 """,
                 server_id,
@@ -221,7 +223,7 @@ class SynthCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id AS sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.hidden, sl.label,
+                       sl.server_ip, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(sg.id) AS generations,
                        COALESCE(SUM(sg.cost_usd), 0) AS total_cost,
                        COALESCE(SUM(sg.duration_seconds) FILTER (WHERE sg.status = 'completed'), 0) AS total_seconds
@@ -229,7 +231,7 @@ class SynthCraftCommands(commands.Cog):
                 LEFT JOIN synthcraft_generations sg ON sg.license_id = sl.id
                 WHERE ($1 OR sl.hidden = false)
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.hidden, sl.label
+                         sl.server_ip, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY total_seconds DESC
                 """,
                 show_hidden,
@@ -259,12 +261,13 @@ class SynthCraftCommands(commands.Cog):
             geo = geo_map.get(row["server_ip"], "")
             location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
+            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{row['sid']}`\n"
                     f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'} | Generations: {row['generations']:,}\n"
-                    f"Audio: {total_mins} min | Cost: {cost}"
+                    f"Audio: {total_mins} min | Cost: {cost}{activated}"
                 ),
                 inline=False,
             )
