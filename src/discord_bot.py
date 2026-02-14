@@ -1496,6 +1496,8 @@ class WebhookServer:
         self.app.router.add_post('/server/gamemode-change', self.handle_gamemode_change)
         self.app.router.add_post('/server/title-grant', self.handle_title_grant)
         self.app.router.add_post('/server/synthcraft-broadcast', self.handle_synthcraft_broadcast)
+        self.app.router.add_post('/server/scenecraft-trial', self.handle_scenecraft_trial)
+        self.app.router.add_post('/server/scenecraft-export', self.handle_scenecraft_export)
         self.app.router.add_post('/server/event-created', self.handle_event_created)
         self.app.router.add_post('/server/event-updated', self.handle_event_updated)
         self.app.router.add_post('/server/event-deleted', self.handle_event_deleted)
@@ -1823,6 +1825,133 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error handling synthcraft-broadcast webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_scenecraft_trial(self, request: web.Request) -> web.Response:
+        """Handle SceneCraft trial provisioned webhook from theblockacademy backend."""
+        logger.info(f"Received scenecraft-trial webhook request from {request.remote}")
+
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            logger.warning("SceneCraft trial webhook unauthorized")
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            server_name = data.get('server_name', 'Unknown Server')
+            server_ip = data.get('server_ip', 'Unknown')
+            mod_version = data.get('mod_version')
+            sessions = data.get('sessions', 0)
+
+            embed = discord.Embed(
+                title="New SceneCraft Trial",
+                color=0x2ECC71,  # Green
+            )
+            embed.add_field(name="Server", value=server_name, inline=False)
+            embed.add_field(name="IP", value=server_ip, inline=True)
+            embed.add_field(name="Sessions", value=str(sessions), inline=True)
+            if mod_version:
+                embed.add_field(name="Mod Version", value=mod_version, inline=True)
+
+            channel_id = os.getenv('SCENECRAFT_NOTIFICATIONS_CHANNEL', '1453230280608579786')
+
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if not channel:
+                    logger.warning(f"Channel {channel_id} not found for SceneCraft trial notification")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+                message = await channel.send(embed=embed)
+                logger.info(f"Announced SceneCraft trial: {server_name} (msg_id={message.id})")
+                return web.json_response({
+                    "success": True,
+                    "message_id": str(message.id),
+                    "channel_id": str(channel.id)
+                })
+
+            except discord.Forbidden:
+                logger.error(f"No permission to send message in channel {channel_id}")
+                return web.json_response({"error": "No permission to send"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling scenecraft-trial webhook: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_scenecraft_export(self, request: web.Request) -> web.Response:
+        """Handle SceneCraft export complete webhook from theblockacademy backend."""
+        logger.info(f"Received scenecraft-export webhook request from {request.remote}")
+
+        # Verify API key
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            logger.warning("SceneCraft export webhook unauthorized")
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        try:
+            data = await request.json()
+            player_name = data.get('player_name', 'Unknown')
+            player_uuid = data.get('player_uuid', '')
+            highlight_count = data.get('highlight_count', 0)
+            total_frames = data.get('total_frames')
+            render_width = data.get('render_width')
+            render_height = data.get('render_height')
+            render_fps = data.get('render_fps')
+
+            embed = discord.Embed(
+                description="Exported a highlight reel!",
+                color=0x1ABC9C,  # Teal
+            )
+
+            if player_uuid:
+                clean_uuid = player_uuid.replace('-', '')
+                avatar_url = f"https://mc-heads.net/avatar/{clean_uuid}/64"
+                embed.set_author(name=player_name, icon_url=avatar_url)
+            else:
+                embed.set_author(name=player_name)
+
+            embed.add_field(name="Highlights", value=str(highlight_count), inline=True)
+
+            if render_width and render_height and render_fps:
+                embed.add_field(name="Resolution", value=f"{render_width}x{render_height} @ {render_fps} fps", inline=True)
+
+            if total_frames:
+                embed.add_field(name="Frames", value=f"{total_frames:,}", inline=True)
+
+            channel_id = os.getenv('SCENECRAFT_NOTIFICATIONS_CHANNEL', '1453230280608579786')
+
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel is None:
+                    channel = await self.bot.fetch_channel(int(channel_id))
+
+                if not channel:
+                    logger.warning(f"Channel {channel_id} not found for SceneCraft export notification")
+                    return web.json_response({"error": "Channel not found"}, status=404)
+
+                message = await channel.send(embed=embed)
+                logger.info(f"Announced SceneCraft export: {player_name} ({highlight_count} highlights, msg_id={message.id})")
+                return web.json_response({
+                    "success": True,
+                    "message_id": str(message.id),
+                    "channel_id": str(channel.id)
+                })
+
+            except discord.Forbidden:
+                logger.error(f"No permission to send message in channel {channel_id}")
+                return web.json_response({"error": "No permission to send"}, status=403)
+
+        except json.JSONDecodeError:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except Exception as e:
+            logger.error(f"Error handling scenecraft-export webhook: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_event_created(self, request: web.Request) -> web.Response:
