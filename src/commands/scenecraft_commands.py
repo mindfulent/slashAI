@@ -31,6 +31,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.geoip import resolve_geo
+
 logger = logging.getLogger("slashAI.commands.scenecraft")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
@@ -110,6 +112,8 @@ class SceneCraftCommands(commands.Cog):
         if show_hidden:
             title += " (incl. hidden)"
 
+        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
+
         embed = discord.Embed(
             title=title,
             color=discord.Color.blue(),
@@ -122,13 +126,15 @@ class SceneCraftCommands(commands.Cog):
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
+            geo = geo_map.get(row["server_ip"], "")
+            location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip} | Sessions: {exports} | Validated: {validated}\n"
+                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}\n"
                     f"Expires: {expires}"
                 ),
                 inline=False,
@@ -185,6 +191,8 @@ class SceneCraftCommands(commands.Cog):
         if show_hidden and not server_id:
             title += " (incl. hidden)"
 
+        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
+
         embed = discord.Embed(
             title=title,
             color=discord.Color.purple(),
@@ -196,6 +204,8 @@ class SceneCraftCommands(commands.Cog):
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
+            geo = geo_map.get(row["server_ip"], "")
+            location = f" ({geo})" if geo else ""
             sid_preview = row["sid"][:12] + "..." if row["sid"] and len(row["sid"]) > 12 else (row["sid"] or "N/A")
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
@@ -203,7 +213,7 @@ class SceneCraftCommands(commands.Cog):
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{sid_preview}`\n"
-                    f"IP: {ip} | Tier: {row['tier'] or 'N/A'}\n"
+                    f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'}\n"
                     f"Sessions: {exports} | Validated: {validated}\n"
                     f"Expires: {expires}"
                 ),

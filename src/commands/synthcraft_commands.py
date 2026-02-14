@@ -31,6 +31,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.geoip import resolve_geo
+
 logger = logging.getLogger("slashAI.commands.synthcraft")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
@@ -110,6 +112,8 @@ class SynthCraftCommands(commands.Cog):
         if show_hidden:
             title += " (incl. hidden)"
 
+        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
+
         embed = discord.Embed(
             title=title,
             color=discord.Color.blue(),
@@ -122,13 +126,15 @@ class SynthCraftCommands(commands.Cog):
             validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
             expires = row["expires_at"].strftime("%Y-%m-%d") if row["expires_at"] else "N/A"
             ip = row["server_ip"] or "N/A"
+            geo = geo_map.get(row["server_ip"], "")
+            location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
 
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip} | Credit: {credit} | Validated: {validated}\n"
+                    f"IP: {ip}{location} | Credit: {credit} | Validated: {validated}\n"
                     f"Expires: {expires}"
                 ),
                 inline=False,
@@ -240,6 +246,8 @@ class SynthCraftCommands(commands.Cog):
         if show_hidden and not server_id:
             title += " (incl. hidden)"
 
+        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
+
         embed = discord.Embed(
             title=title,
             color=discord.Color.purple(),
@@ -250,12 +258,14 @@ class SynthCraftCommands(commands.Cog):
             total_mins = f"{row['total_seconds'] / 60:.1f}" if row["total_seconds"] else "0"
             cost = f"${row['total_cost']:.4f}" if row["total_cost"] else "$0.00"
             ip = row["server_ip"] or "N/A"
+            geo = geo_map.get(row["server_ip"], "")
+            location = f" ({geo})" if geo else ""
             hidden_marker = " [HIDDEN]" if row["hidden"] else ""
             embed.add_field(
                 name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
                 value=(
                     f"Server ID: `{row['sid']}`\n"
-                    f"IP: {ip} | Tier: {row['tier'] or 'N/A'} | Generations: {row['generations']:,}\n"
+                    f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'} | Generations: {row['generations']:,}\n"
                     f"Audio: {total_mins} min | Cost: {cost}"
                 ),
                 inline=False,
