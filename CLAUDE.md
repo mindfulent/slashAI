@@ -345,10 +345,14 @@ Owner-only slash commands for viewing StreamCraft license, usage, and streaming 
 
 | Command | Description |
 |---------|-------------|
-| `/streamcraft licenses` | List all licenses |
+| `/streamcraft licenses [show_hidden]` | List all licenses |
 | `/streamcraft player <name_or_uuid>` | Player usage lookup |
-| `/streamcraft servers [server_id]` | Per-server usage summary |
+| `/streamcraft servers [server_id] [show_hidden]` | Per-server usage summary |
 | `/streamcraft active` | Currently active rooms and participants |
+| `/streamcraft set-state <license_id> <state>` | Set license state (TRIAL/ACTIVE/GRACE/EXPIRED) |
+| `/streamcraft hide <license_id>` | Hide a license from default listings |
+| `/streamcraft unhide <license_id>` | Unhide a license |
+| `/streamcraft label <license_id> [name]` | Set or clear a display label |
 
 ## SynthCraft Commands (Owner-Only)
 
@@ -361,6 +365,10 @@ Owner-only slash commands for viewing SynthCraft license, usage, and generation 
 | `/synthcraft servers [server_id]` | Per-server usage summary |
 | `/synthcraft player <name_or_uuid>` | Player generation history |
 | `/synthcraft active` | Currently generating songs |
+| `/synthcraft set-state <license_id> <state>` | Set license state (TRIAL/ACTIVE/GRACE/EXPIRED) |
+| `/synthcraft hide <license_id>` | Hide a license from default listings |
+| `/synthcraft unhide <license_id>` | Unhide a license |
+| `/synthcraft label <license_id> [name]` | Set or clear a display label |
 
 ## SceneCraft Commands (Owner-Only)
 
@@ -370,6 +378,11 @@ Owner-only slash commands for viewing SceneCraft license and server data:
 |---------|-------------|
 | `/scenecraft licenses` | List all licenses with state, tier, sessions remaining |
 | `/scenecraft servers [server_id]` | Per-server license details |
+| `/scenecraft exports [limit] [player]` | Recent export events (telemetry) |
+| `/scenecraft set-state <license_id> <state>` | Set license state (TRIAL/ACTIVE/GRACE/EXPIRED) |
+| `/scenecraft hide <license_id>` | Hide a license from default listings |
+| `/scenecraft unhide <license_id>` | Unhide a license |
+| `/scenecraft label <license_id> [name]` | Set or clear a display label |
 
 ## Account Linking
 

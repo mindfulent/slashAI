@@ -67,6 +67,7 @@ class StreamCraftCommands(commands.Cog):
     - /streamcraft player <name_or_uuid> - Player usage lookup
     - /streamcraft servers - Per-server usage summary
     - /streamcraft active - Currently active rooms and participants
+    - /streamcraft set-state <license_id> <state> - Set license state (TRIAL/ACTIVE/GRACE/EXPIRED)
     - /streamcraft hide <license_id> - Hide a license from default listings
     - /streamcraft unhide <license_id> - Unhide a license
     - /streamcraft label <license_id> [name] - Set or clear a display label
@@ -369,18 +370,29 @@ class StreamCraftCommands(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
-    # /streamcraft activate
+    # /streamcraft set-state
     # =========================================================================
 
-    @streamcraft_group.command(name="activate")
+    @streamcraft_group.command(name="set-state")
     @owner_only()
-    @app_commands.describe(license_id="License ID to activate")
-    async def activate(self, interaction: discord.Interaction, license_id: int):
-        """Activate a StreamCraft license (set to ACTIVE/unlimited) by license ID."""
+    @app_commands.describe(
+        license_id="License ID to update",
+        state="Target license state",
+    )
+    @app_commands.choices(
+        state=[
+            app_commands.Choice(name="TRIAL", value="TRIAL"),
+            app_commands.Choice(name="ACTIVE", value="ACTIVE"),
+            app_commands.Choice(name="GRACE", value="GRACE"),
+            app_commands.Choice(name="EXPIRED", value="EXPIRED"),
+        ]
+    )
+    async def set_state(self, interaction: discord.Interaction, license_id: int, state: str):
+        """Set a StreamCraft license to any state (TRIAL/ACTIVE/GRACE/EXPIRED)."""
         await interaction.response.defer(ephemeral=True)
 
         row = await self.db.fetchrow(
-            "SELECT id, server_name, state, tier, credit_remaining, server_ip "
+            "SELECT id, server_name, state, tier, credit_remaining, server_ip, label "
             "FROM streamcraft_licenses WHERE id = $1",
             license_id,
         )
@@ -391,77 +403,68 @@ class StreamCraftCommands(commands.Cog):
             )
             return
 
-        if row["state"] == "ACTIVE" and row["tier"] == "standard":
+        if row["state"] == state and (
+            (state == "TRIAL" and row["tier"] == "trial")
+            or (state == "ACTIVE" and row["tier"] == "standard")
+            or state in ("GRACE", "EXPIRED")
+        ):
             await interaction.followup.send(
-                f"License #{row['id']} ({row['server_name']}) is already ACTIVE.",
+                f"License #{row['id']} ({_display_name(row)}) is already {state}.",
                 ephemeral=True,
             )
             return
 
-        await self.db.execute(
-            """UPDATE streamcraft_licenses
-               SET state = 'ACTIVE', tier = 'standard',
-                   credit_remaining = NULL, expires_at = NULL,
-                   updated_at = NOW()
-               WHERE id = $1""",
-            row["id"],
-        )
+        before = f"{row['state']} / {row['tier']}"
 
-        embed = discord.Embed(title="License Activated", color=discord.Color.green())
-        embed.add_field(name="License", value=f"#{row['id']}", inline=True)
-        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
-        embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
-        embed.add_field(
-            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
-        )
-        embed.add_field(name="After", value="ACTIVE / standard (unlimited)", inline=True)
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    # =========================================================================
-    # /streamcraft deactivate
-    # =========================================================================
-
-    @streamcraft_group.command(name="deactivate")
-    @owner_only()
-    @app_commands.describe(license_id="License ID to deactivate")
-    async def deactivate(self, interaction: discord.Interaction, license_id: int):
-        """Deactivate a StreamCraft license (set to EXPIRED) by license ID."""
-        await interaction.response.defer(ephemeral=True)
-
-        row = await self.db.fetchrow(
-            "SELECT id, server_name, state, tier, server_ip "
-            "FROM streamcraft_licenses WHERE id = $1",
-            license_id,
-        )
-
-        if not row:
-            await interaction.followup.send(
-                f"No license found with ID `{license_id}`.", ephemeral=True
+        if state == "TRIAL":
+            await self.db.execute(
+                """UPDATE streamcraft_licenses
+                   SET state = 'TRIAL', tier = 'trial',
+                       credit_remaining = 1.00,
+                       expires_at = NULL, grace_ends_at = NULL,
+                       updated_at = NOW()
+                   WHERE id = $1""",
+                row["id"],
             )
-            return
-
-        if row["state"] == "EXPIRED":
-            await interaction.followup.send(
-                f"License #{row['id']} ({row['server_name']}) is already EXPIRED.",
-                ephemeral=True,
+            after = "TRIAL / trial ($1.00 credit)"
+            color = discord.Color.gold()
+        elif state == "ACTIVE":
+            await self.db.execute(
+                """UPDATE streamcraft_licenses
+                   SET state = 'ACTIVE', tier = 'standard',
+                       credit_remaining = NULL,
+                       expires_at = NULL, grace_ends_at = NULL,
+                       updated_at = NOW()
+                   WHERE id = $1""",
+                row["id"],
             )
-            return
+            after = "ACTIVE / standard (unlimited)"
+            color = discord.Color.green()
+        elif state == "GRACE":
+            await self.db.execute(
+                """UPDATE streamcraft_licenses
+                   SET state = 'GRACE', updated_at = NOW()
+                   WHERE id = $1""",
+                row["id"],
+            )
+            after = f"GRACE / {row['tier']}"
+            color = discord.Color.orange()
+        else:  # EXPIRED
+            await self.db.execute(
+                """UPDATE streamcraft_licenses
+                   SET state = 'EXPIRED', updated_at = NOW()
+                   WHERE id = $1""",
+                row["id"],
+            )
+            after = f"EXPIRED / {row['tier']}"
+            color = discord.Color.red()
 
-        await self.db.execute(
-            """UPDATE streamcraft_licenses
-               SET state = 'EXPIRED', updated_at = NOW()
-               WHERE id = $1""",
-            row["id"],
-        )
-
-        embed = discord.Embed(title="License Deactivated", color=discord.Color.red())
+        embed = discord.Embed(title=f"License → {state}", color=color)
         embed.add_field(name="License", value=f"#{row['id']}", inline=True)
-        embed.add_field(name="Server", value=row["server_name"] or "Unknown", inline=True)
+        embed.add_field(name="Server", value=_display_name(row), inline=True)
         embed.add_field(name="IP", value=row["server_ip"] or "N/A", inline=True)
-        embed.add_field(
-            name="Before", value=f"{row['state']} / {row['tier']}", inline=True
-        )
-        embed.add_field(name="After", value="EXPIRED", inline=True)
+        embed.add_field(name="Before", value=before, inline=True)
+        embed.add_field(name="After", value=after, inline=True)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
