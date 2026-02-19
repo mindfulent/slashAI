@@ -150,7 +150,7 @@ class ImageMemoryConfig:
     """
 
     # Image analysis settings
-    vision_model: str = "claude-sonnet-4-5-20250929"
+    vision_model: str = "claude-sonnet-4-6"
     image_embedding_model: str = "voyage-multimodal-3"
     image_embedding_dimensions: int = 1024
 
@@ -184,7 +184,7 @@ class ImageMemoryConfig:
         """Create config from environment variables with defaults."""
         return cls(
             vision_model=os.getenv(
-                "IMAGE_VISION_MODEL", "claude-sonnet-4-5-20250929"
+                "IMAGE_VISION_MODEL", "claude-sonnet-4-6"
             ),
             image_embedding_model=os.getenv(
                 "IMAGE_EMBEDDING_MODEL", "voyage-multimodal-3"

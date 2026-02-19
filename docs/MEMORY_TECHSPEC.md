@@ -481,7 +481,7 @@ class MemoryExtractor:
         self, 
         messages: list[dict],
         channel: discord.abc.Messageable,
-        model: str = "claude-sonnet-4-5-20250929"
+        model: str = "claude-sonnet-4-6"
     ) -> list[tuple[ExtractedMemory, PrivacyLevel]]:
         """Extract memories and assign privacy levels based on channel context."""
         
@@ -826,7 +826,7 @@ class MemoryUpdater:
         """Merge new memory with existing."""
         
         response = await self.anthropic.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             messages=[{
                 "role": "user",

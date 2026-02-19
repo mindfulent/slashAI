@@ -4,9 +4,9 @@
 
 # slashAI
 
-AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
+AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.6 with privacy-aware persistent memory.
 
-**Current Version:** 0.13.3
+**Current Version:** 0.13.4
 
 ## Overview
 

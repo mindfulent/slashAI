@@ -49,8 +49,8 @@ if TYPE_CHECKING:
     from memory.privacy import PrivacyLevel
     from memory.retriever import RetrievedMemory
 
-# Claude Sonnet 4.5 model ID
-MODEL_ID = "claude-sonnet-4-5-20250929"
+# Claude Sonnet 4.6 model ID
+MODEL_ID = "claude-sonnet-4-6"
 
 # Discord tools for agentic actions (owner-only)
 DISCORD_TOOLS = [

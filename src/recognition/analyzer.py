@@ -24,8 +24,8 @@ from .api import Submission, PlayerProfile, OwnershipStats
 
 logger = logging.getLogger(__name__)
 
-# Use Sonnet 4.5 for high-quality vision analysis
-VISION_MODEL = "claude-sonnet-4-5-20250929"
+# Use Sonnet 4.6 for high-quality vision analysis
+VISION_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass

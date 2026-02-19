@@ -22,8 +22,8 @@ from .api import Nomination, RecognitionAPIClient
 
 logger = logging.getLogger(__name__)
 
-# Use Sonnet 4.5 for high-quality text analysis
-TEXT_MODEL = "claude-sonnet-4-5-20250929"
+# Use Sonnet 4.6 for high-quality text analysis
+TEXT_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass

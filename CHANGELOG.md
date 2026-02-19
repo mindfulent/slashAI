@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.4] - 2026-02-18
+
+### Changed
+- **Model upgrade**: Upgraded from Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`) to Claude Sonnet 4.6 (`claude-sonnet-4-6`) across all components
+  - Main chatbot (`claude_client.py`)
+  - Memory extraction (`extractor.py`)
+  - Memory merging (`updater.py`)
+  - Image analysis and narration (`images/analyzer.py`, `images/narrator.py`)
+  - Image memory config (`config.py`)
+  - Reminder message generation (`reminders/scheduler.py`)
+  - Build recognition analysis (`recognition/analyzer.py`)
+  - Nomination review (`recognition/nominations.py`)
+
+---
+
 ## [0.13.3] - 2026-02-12
 
 ### Added

@@ -193,7 +193,7 @@ class MemoryExtractor:
         self,
         messages: list[dict],
         channel: discord.abc.Messageable,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-sonnet-4-6",
         reaction_context: Optional[list[dict]] = None,
     ) -> list[tuple[ExtractedMemory, PrivacyLevel]]:
         """

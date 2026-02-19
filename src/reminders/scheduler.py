@@ -45,7 +45,7 @@ from .manager import ReminderManager
 logger = logging.getLogger("slashAI.reminders.scheduler")
 
 # Model for reminder message generation
-REMINDER_MODEL = "claude-sonnet-4-5-20250929"
+REMINDER_MODEL = "claude-sonnet-4-6"
 
 
 class ReminderScheduler:

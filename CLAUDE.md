@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-slashAI is a Discord chatbot and MCP server powered by Claude Sonnet 4.5 with privacy-aware persistent memory.
+slashAI is a Discord chatbot and MCP server powered by Claude Sonnet 4.6 with privacy-aware persistent memory.
 
 **Two modes:**
 1. **MCP Server**: Claude Code uses tools to control Discord (send/edit/read messages)
@@ -130,7 +130,7 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 
 | Constant | Value | Location |
 |----------|-------|----------|
-| `MODEL_ID` | `claude-sonnet-4-5-20250929` | `claude_client.py` |
+| `MODEL_ID` | `claude-sonnet-4-6` | `claude_client.py` |
 | `MAX_HISTORY_LENGTH` | 20 messages | `claude_client.py` |
 | `extraction_message_threshold` | 5 exchanges | `memory/config.py` |
 | `similarity_threshold` (text) | 0.50 | `memory/config.py` |

@@ -122,7 +122,7 @@ class ClaudeClient:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| Model ID | `claude-sonnet-4-5-20250929` | Claude Sonnet 4.5 |
+| Model ID | `claude-sonnet-4-6` | Claude Sonnet 4.6 |
 | Max Tokens | 1024 | Per response |
 | Context Window | 200K tokens | Model limit |
 

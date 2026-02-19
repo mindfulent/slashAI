@@ -81,7 +81,7 @@ Persistent Discord connection using discord.py.
 
 Anthropic API wrapper for chatbot responses.
 
-**Model:** `claude-sonnet-4-5-20250929`
+**Model:** `claude-sonnet-4-6`
 **Pricing:** $3/M input, $15/M output tokens
 
 **Features:**

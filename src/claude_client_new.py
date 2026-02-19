@@ -35,8 +35,8 @@ if TYPE_CHECKING:
     from memory import MemoryManager
     from memory.retriever import RetrievedMemory
 
-# Claude Sonnet 4.5 model ID
-MODEL_ID = "claude-sonnet-4-5-20250929"
+# Claude Sonnet 4.6 model ID
+MODEL_ID = "claude-sonnet-4-6"
 
 # Default system prompt for the chatbot
 DEFAULT_SYSTEM_PROMPT = """You are slashAI, an AI assistant modeled after your creator, Slash.

@@ -348,7 +348,7 @@ from dataclasses import dataclass
 @dataclass
 class ImageAnalysisConfig:
     # Claude model for vision
-    vision_model: str = "claude-sonnet-4-5-20250929"
+    vision_model: str = "claude-sonnet-4-6"
     
     # Voyage model for embeddings
     embedding_model: str = "voyage-multimodal-3"
