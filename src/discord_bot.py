@@ -1583,6 +1583,14 @@ class WebhookServer:
             if not player_name or not to_gamemode:
                 return web.json_response({"error": "Missing required fields"}, status=400)
 
+            # Check ignorelist - skip announcement for ignored players
+            ignorelist_raw = os.getenv('GAMEMODE_IGNORELIST', '')
+            if ignorelist_raw:
+                ignored_names = [name.strip().lower() for name in ignorelist_raw.split(',') if name.strip()]
+                if player_name.lower() in ignored_names:
+                    logger.info(f"Skipping gamemode announcement for ignored player: {player_name}")
+                    return web.json_response({"success": True, "skipped": True, "reason": "ignorelist"})
+
             # Build the embed - blue color for gamemode changes
             # Color: 0x5865F2 (Discord blurple)
             embed = discord.Embed(color=0x5865F2)
