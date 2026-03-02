@@ -269,16 +269,8 @@ class RecognitionAPIClient:
             "screenshot_urls": screenshot_urls,
         }
 
-        # Sign the webhook payload
-        signature = self._sign_payload(payload)
-
         try:
-            response = await self._client.post(
-                "/webhook/slashai",
-                json=payload,
-                headers={"X-SlashAI-Signature": signature},
-            )
-            response.raise_for_status()
+            await self._signed_post("/webhook/slashai", payload)
             return True
         except httpx.HTTPError as e:
             logger.error(f"Failed to submit analysis result: {e}")
@@ -299,15 +291,8 @@ class RecognitionAPIClient:
             "confidence": confidence,
         }
 
-        signature = self._sign_payload(payload)
-
         try:
-            response = await self._client.post(
-                "/webhook/slashai/nomination",
-                json=payload,
-                headers={"X-SlashAI-Signature": signature},
-            )
-            response.raise_for_status()
+            await self._signed_post("/webhook/slashai/nomination", payload)
             return True
         except httpx.HTTPError as e:
             logger.error(f"Failed to submit nomination review: {e}")
@@ -361,15 +346,9 @@ class RecognitionAPIClient:
         Called when user clicks "Share to Server" button in the approval DM.
         """
         payload = {"submission_id": submission_id}
-        signature = self._sign_payload(payload)
 
         try:
-            response = await self._client.post(
-                f"/submissions/{submission_id}/share",
-                json=payload,
-                headers={"X-SlashAI-Signature": signature},
-            )
-            response.raise_for_status()
+            await self._signed_post(f"/submissions/{submission_id}/share", payload)
             return True
         except httpx.HTTPError as e:
             logger.error(f"Failed to share submission: {e}")
@@ -402,31 +381,43 @@ class RecognitionAPIClient:
             "submission_id": submission_id,
             "discord_message_id": discord_message_id,
         }
-        signature = self._sign_payload(payload)
 
         try:
-            response = await self._client.post(
-                "/webhook/message-posted",
-                json=payload,
-                headers={"X-SlashAI-Signature": signature},
-            )
-            response.raise_for_status()
+            await self._signed_post("/webhook/message-posted", payload)
             return True
         except httpx.HTTPError as e:
             logger.error(f"Failed to report message posted: {e}")
             return False
 
-    def _sign_payload(self, payload: dict) -> str:
-        """Generate HMAC-SHA256 signature for webhook payload"""
+    async def _signed_post(self, path: str, payload: dict) -> httpx.Response:
+        """Send a signed webhook POST, using the same bytes for signing and sending.
+
+        Serializes the payload once to compact JSON (matching JavaScript's
+        JSON.stringify()), computes the HMAC-SHA256 signature on those exact
+        bytes, and sends them as the request body. This avoids mismatches
+        between the signed content and the transmitted content.
+        """
         if not self.webhook_secret:
             logger.warning("SLASHAI_WEBHOOK_SECRET not set - webhooks will fail auth")
-            return ""
 
-        # Use compact JSON (no spaces) to match JavaScript's JSON.stringify()
-        payload_bytes = json.dumps(payload, separators=(',', ':')).encode("utf-8")
-        signature = hmac.new(
-            self.webhook_secret.encode("utf-8"),
-            payload_bytes,
-            hashlib.sha256,
-        ).hexdigest()
-        return signature
+        # Serialize once — compact JSON to match JS JSON.stringify()
+        body_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        signature = ""
+        if self.webhook_secret:
+            signature = hmac.new(
+                self.webhook_secret.encode("utf-8"),
+                body_bytes,
+                hashlib.sha256,
+            ).hexdigest()
+
+        response = await self._client.post(
+            path,
+            content=body_bytes,
+            headers={
+                "X-SlashAI-Signature": signature,
+                "Content-Type": "application/json",
+            },
+        )
+        response.raise_for_status()
+        return response

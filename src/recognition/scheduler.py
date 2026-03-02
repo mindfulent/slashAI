@@ -103,6 +103,11 @@ class RecognitionScheduler:
         # Maps submission_id -> PendingApproval data
         self._pending_approvals: dict[str, PendingApproval] = {}
 
+        # Track webhook failures to avoid re-analyzing indefinitely
+        # Maps submission_id or nomination_id -> failure count
+        self._webhook_failures: dict[str, int] = {}
+        self.MAX_WEBHOOK_RETRIES = 3
+
     def start(self) -> None:
         """Start the scheduler loop."""
         if not self._started and self.analyzer:
@@ -186,6 +191,22 @@ class RecognitionScheduler:
             submission: The submission to process
         """
         submission_id = submission.id
+
+        # Skip submissions that have already failed webhook delivery too many times
+        # to avoid burning API credits on repeated Vision calls
+        failure_count = self._webhook_failures.get(submission_id, 0)
+        if failure_count >= self.MAX_WEBHOOK_RETRIES:
+            if failure_count == self.MAX_WEBHOOK_RETRIES:
+                logger.error(
+                    f"Submission {submission_id} ({submission.build_name}) has failed "
+                    f"webhook delivery {failure_count} times — skipping to avoid "
+                    f"wasting API credits. Fix SLASHAI_WEBHOOK_SECRET or "
+                    f"RECOGNITION_API_KEY and restart."
+                )
+                # Increment once more so this loud message only logs once
+                self._webhook_failures[submission_id] = failure_count + 1
+            return
+
         logger.info(f"Processing submission {submission_id}: {submission.build_name}")
 
         try:
@@ -225,9 +246,17 @@ class RecognitionScheduler:
             )
 
             if not success:
-                logger.error(f"Failed to submit analysis result for {submission_id}")
+                self._webhook_failures[submission_id] = (
+                    self._webhook_failures.get(submission_id, 0) + 1
+                )
+                logger.error(
+                    f"Failed to submit analysis result for {submission_id} "
+                    f"(attempt {self._webhook_failures[submission_id]}/{self.MAX_WEBHOOK_RETRIES})"
+                )
                 return
 
+            # Clear failure counter on success
+            self._webhook_failures.pop(submission_id, None)
             logger.info(f"Successfully submitted analysis for {submission_id}")
 
             # Handle announcement based on recognition and Discord linkage
@@ -262,8 +291,14 @@ class RecognitionScheduler:
                     )
 
         except Exception as e:
+            # Count as a failure to prevent infinite re-analysis on persistent errors
+            self._webhook_failures[submission_id] = (
+                self._webhook_failures.get(submission_id, 0) + 1
+            )
             logger.error(
-                f"Error processing submission {submission_id}: {e}", exc_info=True
+                f"Error processing submission {submission_id}: {e} "
+                f"(attempt {self._webhook_failures[submission_id]}/{self.MAX_WEBHOOK_RETRIES})",
+                exc_info=True,
             )
 
     async def _announce_recognition(
@@ -603,6 +638,19 @@ class RecognitionScheduler:
             nomination: The nomination to process
         """
         nomination_id = nomination.id
+
+        # Skip nominations that have already failed webhook delivery too many times
+        failure_count = self._webhook_failures.get(nomination_id, 0)
+        if failure_count >= self.MAX_WEBHOOK_RETRIES:
+            if failure_count == self.MAX_WEBHOOK_RETRIES:
+                logger.error(
+                    f"Nomination {nomination_id} has failed webhook delivery "
+                    f"{failure_count} times — skipping to avoid wasting API credits. "
+                    f"Fix SLASHAI_WEBHOOK_SECRET and restart."
+                )
+                self._webhook_failures[nomination_id] = failure_count + 1
+            return
+
         logger.info(
             f"Processing nomination {nomination_id}: "
             f"{nomination.category} nomination"
@@ -641,9 +689,16 @@ class RecognitionScheduler:
             )
 
             if not success:
-                logger.error(f"Failed to submit nomination review for {nomination_id}")
+                self._webhook_failures[nomination_id] = (
+                    self._webhook_failures.get(nomination_id, 0) + 1
+                )
+                logger.error(
+                    f"Failed to submit nomination review for {nomination_id} "
+                    f"(attempt {self._webhook_failures[nomination_id]}/{self.MAX_WEBHOOK_RETRIES})"
+                )
                 return
 
+            self._webhook_failures.pop(nomination_id, None)
             logger.info(f"Successfully submitted nomination review for {nomination_id}")
 
             # If approved, announce to #nominations channel
@@ -654,8 +709,13 @@ class RecognitionScheduler:
                 await self._prompt_admin_review(nomination, review)
 
         except Exception as e:
+            self._webhook_failures[nomination_id] = (
+                self._webhook_failures.get(nomination_id, 0) + 1
+            )
             logger.error(
-                f"Error processing nomination {nomination_id}: {e}", exc_info=True
+                f"Error processing nomination {nomination_id}: {e} "
+                f"(attempt {self._webhook_failures[nomination_id]}/{self.MAX_WEBHOOK_RETRIES})",
+                exc_info=True,
             )
 
     async def _check_reciprocal(

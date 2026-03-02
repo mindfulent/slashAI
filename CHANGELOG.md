@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.5] - 2026-03-02
+
+### Fixed
+- **Critical: Recognition webhook infinite retry loop** — When the webhook POST to `/recognition/webhook/slashai` failed (401 Unauthorized), the scheduler would re-analyze the same submission with Claude Vision every 60 seconds indefinitely, burning ~$15-70/day in API credits
+  - Root cause: JSON serialization mismatch — HMAC signature was computed on compact JSON (`separators=(',',':')`) but httpx sent the body with default separators (spaces), so the backend's `JSON.stringify(req.body)` verification produced a different digest
+  - Fix: New `_signed_post()` method serializes payload once and uses those exact bytes for both the HMAC signature and the HTTP body, guaranteeing consistency
+- **Recognition nomination webhook had same infinite loop risk** — Nomination reviews also used Anthropic API calls with no retry limit on webhook failure
+
+### Added
+- **Webhook retry limits** — Submissions and nominations now track webhook delivery failures per ID; after 3 consecutive failures, the scheduler skips the item and logs an actionable error message directing operators to check `SLASHAI_WEBHOOK_SECRET`
+  - Applies to both explicit webhook failures (`submit_analysis_result`, `submit_nomination_review`) and unexpected exceptions during processing
+  - Failure counters reset on successful delivery or bot restart
+
+---
+
 ## [0.13.4] - 2026-02-18
 
 ### Changed
