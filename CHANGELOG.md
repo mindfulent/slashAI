@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.6] - 2026-03-14
+
+### Added
+- **TipSign admin commands** — New `/tipsign` slash command group (owner-only) for querying TipSign data from the theblockacademy backend API
+  - `/tipsign list` — Paginated list of all tip signs with title, owner, location, and supporter link indicators
+  - `/tipsign search <query>` — Filter signs by owner username or title
+  - `/tipsign detail <sign_id>` — Full sign details including all pages, supporter URLs, and timestamps
+  - `/tipsign stats` — Summary statistics: total signs, unique owners, Ko-fi/Patreon counts, most prolific author
+  - Uses `TBA_API_URL` env var (falls back to `RECOGNITION_API_URL`)
+
+---
+
 ## [0.13.5] - 2026-03-02
 
 ### Fixed

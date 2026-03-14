@@ -324,6 +324,14 @@ class DiscordBot(commands.Bot):
                 except Exception as e:
                     logger.error(f"Failed to load SceneCraft commands: {e}", exc_info=True)
 
+                # Load TipSign slash commands (owner-only)
+                try:
+                    from commands.tipsign_commands import TipSignCommands
+                    await self.add_cog(TipSignCommands(self, self.db_pool))
+                    logger.info("TipSign commands cog loaded")
+                except Exception as e:
+                    logger.error(f"Failed to load TipSign commands: {e}", exc_info=True)
+
                 # Load Discord account linking commands (CoreCurriculum)
                 try:
                     from commands.link_commands import LinkCommands
