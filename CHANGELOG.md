@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.7] - 2026-03-17
+
+### Added
+- **StreamCraft MC version display** — `/streamcraft servers` and `/streamcraft licenses` now show the Minecraft version each server is running (e.g., `MC 1.21.1`, `MC 1.20.1`)
+  - Reads new `minecraft_version` column from `streamcraft_licenses` table
+  - Defaults to `1.21.1` for existing servers without the field
+
 ## [0.13.6] - 2026-03-14
 
 ### Added
