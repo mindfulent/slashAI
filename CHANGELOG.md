@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **License sort by state priority** — `/streamcraft licenses`, `/synthcraft licenses`, `/scenecraft licenses` (and their `servers` subcommands) now sort by state priority: EXPIRED → GRACE → ACTIVE → TRIAL → other, with the original secondary sort preserved within each group
+- **Compact license/server dashboard UI** — Replaced verbose embed fields with grouped description-based layout: state-emoji headers (🔴🟡🟢⚪), one-line-per-server format with dot-separated key info, dynamic embed color (red/orange/green) based on worst state, dropped full server ID hash and redundant IP display in favor of geo-resolved location
 
 ---
 

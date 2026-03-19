@@ -25,6 +25,7 @@ Restricted to bot owner via OWNER_ID environment variable.
 import logging
 import os
 from datetime import datetime
+from itertools import groupby
 
 import asyncpg
 import discord
@@ -36,6 +37,31 @@ from utils.geoip import resolve_geo
 logger = logging.getLogger("slashAI.commands.scenecraft")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+
+_STATE_EMOJI = {"EXPIRED": "\U0001f534", "GRACE": "\U0001f7e1", "ACTIVE": "\U0001f7e2", "TRIAL": "\u26aa"}
+
+
+def _status_color(rows) -> discord.Color:
+    """Pick embed color based on the most urgent state present."""
+    states = {r["state"] for r in rows}
+    if "EXPIRED" in states:
+        return discord.Color.red()
+    if "GRACE" in states:
+        return discord.Color.orange()
+    return discord.Color.green()
+
+
+def _compact_label(row, geo_map: dict) -> str:
+    """Return a compact name for a server: label · geo, or just one."""
+    label = row.get("label")
+    geo = geo_map.get(row.get("server_ip", ""), "")
+    if label and geo:
+        return f"{label} \u00b7 {geo}"
+    if label:
+        return label
+    if geo:
+        return geo
+    return row.get("server_name") or "Unknown"
 
 
 def owner_only():
@@ -113,32 +139,28 @@ class SceneCraftCommands(commands.Cog):
 
         geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
 
+        lines: list[str] = []
+        for state, group in groupby(rows, key=lambda r: r["state"]):
+            state_rows = list(group)
+            emoji = _STATE_EMOJI.get(state, "\u2796")
+            lines.append(f"\n{emoji} **{state}** ({len(state_rows)})")
+            for row in state_rows:
+                name = _compact_label(row, geo_map)
+                hidden = " \U0001f6ab" if row["hidden"] else ""
+                exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
+                parts = [f"**#{row['id']}** {name}{hidden}"]
+                parts.append(f"`{row['tier'] or 'N/A'}`")
+                parts.append(f"{exports} exports")
+                if row.get("activated_by_name"):
+                    parts.append(row["activated_by_name"])
+                lines.append(" \u00b7 ".join(parts))
+
         embed = discord.Embed(
             title=title,
-            color=discord.Color.blue(),
+            description="\n".join(lines).strip(),
+            color=_status_color(rows),
             timestamp=datetime.utcnow(),
         )
-
-        for row in rows[:25]:  # Discord embed field limit
-            key_preview = row["license_key"][:8] + "..." if row["license_key"] else "N/A"
-            exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
-            validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
-            ip = row["server_ip"] or "N/A"
-            geo = geo_map.get(row["server_ip"], "")
-            location = f" ({geo})" if geo else ""
-            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
-
-            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
-
-            embed.add_field(
-                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
-                value=(
-                    f"Key: `{key_preview}` | Tier: {row['tier'] or 'N/A'}\n"
-                    f"IP: {ip}{location} | Sessions: {exports} | Validated: {validated}{activated}"
-                ),
-                inline=False,
-            )
-
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
@@ -192,33 +214,28 @@ class SceneCraftCommands(commands.Cog):
 
         geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
 
+        lines: list[str] = []
+        for state, group in groupby(rows, key=lambda r: r["state"]):
+            state_rows = list(group)
+            emoji = _STATE_EMOJI.get(state, "\u2796")
+            lines.append(f"\n{emoji} **{state}** ({len(state_rows)})")
+            for row in state_rows:
+                name = _compact_label(row, geo_map)
+                hidden = " \U0001f6ab" if row["hidden"] else ""
+                exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
+                parts = [f"**#{row['id']}** {name}{hidden}"]
+                parts.append(f"`{row['tier'] or 'N/A'}`")
+                parts.append(f"{exports} exports left")
+                if row.get("activated_by_name"):
+                    parts.append(row["activated_by_name"])
+                lines.append(" \u00b7 ".join(parts))
+
         embed = discord.Embed(
             title=title,
-            color=discord.Color.purple(),
+            description="\n".join(lines).strip(),
+            color=_status_color(rows),
             timestamp=datetime.utcnow(),
         )
-
-        for row in rows[:25]:
-            exports = str(row["exports_remaining"]) if row["exports_remaining"] is not None else "N/A"
-            validated = row["last_validated"].strftime("%Y-%m-%d %H:%M") if row["last_validated"] else "Never"
-            ip = row["server_ip"] or "N/A"
-            geo = geo_map.get(row["server_ip"], "")
-            location = f" ({geo})" if geo else ""
-            sid_preview = row["sid"][:12] + "..." if row["sid"] and len(row["sid"]) > 12 else (row["sid"] or "N/A")
-            hidden_marker = " [HIDDEN]" if row["hidden"] else ""
-
-            activated = f"\nActivated by: {row['activated_by_name']}" if row.get("activated_by_name") else ""
-
-            embed.add_field(
-                name=f"#{row['id']} \u2014 {_display_name(row)} ({row['state']}){hidden_marker}",
-                value=(
-                    f"Server ID: `{sid_preview}`\n"
-                    f"IP: {ip}{location} | Tier: {row['tier'] or 'N/A'}\n"
-                    f"Sessions: {exports} | Validated: {validated}{activated}"
-                ),
-                inline=False,
-            )
-
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
