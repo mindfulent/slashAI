@@ -99,7 +99,7 @@ class StreamCraftCommands(commands.Cog):
                    last_validated, server_ip, minecraft_version, hidden, label, activated_by_name
             FROM streamcraft_licenses
             WHERE ($1 OR hidden = false)
-            ORDER BY id ASC
+            ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
             """,
             show_hidden,
         )
@@ -247,7 +247,7 @@ class StreamCraftCommands(commands.Cog):
                 WHERE sl.id = $1
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
                          sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
-                ORDER BY total_minutes DESC
+                ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 server_id,
             )
@@ -264,7 +264,7 @@ class StreamCraftCommands(commands.Cog):
                 WHERE ($1 OR sl.hidden = false)
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
                          sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
-                ORDER BY total_minutes DESC
+                ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 show_hidden,
             )

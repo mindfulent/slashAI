@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.8] - 2026-03-18
+
+### Changed
+- **License sort by state priority** — `/streamcraft licenses`, `/synthcraft licenses`, `/scenecraft licenses` (and their `servers` subcommands) now sort by state priority: EXPIRED → GRACE → ACTIVE → TRIAL → other, with the original secondary sort preserved within each group
+
+---
+
 ## [0.13.7] - 2026-03-17
 
 ### Added

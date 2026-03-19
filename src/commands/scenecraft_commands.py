@@ -98,7 +98,7 @@ class SceneCraftCommands(commands.Cog):
                    last_validated, server_ip, hidden, label, activated_by_name
             FROM scenecraft_licenses
             WHERE ($1 OR hidden = false)
-            ORDER BY id ASC
+            ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
             """,
             show_hidden,
         )
@@ -164,7 +164,7 @@ class SceneCraftCommands(commands.Cog):
                        hidden, label, activated_by_name
                 FROM scenecraft_licenses
                 WHERE id = $1
-                ORDER BY id ASC
+                ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
                 """,
                 server_id,
             )
@@ -176,7 +176,7 @@ class SceneCraftCommands(commands.Cog):
                        hidden, label, activated_by_name
                 FROM scenecraft_licenses
                 WHERE ($1 OR hidden = false)
-                ORDER BY id ASC
+                ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
                 """,
                 show_hidden,
             )
