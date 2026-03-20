@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.9] - 2026-03-20
+
+### Added
+- **Query expansion for broad retrieval** — Broad queries like "who am I" or "tell me about my builds" are automatically decomposed into multiple targeted sub-queries for better memory recall (`src/memory/expander.py`, `src/memory/config.py`)
+- **Memory retrieval visibility** — Users now see a 🧠 reaction on their message while expanded retrieval runs, plus a footer on the bot's response showing retrieval metadata (e.g., `-# Retrieved 11 memories across 6 queries`)
+  - `RetrievalResult` dataclass wraps memories with expansion metadata (`manager.py`)
+  - `ChatResult` dataclass propagates metadata from `claude_client.chat()` to `discord_bot`
+  - Footer only shown when expansion triggers; memory tracking uses raw text (no footer)
+
+---
+
 ## [0.13.8] - 2026-03-18
 
 ### Changed

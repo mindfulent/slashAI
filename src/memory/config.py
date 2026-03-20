@@ -83,6 +83,10 @@ class MemoryConfig:
     reinforcement_cap_episodic: float = 0.95
     reinforcement_cap_procedural: float = 0.97
 
+    # Query expansion settings (v0.14.0)
+    expansion_enabled: bool = True
+    expanded_top_k: int = 12  # top_k when query is expanded into sub-queries
+
     # Memory promotion settings (v0.12.6)
     # Episodic/community_observation memories can be promoted to semantic
     # when they receive strong, consistent positive reactions
@@ -130,6 +134,9 @@ class MemoryConfig:
             reinforcement_cap_semantic=float(os.getenv("MEMORY_REINFORCE_CAP_SEMANTIC", "0.99")),
             reinforcement_cap_episodic=float(os.getenv("MEMORY_REINFORCE_CAP_EPISODIC", "0.95")),
             reinforcement_cap_procedural=float(os.getenv("MEMORY_REINFORCE_CAP_PROCEDURAL", "0.97")),
+            # Query expansion settings
+            expansion_enabled=os.getenv("MEMORY_EXPANSION_ENABLED", "true").lower() == "true",
+            expanded_top_k=int(os.getenv("MEMORY_EXPANDED_TOP_K", "12")),
             # Promotion settings
             promotion_enabled=os.getenv("MEMORY_PROMOTION_ENABLED", "true").lower() == "true",
             promotion_min_reactions=int(os.getenv("MEMORY_PROMOTION_MIN_REACTIONS", "4")),

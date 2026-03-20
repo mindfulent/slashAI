@@ -19,13 +19,14 @@
 
 from .config import ImageMemoryConfig, MemoryConfig
 from .decay import DecayStats, MemoryDecayJob, run_decay_job
-from .manager import MemoryManager, RetrievedImage
+from .manager import MemoryManager, RetrievalResult, RetrievedImage
 from .privacy import PrivacyLevel
 
 __all__ = [
     "MemoryConfig",
     "ImageMemoryConfig",
     "MemoryManager",
+    "RetrievalResult",
     "RetrievedImage",
     "PrivacyLevel",
     "MemoryDecayJob",

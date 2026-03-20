@@ -38,10 +38,20 @@ from analytics import track
 logger = logging.getLogger("slashAI.memory")
 
 from .config import MemoryConfig, ImageMemoryConfig
+from .expander import expand_query
 from .extractor import MemoryExtractor
 from .privacy import PrivacyLevel, classify_channel_privacy
 from .retriever import MemoryRetriever, RetrievedMemory
 from .updater import MemoryUpdater
+
+
+@dataclass
+class RetrievalResult:
+    """Wrapper for retrieval results with expansion metadata."""
+
+    memories: list[RetrievedMemory]
+    expansion_reason: str = "none"  # "broad_personal" | "topic_scoped" | "none"
+    query_count: int = 1
 
 
 @dataclass
@@ -85,7 +95,7 @@ class MemoryManager:
 
     async def retrieve(
         self, user_id: int, query: str, channel: discord.abc.Messageable
-    ) -> list[RetrievedMemory]:
+    ) -> RetrievalResult:
         """
         Retrieve relevant memories for a user, privacy-filtered.
 
@@ -95,15 +105,28 @@ class MemoryManager:
             channel: Discord channel for privacy context
 
         Returns:
-            List of relevant memories
+            RetrievalResult with memories and expansion metadata
         """
         # Handle empty queries (e.g., image-only messages)
         if not query or not query.strip():
             logger.debug("Empty query, skipping memory retrieval")
-            return []
+            return RetrievalResult(memories=[])
 
         logger.info(f"Retrieving memories for user={user_id}, query={query[:50]}...")
-        memories = await self.retriever.retrieve(user_id, query, channel)
+
+        # Query expansion: decompose broad queries into targeted sub-queries
+        expanded = expand_query(query, self.config)
+        if len(expanded.queries) > 1:
+            logger.info(
+                f"Query expanded: reason={expanded.reason}, "
+                f"queries={len(expanded.queries)}, top_k={expanded.top_k}"
+            )
+            memories = await self.retriever.retrieve_multi(
+                user_id, expanded.queries, channel, top_k=expanded.top_k
+            )
+        else:
+            memories = await self.retriever.retrieve(user_id, query, channel)
+
         logger.info(f"Retrieved {len(memories)} memories")
 
         # Analytics: Track retrieval
@@ -118,12 +141,18 @@ class MemoryManager:
                 "query_length": len(query),
                 "results_count": len(memories),
                 "top_similarity": memories[0].similarity if memories else 0.0,
+                "expansion_reason": expanded.reason,
+                "query_count": len(expanded.queries),
             },
         )
 
         for mem in memories:
             logger.debug(f"  - [{mem.memory_type}] {mem.summary[:50]}... (sim={mem.similarity:.3f})")
-        return memories
+        return RetrievalResult(
+            memories=memories,
+            expansion_reason=expanded.reason,
+            query_count=len(expanded.queries),
+        )
 
     async def search(
         self,

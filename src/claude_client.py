@@ -49,6 +49,16 @@ if TYPE_CHECKING:
     from memory.privacy import PrivacyLevel
     from memory.retriever import RetrievedMemory
 
+
+@dataclass
+class ChatResult:
+    """Response from chat() with retrieval metadata."""
+
+    text: str
+    memory_count: int = 0
+    expansion_reason: str = "none"
+    query_count: int = 1
+
 # Claude Sonnet 4.6 model ID
 MODEL_ID = "claude-sonnet-4-6"
 
@@ -697,7 +707,7 @@ class ClaudeClient:
         max_tokens: int = 1024,
         images: Optional[list[tuple[bytes, str]]] = None,
         skip_memory_tracking: bool = False,
-    ) -> str:
+    ) -> "ChatResult":
         """
         Send a message and get a response from Claude.
 
@@ -713,7 +723,7 @@ class ClaudeClient:
             skip_memory_tracking: If True, caller will handle memory tracking (v0.12.0)
 
         Returns:
-            Claude's response text
+            ChatResult with response text and retrieval metadata
         """
         key = self._get_conversation_key(user_id, channel_id)
         conversation = self._conversations[key]
@@ -722,8 +732,15 @@ class ClaudeClient:
         memory_context = ""
         build_context = ""
         image_context = ""
+        memory_count = 0
+        expansion_reason = "none"
+        query_count = 1
         if self.memory and channel:
-            memories = await self.memory.retrieve(int(user_id), content, channel)
+            retrieval = await self.memory.retrieve(int(user_id), content, channel)
+            memories = retrieval.memories
+            expansion_reason = retrieval.expansion_reason
+            query_count = retrieval.query_count
+            memory_count = len(memories)
             if memories:
                 guild = getattr(channel, 'guild', None)
                 memory_context = self._format_memories(
@@ -930,7 +947,12 @@ class ClaudeClient:
                 int(user_id), int(channel_id), channel, content, response_text
             )
 
-        return response_text
+        return ChatResult(
+            text=response_text,
+            memory_count=memory_count,
+            expansion_reason=expansion_reason,
+            query_count=query_count,
+        )
 
     async def _execute_tool(
         self,

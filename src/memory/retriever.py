@@ -26,6 +26,7 @@ while semantic search handles conceptual queries. RRF combines both result sets
 by rank position, naturally boosting documents that appear in both.
 """
 
+import asyncio
 import logging
 import math
 from dataclasses import dataclass
@@ -160,6 +161,108 @@ class MemoryRetriever:
                     for m in memories
                 )
             )
+
+        return memories
+
+    async def retrieve_multi(
+        self,
+        user_id: int,
+        queries: list[str],
+        channel: discord.abc.Messageable,
+        top_k: int = 12,
+    ) -> list[RetrievedMemory]:
+        """
+        Retrieve memories using multiple expanded queries, merging results.
+
+        Batch-embeds all queries in one Voyage API call, runs parallel
+        hybrid searches, and deduplicates by memory ID (keeping highest
+        similarity per memory).
+
+        Args:
+            user_id: Discord user ID
+            queries: List of sub-queries (original + expanded)
+            channel: Discord channel for privacy context
+            top_k: Number of memories to return after merging
+
+        Returns:
+            Merged, deduplicated list of memories sorted by similarity
+        """
+        if not queries:
+            return []
+
+        context_privacy = await classify_channel_privacy(channel)
+        guild = getattr(channel, "guild", None)
+        guild_id = guild.id if guild else None
+        channel_id = getattr(channel, "id", None)
+
+        logger.info(
+            f"Multi-retrieve: {len(queries)} queries, privacy={context_privacy.value}, "
+            f"guild={guild_id}, channel={channel_id}"
+        )
+
+        # Batch embed all queries in a single API call
+        result = await self.voyage.embed(
+            queries, model=self.config.embedding_model, input_type="query"
+        )
+        embeddings = result.embeddings
+
+        # Run hybrid searches concurrently
+        use_hybrid = self.config.hybrid_search_enabled and await self._is_hybrid_available()
+
+        async def _search_one(query: str, embedding: list[float]) -> list[asyncpg.Record]:
+            if use_hybrid:
+                return await self._retrieve_hybrid(
+                    query, embedding, user_id, context_privacy.value,
+                    guild_id, channel_id, self.config.top_k,
+                )
+            else:
+                return await self._retrieve_semantic(
+                    embedding, user_id, context_privacy, channel, self.config.top_k,
+                )
+
+        all_results = await asyncio.gather(
+            *(_search_one(q, e) for q, e in zip(queries, embeddings))
+        )
+
+        # Merge: keep highest similarity per memory ID
+        best_by_id: dict[int, asyncpg.Record] = {}
+        for rows in all_results:
+            for r in rows:
+                mid = r["id"]
+                existing = best_by_id.get(mid)
+                if existing is None or r["similarity"] > existing["similarity"]:
+                    best_by_id[mid] = r
+
+        merged_rows = sorted(best_by_id.values(), key=lambda r: r["similarity"], reverse=True)[:top_k]
+
+        # Reinforce retrieved memories
+        if merged_rows:
+            ids = [r["id"] for r in merged_rows]
+            await self._reinforce_memories(ids)
+
+        memories = [
+            RetrievedMemory(
+                id=r["id"],
+                user_id=r["user_id"],
+                summary=r["topic_summary"],
+                raw_dialogue=r["raw_dialogue"],
+                memory_type=r["memory_type"],
+                privacy_level=PrivacyLevel(r["privacy_level"]),
+                similarity=self._apply_reaction_boost(r["similarity"], r),
+                confidence=r["confidence"] or 0.5,
+                updated_at=r["updated_at"],
+                reaction_summary=self._parse_reaction_summary(r.get("reaction_summary")),
+            )
+            for r in merged_rows
+        ]
+
+        # Re-sort by boosted similarity
+        memories.sort(key=lambda m: m.similarity, reverse=True)
+
+        logger.info(
+            f"Multi-retrieve merged {sum(len(r) for r in all_results)} rows "
+            f"→ {len(best_by_id)} unique → {len(memories)} returned"
+        )
 
         return memories
 

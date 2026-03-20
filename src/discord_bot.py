@@ -40,7 +40,7 @@ from dotenv import load_dotenv
 from PIL import Image
 
 from analytics import track, shutdown as analytics_shutdown
-from claude_client import ClaudeClient, PendingEventDraft
+from claude_client import ChatResult, ClaudeClient, PendingEventDraft
 
 load_dotenv()
 
@@ -937,9 +937,10 @@ class DiscordBot(commands.Bot):
             return
 
         start_time = time.time()
+        added_brain_reaction = False
         async with message.channel.typing():
             try:
-                response = await self.claude_client.chat(
+                result = await self.claude_client.chat(
                     user_id=str(message.author.id),
                     channel_id=str(message.channel.id),
                     content=content,
@@ -947,8 +948,34 @@ class DiscordBot(commands.Bot):
                     images=images if images else None,
                     skip_memory_tracking=True,  # We'll track with message IDs below
                 )
-                chunks = self._chunk_message(response)
-                response_msg = await self._send_chunked(message.channel, response, reply_to=message)
+
+                # Add 🧠 reaction when expanded retrieval was used
+                if result.expansion_reason != "none":
+                    try:
+                        await message.add_reaction("\U0001f9e0")  # 🧠
+                        added_brain_reaction = True
+                    except discord.HTTPException:
+                        pass  # Non-critical
+
+                # Build display text with footer for expanded retrievals
+                if result.expansion_reason != "none":
+                    footer = (
+                        f"\n-# Retrieved {result.memory_count} memories "
+                        f"across {result.query_count} queries"
+                    )
+                    display_text = result.text + footer
+                else:
+                    display_text = result.text
+
+                chunks = self._chunk_message(display_text)
+                response_msg = await self._send_chunked(message.channel, display_text, reply_to=message)
+
+                # Remove 🧠 reaction after response is sent
+                if added_brain_reaction:
+                    try:
+                        await message.remove_reaction("\U0001f9e0", self.user)
+                    except discord.HTTPException:
+                        pass  # Non-critical
 
                 # Link pending event draft to the response message (v0.13.1)
                 if self.claude_client and response_msg:
@@ -964,13 +991,14 @@ class DiscordBot(commands.Bot):
 
                 # Track message for memory extraction with message IDs (v0.12.0)
                 # This enables reaction-based memory signals
+                # Use result.text (no footer) for memory tracking
                 if self.claude_client.memory:
                     await self.claude_client.memory.track_message(
                         user_id=message.author.id,
                         channel_id=message.channel.id,
                         channel=message.channel,
                         user_message=content,
-                        assistant_message=response,
+                        assistant_message=result.text,
                         user_message_id=message.id,
                         assistant_message_id=response_msg.id if response_msg else None,
                     )
@@ -984,13 +1012,22 @@ class DiscordBot(commands.Bot):
                     channel_id=message.channel.id,
                     guild_id=message.guild.id if message.guild else None,
                     properties={
-                        "response_length": len(response),
+                        "response_length": len(result.text),
                         "chunk_count": len(chunks),
                         "latency_ms": latency_ms,
                         "has_images": bool(images),
+                        "expansion_reason": result.expansion_reason,
+                        "query_count": result.query_count,
+                        "memory_count": result.memory_count,
                     },
                 )
             except Exception as e:
+                # Remove brain reaction on error too
+                if added_brain_reaction:
+                    try:
+                        await message.remove_reaction("\U0001f9e0", self.user)
+                    except discord.HTTPException:
+                        pass
                 logger.error(f"Chat error: {e}", exc_info=True)
                 # Analytics: Track error
                 track(

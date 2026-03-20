@@ -22,6 +22,9 @@ python src/discord_bot.py
 
 # MCP server (started automatically by Claude Code when configured)
 python src/mcp_server.py
+
+# Run tests
+pytest tests/
 ```
 
 ## Architecture
@@ -65,19 +68,25 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `config.py`: Configurable thresholds (env-overridable)
    - `decay.py`: Confidence decay job (episodic memories decay over time)
 
-5. **`src/memory/images/`** - Image memory system
+5. **`src/memory/reactions/`** - Reaction-based memory signals (v0.12.0+)
+   - `store.py`: Persists reaction events and memory-message links
+   - `aggregator.py`: Background job aggregating reactions into confidence boosts and type promotions
+   - `dimensions.py`: Maps emoji reactions to behavioral dimensions
+   - `inference.py`: Infers user preferences from reaction patterns
+
+6. **`src/memory/images/`** - Image memory system
    - `observer.py`: Pipeline entry point (moderation → analysis → storage → clustering)
    - `analyzer.py`: Claude Vision + Voyage multimodal embeddings
    - `clusterer.py`: Groups images into build clusters by similarity
    - `narrator.py`: Generates progression narratives
    - `storage.py`: DigitalOcean Spaces (S3-compatible)
 
-6. **`src/reminders/`** - Scheduled reminders system
+7. **`src/reminders/`** - Scheduled reminders system
    - `time_parser.py`: Natural language + CRON parsing
    - `manager.py`: Database operations for reminders
    - `scheduler.py`: Background task loop for delivery (60s interval)
 
-7. **`src/recognition/`** - Core Curriculum integration for AI-assisted build reviews
+8. **`src/recognition/`** - Core Curriculum integration for AI-assisted build reviews
    - `analyzer.py`: Vision-based analysis of Minecraft screenshots
    - `feedback.py`: Constructive feedback generation for craft development
    - `progression.py`: Title progression evaluation
@@ -85,7 +94,7 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `api.py`: Recognition API client for theblockacademy backend
    - `scheduler.py`: Background polling for pending submissions
 
-8. **`src/commands/`** - Discord slash commands
+9. **`src/commands/`** - Discord slash commands
    - `memory_commands.py`: `/memories` command group for user memory management
    - `reminder_commands.py`: `/remind` command group
    - `analytics_commands.py`: `/analytics` owner-only commands
@@ -93,11 +102,15 @@ Discord User → discord_bot.py → claude_client.py → Anthropic API
    - `streamcraft_commands.py`: `/streamcraft` owner-only license/usage queries
    - `synthcraft_commands.py`: `/synthcraft` owner-only license/usage queries
    - `scenecraft_commands.py`: `/scenecraft` owner-only license/server queries
+   - `tipsign_commands.py`: `/tipsign` owner-only sign data queries
    - `views.py`: Pagination and confirmation UI components
 
-9. **`src/tools/`** - Agentic tools for the chatbot
+10. **`src/tools/`** - Agentic tools for the chatbot
    - `github_docs.py`: Read-only access to slashAI documentation via GitHub API
    - `events_api.py`: TBA calendar event creation via backend API
+
+11. **`src/utils/`** - Shared utilities
+    - `geoip.py`: Batch IP geolocation via ip-api.com (used by license dashboard for server locations)
 
 ## MCP Tools
 
@@ -383,6 +396,17 @@ Owner-only slash commands for viewing SceneCraft license and server data:
 | `/scenecraft hide <license_id>` | Hide a license from default listings |
 | `/scenecraft unhide <license_id>` | Unhide a license |
 | `/scenecraft label <license_id> [name]` | Set or clear a display label |
+
+## TipSign Commands (Owner-Only)
+
+Owner-only slash commands for querying TipSign data from the backend API:
+
+| Command | Description |
+|---------|-------------|
+| `/tipsign list` | Paginated list of all tip signs |
+| `/tipsign search <query>` | Search by owner username or title |
+| `/tipsign detail <sign_id>` | Full sign details (pages, supporter URLs) |
+| `/tipsign stats` | Summary statistics |
 
 ## Account Linking
 
