@@ -42,6 +42,7 @@ CACHE_MAX_ENTRIES = 50
 
 # Path validation
 ALLOWED_PATH_PREFIX = "docs/"
+ALLOWED_ROOT_FILES = {"CHANGELOG.md", "README.md"}
 FORBIDDEN_PATTERNS = [
     r"\.\.",           # Parent directory traversal
     r"^\s*/",          # Absolute paths
@@ -55,20 +56,28 @@ READ_GITHUB_FILE_TOOL = {
     "description": """Read a documentation file from the slashAI GitHub repository.
 
 Use this tool when the user asks about slashAI's documentation, specifications,
-or implementation details that are documented in the /docs folder.
+implementation details, or recent changes/version history.
+
+Accessible paths:
+- Files under /docs (e.g., "docs/MEMORY_TECHSPEC.md", "docs/enhancements/010_HYBRID_SEARCH.md")
+- CHANGELOG.md (version history and release notes)
+- README.md (project overview, features, and setup)
 
 Examples of when to use:
 - "What does the memory techspec say about X?"
 - "Read the confidence decay specification"
 - "What's in the privacy documentation?"
-
-The tool only has access to files under /docs in the repository.""",
+- "What changed in the latest version?"
+- "What's new in v0.13.9?"
+- "Show me the changelog"
+- "What is slashAI?" / "What can you do?"
+""",
     "input_schema": {
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path to the file, starting with 'docs/'. Example: 'docs/MEMORY_TECHSPEC.md'"
+                "description": "Path to the file. Usually starts with 'docs/' (e.g., 'docs/MEMORY_TECHSPEC.md'). Also accepts 'CHANGELOG.md' or 'README.md'."
             },
             "ref": {
                 "type": "string",
@@ -185,8 +194,8 @@ class GitHubDocsReader:
             if re.search(pattern, path):
                 raise PathValidationError("Invalid path: contains forbidden pattern")
 
-        # Ensure path starts with docs/ or is exactly "docs"
-        if path != "docs" and not path.startswith(ALLOWED_PATH_PREFIX):
+        # Ensure path starts with docs/ or is an explicitly allowed root file
+        if path != "docs" and not path.startswith(ALLOWED_PATH_PREFIX) and path not in ALLOWED_ROOT_FILES:
             raise PathValidationError(
                 f"Access denied: path must start with '{ALLOWED_PATH_PREFIX}'. "
                 f"Got: '{path}'"

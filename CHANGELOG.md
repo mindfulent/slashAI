@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `RetrievalResult` dataclass wraps memories with expansion metadata (`manager.py`)
   - `ChatResult` dataclass propagates metadata from `claude_client.chat()` to `discord_bot`
   - Footer only shown when expansion triggers; memory tracking uses raw text (no footer)
+- **GitHub docs: CHANGELOG.md and README.md access** — The `read_github_file` tool can now read `CHANGELOG.md` and `README.md` from the repo root, in addition to `docs/**`. Enables the bot to answer questions about version history and project overview.
 
 ---
 
