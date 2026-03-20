@@ -49,6 +49,15 @@ class TestBroadPersonalExpansion:
             "describe me",
             "about me",
             "my profile",
+            # Wider phrasings (v0.13.9)
+            "tell me about who I am",
+            "what qualities of my character have you discovered",
+            "what have you learned about me",
+            "who i am as a person",
+            "everything you remember about me",
+            "what kind of person am I",
+            "my personality",
+            "my identity",
         ],
     )
     def test_broad_personal_triggers(self, config, query):

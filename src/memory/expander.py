@@ -42,16 +42,18 @@ class ExpandedQuery:
 
 # Broad personal patterns — user asking for a holistic view of themselves
 _BROAD_PERSONAL_PATTERNS = [
-    re.compile(r"\bwho am i\b", re.IGNORECASE),
-    re.compile(r"\babout me\b", re.IGNORECASE),
-    re.compile(r"\bmy profile\b", re.IGNORECASE),
-    re.compile(r"\beverything you know\b", re.IGNORECASE),
-    re.compile(r"\ball you know\b", re.IGNORECASE),
-    re.compile(r"\bwhat do you know about me\b", re.IGNORECASE),
+    re.compile(r"\bwho (?:am i|i am)\b", re.IGNORECASE),
+    re.compile(r"\babout (?:me|who i)\b", re.IGNORECASE),
+    re.compile(r"\bmy (?:profile|character|personality|identity)\b", re.IGNORECASE),
+    re.compile(r"\beverything you (?:know|remember)\b", re.IGNORECASE),
+    re.compile(r"\ball you (?:know|remember)\b", re.IGNORECASE),
+    re.compile(r"\bwhat (?:do |have )?you (?:know|learned?|discovered|remember)\w* about me\b", re.IGNORECASE),
     re.compile(r"\bsummar\w* (?:of )?(?:what you know|me|my)\b", re.IGNORECASE),
     re.compile(r"\bdraft a profile\b", re.IGNORECASE),
     re.compile(r"\bdescribe me\b", re.IGNORECASE),
-    re.compile(r"\btell me about myself\b", re.IGNORECASE),
+    re.compile(r"\btell me about (?:myself|who i)\b", re.IGNORECASE),
+    re.compile(r"\bwhat kind of (?:person|user)\b", re.IGNORECASE),
+    re.compile(r"\bmy qualities\b", re.IGNORECASE),
 ]
 
 _BROAD_PERSONAL_SUBQUERIES = [
