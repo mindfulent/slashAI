@@ -1763,10 +1763,12 @@ class WebhookServer:
             data = await request.json()
             song_id = data.get('song_id')
             audio_url = data.get('audio_url')
+            audio_mp3_url = data.get('audio_mp3_url')
             dj_name = data.get('dj_name')
             dj_uuid = data.get('dj_uuid')
             duration_seconds = data.get('duration_seconds', 0)
             prompt = data.get('prompt', '')
+            discord_channel_id = data.get('discord_channel_id')
 
             if not dj_name or not song_id:
                 return web.json_response({"error": "Missing required fields"}, status=400)
@@ -1794,8 +1796,12 @@ class WebhookServer:
 
             embed.add_field(name="Duration", value=duration_str, inline=True)
 
-            # Get channel
-            channel_id = os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
+            # Add listen link if MP3 URL available
+            if audio_mp3_url:
+                embed.add_field(name="Listen", value=f"[Play in browser]({audio_mp3_url})", inline=True)
+
+            # Get channel — prefer per-server override, fall back to env var
+            channel_id = discord_channel_id or os.getenv('SERVER_CHAT_CHANNEL', '1452391354213859480')
 
             try:
                 channel = self.bot.get_channel(int(channel_id))
@@ -1806,20 +1812,22 @@ class WebhookServer:
                     logger.warning(f"Channel {channel_id} not found for broadcast announcement")
                     return web.json_response({"error": "Channel not found"}, status=404)
 
-                # Try to download the OGG file and attach it
+                # Try to download audio and attach it — prefer MP3 (Discord embeds natively), fall back to OGG
                 audio_file = None
-                if audio_url:
+                download_url = audio_mp3_url or audio_url
+                file_ext = 'mp3' if audio_mp3_url else 'ogg'
+                if download_url:
                     try:
                         import aiohttp
                         async with aiohttp.ClientSession() as session:
-                            async with session.get(audio_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                            async with session.get(download_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                                 if resp.status == 200:
                                     audio_data = await resp.read()
                                     audio_file = discord.File(
                                         io.BytesIO(audio_data),
-                                        filename=f"{song_id}.ogg"
+                                        filename=f"{song_id}.{file_ext}"
                                     )
-                                    logger.info(f"Downloaded broadcast audio ({len(audio_data)} bytes)")
+                                    logger.info(f"Downloaded broadcast audio ({len(audio_data)} bytes, {file_ext})")
                                 else:
                                     logger.warning(f"Failed to download broadcast audio: HTTP {resp.status}")
                     except Exception as dl_err:
