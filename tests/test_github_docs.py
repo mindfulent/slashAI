@@ -54,9 +54,12 @@ class TestPathValidation:
         with pytest.raises(PathValidationError):
             reader._validate_path("src/memory/manager.py")
         with pytest.raises(PathValidationError):
-            reader._validate_path("README.md")
-        with pytest.raises(PathValidationError):
             reader._validate_path("migrations/001.sql")
+
+    def test_allow_root_files(self):
+        reader = GitHubDocsReader()
+        assert reader._validate_path("README.md") == "README.md"
+        assert reader._validate_path("CHANGELOG.md") == "CHANGELOG.md"
 
     def test_reject_traversal_attempts(self):
         reader = GitHubDocsReader()

@@ -938,6 +938,15 @@ class DiscordBot(commands.Bot):
 
         start_time = time.time()
         added_brain_reaction = False
+
+        async def _on_expansion():
+            nonlocal added_brain_reaction
+            try:
+                await message.add_reaction("\U0001f9e0")  # 🧠
+                added_brain_reaction = True
+            except discord.HTTPException:
+                pass  # Non-critical
+
         async with message.channel.typing():
             try:
                 result = await self.claude_client.chat(
@@ -947,15 +956,8 @@ class DiscordBot(commands.Bot):
                     channel=message.channel,  # Pass channel for memory privacy
                     images=images if images else None,
                     skip_memory_tracking=True,  # We'll track with message IDs below
+                    on_expansion=_on_expansion,
                 )
-
-                # Add 🧠 reaction when expanded retrieval was used
-                if result.expansion_reason != "none":
-                    try:
-                        await message.add_reaction("\U0001f9e0")  # 🧠
-                        added_brain_reaction = True
-                    except discord.HTTPException:
-                        pass  # Non-critical
 
                 # Build display text with footer for expanded retrievals
                 if result.expansion_reason != "none":

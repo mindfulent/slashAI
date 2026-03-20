@@ -707,6 +707,7 @@ class ClaudeClient:
         max_tokens: int = 1024,
         images: Optional[list[tuple[bytes, str]]] = None,
         skip_memory_tracking: bool = False,
+        on_expansion: Optional[object] = None,
     ) -> "ChatResult":
         """
         Send a message and get a response from Claude.
@@ -721,6 +722,8 @@ class ClaudeClient:
             max_tokens: Maximum tokens in response (default 1024)
             images: Optional list of (image_bytes, media_type) tuples
             skip_memory_tracking: If True, caller will handle memory tracking (v0.12.0)
+            on_expansion: Optional async callback invoked when query expansion triggers,
+                before the API call. Used for real-time UI signals (e.g., reactions).
 
         Returns:
             ChatResult with response text and retrieval metadata
@@ -741,6 +744,11 @@ class ClaudeClient:
             expansion_reason = retrieval.expansion_reason
             query_count = retrieval.query_count
             memory_count = len(memories)
+
+            # Signal expansion to caller before the API call
+            if expansion_reason != "none" and on_expansion:
+                await on_expansion()
+
             if memories:
                 guild = getattr(channel, 'guild', None)
                 memory_context = self._format_memories(
