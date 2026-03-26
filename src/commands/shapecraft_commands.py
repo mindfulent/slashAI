@@ -38,7 +38,7 @@ logger = logging.getLogger("slashAI.commands.shapecraft")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
-_STATE_EMOJI = {"EXPIRED": "\U0001f534", "GRACE": "\U0001f7e1", "ACTIVE": "\U0001f7e2", "TRIAL": "\u26aa"}
+_STATE_EMOJI = {"EXPIRED": "\U0001f534", "GRACE": "\U0001f7e1", "ACTIVE": "\U0001f7e2", "TRIAL": "\U0001f535", "NO_USAGE": "\u26aa"}
 
 COST_PER_GEN = 0.025  # estimated cost per generation
 
@@ -273,8 +273,18 @@ class ShapeCraftCommands(commands.Cog):
 
         geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
 
+        # Split TRIAL rows into used / no-usage buckets
+        no_usage_rows: list = []
+        display_rows: list = []
+        for row in rows:
+            if row["state"] == "TRIAL" and not (row["generations"] or 0):
+                no_usage_rows.append(row)
+            else:
+                display_rows.append(row)
+        no_usage_rows.sort(key=lambda r: r["id"], reverse=True)
+
         lines: list[str] = []
-        for state, group in groupby(rows, key=lambda r: r["state"]):
+        for state, group in groupby(display_rows, key=lambda r: r["state"]):
             state_rows = list(group)
             emoji = _STATE_EMOJI.get(state, "\u2796")
             lines.append(f"\n{emoji} **{state}** ({len(state_rows)})")
@@ -287,8 +297,18 @@ class ShapeCraftCommands(commands.Cog):
                 if gens:
                     parts.append(f"{gens:,} gen")
                     parts.append(f"{row['unique_players']} players")
-                else:
-                    parts.append("no usage")
+                if row.get("activated_by_name"):
+                    parts.append(row["activated_by_name"])
+                lines.append(" \u00b7 ".join(parts))
+
+        if no_usage_rows:
+            emoji = _STATE_EMOJI["NO_USAGE"]
+            lines.append(f"\n{emoji} **NO USAGE** ({len(no_usage_rows)})")
+            for row in no_usage_rows:
+                name = _compact_label(row, geo_map)
+                hidden = " \U0001f6ab" if row["hidden"] else ""
+                parts = [f"**#{row['id']}** {name}{hidden}"]
+                parts.append(f"`{row['tier'] or 'N/A'}`")
                 if row.get("activated_by_name"):
                     parts.append(row["activated_by_name"])
                 lines.append(" \u00b7 ".join(parts))

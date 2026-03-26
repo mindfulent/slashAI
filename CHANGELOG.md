@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.10] - 2026-03-25
+
+### Changed
+- **Separate "No Usage" category in server dashboards** — Trial servers with zero usage are now split into a distinct ⚪ **NO USAGE** section (grey) at the bottom, ordered by ID descending (newest first). Trial servers with actual usage remain under 🔵 **TRIAL** (now blue instead of grey). Applies to `/streamcraft servers`, `/synthcraft servers`, `/scenecraft servers`, and `/shapecraft servers`.
+
+---
+
 ## [0.13.9] - 2026-03-20
 
 ### Added
