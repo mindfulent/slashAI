@@ -27,3 +27,12 @@ workers:
       - key: MEMORY_ENABLED
         scope: RUN_TIME
         value: "true"
+      - key: SLASHAI_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: RECOGNITION_API_URL
+        scope: RUN_TIME
+        value: "https://theblock.academy/api/recognition"
+      - key: RECOGNITION_API_KEY
+        scope: RUN_TIME
+        type: SECRET
