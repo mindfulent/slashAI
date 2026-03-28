@@ -1,12 +1,14 @@
--- Migration 015: Add agent_id for multi-agent memory scoping (INCEPTION Phase 2)
--- Each agent persona has its own memory space, while shared memories (agent_id=NULL)
--- from the main slashAI bot are readable by all agents.
+-- Migration 017: Backfill agent_id and enforce strict isolation
+-- All existing memories were created by the main slashAI bot.
+-- Tag them with agent_id='slashai' so no memories have NULL agent_id.
+-- Also updates hybrid_memory_search() to use strict equality (no NULL fallthrough).
 
-ALTER TABLE memories ADD COLUMN IF NOT EXISTS agent_id TEXT DEFAULT NULL;
+UPDATE memories SET agent_id = 'slashai' WHERE agent_id IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_memories_agent_id ON memories (agent_id) WHERE agent_id IS NOT NULL;
+-- Recreate hybrid_memory_search with strict agent_id filter.
+-- Must DROP first because return type changed in a previous migration.
+DROP FUNCTION IF EXISTS hybrid_memory_search(text,vector,bigint,text,bigint,bigint,integer,integer,text);
 
--- Update hybrid_memory_search() to accept and filter by agent_id
 CREATE OR REPLACE FUNCTION hybrid_memory_search(
     p_query TEXT,
     p_embedding vector(1024),
@@ -58,7 +60,7 @@ BEGIN
                 ELSE m.privacy_level = 'global'
             END
           )
-          -- Agent scoping: show shared memories (NULL) + agent-specific memories
+          -- Strict agent isolation: each agent only sees its own memories
           AND m.agent_id = p_agent_id
     ),
     semantic AS (

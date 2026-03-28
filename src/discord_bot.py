@@ -326,6 +326,7 @@ class DiscordBot(commands.Bot):
                     memory_manager=memory_manager,
                     bot=self,
                     owner_id=owner_id,
+                    agent_id="slashai",
                 )
                 logger.info("Memory system initialized successfully")
 
@@ -1056,6 +1057,7 @@ class DiscordBot(commands.Bot):
                         assistant_message=result.text,
                         user_message_id=message.id,
                         assistant_message_id=response_msg.id if response_msg else None,
+                        agent_id="slashai",
                     )
 
                 # Analytics: Track response sent
