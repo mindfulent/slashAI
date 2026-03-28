@@ -246,6 +246,47 @@ class DiscordBot(commands.Bot):
         self._pending_event_drafts: dict[int, "PendingEventDraft"] = {}  # Reaction-based event confirmation (v0.13.1)
         self._ready_event = asyncio.Event()
 
+    @staticmethod
+    async def _run_migrations(pool: asyncpg.Pool):
+        """Auto-run pending SQL migrations from migrations/ directory."""
+        import glob
+        from pathlib import Path
+
+        migrations_dir = Path(__file__).parent.parent / "migrations"
+        if not migrations_dir.exists():
+            return
+
+        # Create tracking table if it doesn't exist
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS _migrations (
+                    filename TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Get already-applied migrations
+            applied = {row["filename"] for row in await conn.fetch(
+                "SELECT filename FROM _migrations"
+            )}
+
+            # Find and run pending migrations in order
+            migration_files = sorted(migrations_dir.glob("*.sql"))
+            for mf in migration_files:
+                if mf.name in applied:
+                    continue
+                try:
+                    sql = mf.read_text()
+                    await conn.execute(sql)
+                    await conn.execute(
+                        "INSERT INTO _migrations (filename) VALUES ($1)", mf.name
+                    )
+                    logger.info(f"Migration applied: {mf.name}")
+                except Exception as e:
+                    logger.error(f"Migration failed: {mf.name}: {e}")
+                    # Don't block startup on migration failure
+                    break
+
     async def setup_hook(self):
         """Called when the bot is starting up."""
         if not self.enable_chat:
@@ -274,6 +315,10 @@ class DiscordBot(commands.Bot):
                 self.db_pool = await asyncpg.create_pool(
                     database_url, min_size=2, max_size=5
                 )
+
+                # Auto-run pending migrations
+                await self._run_migrations(self.db_pool)
+
                 anthropic_client = AsyncAnthropic(api_key=api_key)
                 memory_manager = MemoryManager(self.db_pool, anthropic_client)
                 self.claude_client = ClaudeClient(

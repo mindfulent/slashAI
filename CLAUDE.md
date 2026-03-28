@@ -202,48 +202,11 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 
 ## Database Migrations
 
-Run migrations in order to set up the memory system. Use `psql` or a PostgreSQL client:
+**Migrations run automatically on startup.** The bot checks the `_migrations` tracking table and applies any new `.sql` files from `migrations/` in sorted order. No manual `psql` needed.
 
-```sql
--- Text memory (v0.9.1)
-\i migrations/001_enable_pgvector.sql
-\i migrations/002_create_memories.sql
-\i migrations/003_create_sessions.sql
-\i migrations/004_add_indexes.sql
+To add a new migration: create a sequentially-numbered `.sql` file in `migrations/`. It will be applied on next deploy/restart.
 
--- Image memory (v0.9.2)
-\i migrations/005_create_build_clusters.sql
-\i migrations/006_create_image_observations.sql
-\i migrations/007_create_image_moderation_and_indexes.sql
-
--- Memory management (v0.9.11)
-\i migrations/008_add_deletion_log.sql
-
--- Analytics (v0.9.16)
-\i migrations/009_create_analytics.sql
-
--- Scheduled Reminders (v0.9.17)
-\i migrations/010_create_scheduled_reminders.sql
-\i migrations/011_create_user_settings.sql
-
--- Hybrid Search (v0.10.0)
-\i migrations/012_add_hybrid_search.sql
-
--- Confidence Decay (v0.10.1)
-\i migrations/013_add_confidence_decay.sql
-
--- Reaction-Based Memory Signals (v0.12.0)
-\i migrations/014a_create_message_reactions.sql
-\i migrations/014b_create_memory_message_links.sql
-\i migrations/014c_add_reaction_metadata.sql
-\i migrations/014d_update_hybrid_search_for_reactions.sql
-
--- Community Observations (v0.12.4)
-\i migrations/014e_add_community_observation_type.sql
-
--- Reactor Preference Inference (v0.12.5)
-\i migrations/014f_add_inferred_preference_type.sql
-```
+Migration files are idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`) so safe to re-run.
 
 ## Memory Privacy Model
 
