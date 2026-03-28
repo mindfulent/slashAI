@@ -40,7 +40,7 @@
         "sample_rate": 24000
       }
     },
-    "default_provider": "kokoro"
+    "default_provider": "cartesia"
   },
 
   "memory": {
