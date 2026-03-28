@@ -34,9 +34,11 @@ RETURNS TABLE (
     last_accessed_at TIMESTAMPTZ,
     agent_id TEXT,
     source_platform TEXT,
+    similarity FLOAT,
     rrf_score FLOAT,
     semantic_rank INT,
-    lexical_rank INT
+    lexical_rank INT,
+    reaction_summary TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -86,9 +88,11 @@ BEGIN
         pf.origin_channel_id, pf.origin_guild_id, pf.source_count,
         pf.created_at, pf.updated_at, pf.last_accessed_at,
         pf.agent_id, pf.source_platform,
+        r.score::FLOAT AS similarity,
         r.score::FLOAT AS rrf_score,
         r.s_rank AS semantic_rank,
-        r.l_rank AS lexical_rank
+        r.l_rank AS lexical_rank,
+        NULL::TEXT AS reaction_summary
     FROM rrf r
     JOIN privacy_filter pf ON pf.id = r.id
     ORDER BY r.score DESC
