@@ -74,6 +74,7 @@ class MemoryRetriever:
         query: str,
         channel: discord.abc.Messageable,
         top_k: Optional[int] = None,
+        agent_id: Optional[str] = None,
     ) -> list[RetrievedMemory]:
         """
         Retrieve relevant memories using hybrid search with privacy filtering.
@@ -110,7 +111,7 @@ class MemoryRetriever:
         if self.config.hybrid_search_enabled and await self._is_hybrid_available():
             rows = await self._retrieve_hybrid(
                 query, embedding, user_id, context_privacy.value,
-                guild_id, channel_id, top_k
+                guild_id, channel_id, top_k, agent_id=agent_id,
             )
         else:
             # Fallback to semantic-only search
@@ -170,6 +171,7 @@ class MemoryRetriever:
         queries: list[str],
         channel: discord.abc.Messageable,
         top_k: int = 12,
+        agent_id: Optional[str] = None,
     ) -> list[RetrievedMemory]:
         """
         Retrieve memories using multiple expanded queries, merging results.
@@ -214,6 +216,7 @@ class MemoryRetriever:
                 return await self._retrieve_hybrid(
                     query, embedding, user_id, context_privacy.value,
                     guild_id, channel_id, self.config.top_k,
+                    agent_id=agent_id,
                 )
             else:
                 return await self._retrieve_semantic(
@@ -297,13 +300,14 @@ class MemoryRetriever:
         guild_id: Optional[int],
         channel_id: Optional[int],
         top_k: int,
+        agent_id: Optional[str] = None,
     ) -> list[asyncpg.Record]:
         """Execute hybrid search using the SQL function."""
         embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
         try:
             rows = await self.db.fetch(
-                """SELECT * FROM hybrid_memory_search($1, $2::vector, $3, $4, $5, $6, $7, $8)""",
+                """SELECT * FROM hybrid_memory_search($1, $2::vector, $3, $4, $5, $6, $7, $8, $9)""",
                 query,
                 embedding_str,
                 user_id,
@@ -312,6 +316,7 @@ class MemoryRetriever:
                 channel_id,
                 top_k,
                 self.config.hybrid_candidate_limit,
+                agent_id,
             )
             logger.info(f"Hybrid search returned {len(rows)} results")
             return rows

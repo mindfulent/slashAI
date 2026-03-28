@@ -673,6 +673,7 @@ class ClaudeClient:
         model: str = MODEL_ID,
         bot: Optional["DiscordBot"] = None,
         owner_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ):
         self.client = AsyncAnthropic(api_key=api_key)
         self.memory = memory_manager
@@ -680,6 +681,7 @@ class ClaudeClient:
         self.model = model
         self.bot = bot  # Discord bot for tool execution
         self.owner_id = owner_id  # Owner's Discord user ID (tools only enabled for owner)
+        self.agent_id = agent_id  # INCEPTION: agent persona identifier for memory scoping
         self.events_api = EventsAPIClient()  # Events API client (available to all users)
         # Conversation history keyed by (user_id, channel_id)
         self._conversations: dict[tuple[str, str], ConversationHistory] = defaultdict(
@@ -739,7 +741,7 @@ class ClaudeClient:
         expansion_reason = "none"
         query_count = 1
         if self.memory and channel:
-            retrieval = await self.memory.retrieve(int(user_id), content, channel)
+            retrieval = await self.memory.retrieve(int(user_id), content, channel, agent_id=self.agent_id)
             memories = retrieval.memories
             expansion_reason = retrieval.expansion_reason
             query_count = retrieval.query_count
@@ -952,7 +954,8 @@ class ClaudeClient:
         # Caller can skip this to handle it with message IDs (v0.12.0)
         if self.memory and channel and not skip_memory_tracking:
             await self.memory.track_message(
-                int(user_id), int(channel_id), channel, content, response_text
+                int(user_id), int(channel_id), channel, content, response_text,
+                agent_id=self.agent_id,
             )
 
         return ChatResult(

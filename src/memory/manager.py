@@ -94,7 +94,8 @@ class MemoryManager:
         self._build_narrator = None
 
     async def retrieve(
-        self, user_id: int, query: str, channel: discord.abc.Messageable
+        self, user_id: int, query: str, channel: discord.abc.Messageable,
+        agent_id: Optional[str] = None,
     ) -> RetrievalResult:
         """
         Retrieve relevant memories for a user, privacy-filtered.
@@ -122,10 +123,11 @@ class MemoryManager:
                 f"queries={len(expanded.queries)}, top_k={expanded.top_k}"
             )
             memories = await self.retriever.retrieve_multi(
-                user_id, expanded.queries, channel, top_k=expanded.top_k
+                user_id, expanded.queries, channel, top_k=expanded.top_k,
+                agent_id=agent_id,
             )
         else:
-            memories = await self.retriever.retrieve(user_id, query, channel)
+            memories = await self.retriever.retrieve(user_id, query, channel, agent_id=agent_id)
 
         logger.info(f"Retrieved {len(memories)} memories")
 
@@ -707,6 +709,7 @@ class MemoryManager:
         assistant_message: str,
         user_message_id: Optional[int] = None,
         assistant_message_id: Optional[int] = None,
+        agent_id: Optional[str] = None,
     ):
         """
         Track a message exchange for future extraction.
@@ -765,7 +768,7 @@ class MemoryManager:
         # Threshold is per-message, but we store pairs, so multiply by 2
         if len(messages) >= self.config.extraction_message_threshold * 2:
             logger.info(f"Threshold reached, triggering extraction for user={user_id}")
-            await self._trigger_extraction(user_id, channel_id, channel, messages)
+            await self._trigger_extraction(user_id, channel_id, channel, messages, agent_id=agent_id)
 
     async def _get_or_create_session(
         self,
@@ -804,6 +807,7 @@ class MemoryManager:
         channel_id: int,
         channel: discord.abc.Messageable,
         messages: list[dict],
+        agent_id: Optional[str] = None,
     ):
         """Extract memories from accumulated messages."""
         guild = getattr(channel, "guild", None)
@@ -843,7 +847,8 @@ class MemoryManager:
             for memory, privacy_level in extracted_with_privacy:
                 logger.info(f"Storing memory: [{privacy_level.value}] {memory.summary[:50]}...")
                 memory_id = await self.updater.update(
-                    user_id, memory, privacy_level, channel_id, guild_id
+                    user_id, memory, privacy_level, channel_id, guild_id,
+                    agent_id=agent_id,
                 )
 
                 # Link memory to source messages for reaction aggregation (v0.12.0)

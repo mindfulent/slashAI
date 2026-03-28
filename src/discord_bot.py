@@ -1557,6 +1557,19 @@ class WebhookServer:
         self.app.router.add_post('/server/event-updated', self.handle_event_updated)
         self.app.router.add_post('/server/event-deleted', self.handle_event_deleted)
         self.app.router.add_get('/health', self.handle_health)
+
+        # Phase 3: Memory bridge API routes (INCEPTION)
+        if self.bot.claude_client and self.bot.claude_client.memory:
+            try:
+                from api.memory_bridge import MemoryBridgeAPI
+                bridge_api = MemoryBridgeAPI(
+                    self.bot.claude_client.memory,
+                    self.bot.db_pool,
+                )
+                bridge_api.register_routes(self.app)
+            except Exception as e:
+                logger.warning(f"Failed to initialize memory bridge API: {e}")
+
         self.runner: Optional[web.AppRunner] = None
 
     async def handle_health(self, request: web.Request) -> web.Response:
@@ -2182,7 +2195,7 @@ class WebhookServer:
 
 
 async def main():
-    """Run the bot standalone (chatbot mode) with webhook server."""
+    """Run the bot standalone (chatbot mode) with webhook server and agent bots."""
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         print("Error: DISCORD_BOT_TOKEN environment variable not set")
@@ -2195,13 +2208,31 @@ async def main():
     webhook_port = int(os.getenv("WEBHOOK_SERVER_PORT", "8000"))
     webhook_server = WebhookServer(bot)
 
+    # Phase 2: Agent manager for multi-persona Discord bots (INCEPTION)
+    agent_manager = None
+
     try:
         # Start webhook server first
         await webhook_server.start(webhook_port)
 
+        # Start agent bots if personas exist and have tokens
+        try:
+            from agents.agent_manager import AgentManager
+            memory_mgr = (
+                bot.claude_client.memory
+                if hasattr(bot, 'claude_client') and bot.claude_client and bot.claude_client.memory
+                else None
+            )
+            agent_manager = AgentManager(memory_mgr)
+            await agent_manager.start_all()
+        except Exception as e:
+            logger.warning(f"Agent manager startup failed: {e}")
+
         # Then start the Discord bot (this blocks until bot disconnects)
         await bot.start(token)
     finally:
+        if agent_manager:
+            await agent_manager.stop_all()
         await webhook_server.stop()
 
 

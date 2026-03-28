@@ -92,6 +92,7 @@ class MemoryUpdater:
         privacy_level: PrivacyLevel,
         channel_id: Optional[int] = None,
         guild_id: Optional[int] = None,
+        agent_id: Optional[str] = None,
     ) -> int:
         """
         Add or merge a memory. Returns memory ID.
@@ -102,6 +103,7 @@ class MemoryUpdater:
             privacy_level: Privacy level for the memory
             channel_id: Origin channel ID
             guild_id: Origin guild ID
+            agent_id: Agent persona identifier (INCEPTION)
 
         Returns:
             ID of the created or updated memory
@@ -113,7 +115,8 @@ class MemoryUpdater:
             return await self._merge(similar, memory, embedding)
         else:
             return await self._add(
-                user_id, memory, embedding, privacy_level, channel_id, guild_id
+                user_id, memory, embedding, privacy_level, channel_id, guild_id,
+                agent_id=agent_id,
             )
 
     async def _find_similar(
@@ -187,14 +190,18 @@ class MemoryUpdater:
         privacy_level: PrivacyLevel,
         channel_id: Optional[int],
         guild_id: Optional[int],
+        agent_id: Optional[str] = None,
+        source_platform: str = "discord",
+        user_identifier: Optional[str] = None,
     ) -> int:
-        """Add new memory with privacy level and origin tracking."""
+        """Add new memory with privacy level, origin tracking, and agent scoping."""
         result = await self.db.fetchrow(
             """
             INSERT INTO memories (
                 user_id, topic_summary, raw_dialogue, embedding,
-                memory_type, confidence, privacy_level, origin_channel_id, origin_guild_id
-            ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9)
+                memory_type, confidence, privacy_level, origin_channel_id, origin_guild_id,
+                agent_id, source_platform, user_identifier
+            ) VALUES ($1, $2, $3, $4::vector, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (user_id, md5(topic_summary)) DO UPDATE SET
                 raw_dialogue = EXCLUDED.raw_dialogue,
                 embedding = EXCLUDED.embedding,
@@ -212,6 +219,9 @@ class MemoryUpdater:
             privacy_level.value,
             channel_id,
             guild_id,
+            agent_id,
+            source_platform,
+            user_identifier,
         )
         return result["id"]
 

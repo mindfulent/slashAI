@@ -16,6 +16,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.0] - 2026-03-28
+
+### Added — INCEPTION: Cross-Platform AI Agent Personas
+Multi-agent Discord bots with shared persona files, bidirectional memory bridge, and agent-scoped memory. Part of the INCEPTION initiative bridging slashAI and SoulCraft.
+
+#### Phase 1: Persona Definition & Loading
+- **Persona loader** (`src/agents/persona_loader.py`) — Loads JSON persona files from `personas/` directory. Shared format with SoulCraft. Builds Discord-appropriate system prompts from identity fields.
+
+#### Phase 2: Multi-Agent Discord Bots
+- **Agent client** (`src/agents/agent_client.py`) — Lightweight `discord.Client` per persona. Responds to mentions and DMs with persona-appropriate personality. No slash commands or MCP tools.
+- **Agent manager** (`src/agents/agent_manager.py`) — Starts/stops agent bots based on persona files + `AGENT_{NAME}_TOKEN` env vars.
+- **Agent-scoped memory** — `agent_id` column on memories table. Agent-specific memories are scoped; main bot memories (agent_id=NULL) are shared.
+- **Migration 015** — Adds `agent_id` column, index, and updates `hybrid_memory_search()` function.
+- **Threading** — `agent_id` parameter flows through `ClaudeClient` → `MemoryManager` → `MemoryRetriever` → `MemoryUpdater`.
+
+#### Phase 3: Bidirectional Memory Bridge
+- **Memory bridge API** (`src/api/memory_bridge.py`) — HTTP endpoints on the webhook server for cross-platform memory access:
+  - `POST /api/memory/store` — Store a memory from Minecraft (or any external platform)
+  - `POST /api/memory/retrieve` — Query memories with embedding search, scoped by agent_id
+  - `GET /api/memory/health` — Health check
+- **Migration 016** — Adds `source_platform` and `user_identifier` columns for cross-platform tracking.
+- **User linking** — Resolves Minecraft usernames to Discord user IDs via the `/verify` account linking system.
+
+### New Files
+- `src/agents/__init__.py`
+- `src/agents/persona_loader.py`
+- `src/agents/agent_client.py`
+- `src/agents/agent_manager.py`
+- `src/api/__init__.py`
+- `src/api/memory_bridge.py`
+- `migrations/015_add_agent_id.sql`
+- `migrations/016_add_source_platform.sql`
+- `personas/lena.json` (sample persona)
+- `docs/INCEPTION.md` (implementation spec)
+
+---
+
 ## [0.13.10] - 2026-03-25
 
 ### Changed
