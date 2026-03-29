@@ -1016,6 +1016,7 @@ class MemoryManager:
         privacy_filter: Optional[str] = None,
         limit: int = 10,
         offset: int = 0,
+        agent_id: Optional[str] = None,
     ) -> tuple[list[dict], int]:
         """
         List memories for a user with pagination.
@@ -1025,38 +1026,41 @@ class MemoryManager:
             privacy_filter: Optional privacy level filter (dm, channel_restricted, guild_public, global)
             limit: Max memories to return
             offset: Offset for pagination
+            agent_id: Optional agent filter (e.g., 'lena', 'slashai')
 
         Returns:
             Tuple of (memories list, total count)
         """
-        # Build query with optional privacy filter
+        # Build dynamic WHERE clauses and params
+        conditions = ["user_id = $1"]
+        params: list = [user_id]
+        idx = 2
+
         if privacy_filter and privacy_filter != "all":
-            count_query = """
-                SELECT COUNT(*) FROM memories
-                WHERE user_id = $1 AND privacy_level = $2
-            """
-            data_query = """
-                SELECT id, topic_summary, memory_type, privacy_level,
-                       confidence, created_at, updated_at, last_accessed_at
-                FROM memories
-                WHERE user_id = $1 AND privacy_level = $2
-                ORDER BY updated_at DESC
-                LIMIT $3 OFFSET $4
-            """
-            total = await self.db.fetchval(count_query, user_id, privacy_filter)
-            rows = await self.db.fetch(data_query, user_id, privacy_filter, limit, offset)
-        else:
-            count_query = "SELECT COUNT(*) FROM memories WHERE user_id = $1"
-            data_query = """
-                SELECT id, topic_summary, memory_type, privacy_level,
-                       confidence, created_at, updated_at, last_accessed_at
-                FROM memories
-                WHERE user_id = $1
-                ORDER BY updated_at DESC
-                LIMIT $2 OFFSET $3
-            """
-            total = await self.db.fetchval(count_query, user_id)
-            rows = await self.db.fetch(data_query, user_id, limit, offset)
+            conditions.append(f"privacy_level = ${idx}")
+            params.append(privacy_filter)
+            idx += 1
+
+        if agent_id:
+            conditions.append(f"agent_id = ${idx}")
+            params.append(agent_id)
+            idx += 1
+
+        where = " AND ".join(conditions)
+
+        count_query = f"SELECT COUNT(*) FROM memories WHERE {where}"
+        data_query = f"""
+            SELECT id, topic_summary, memory_type, privacy_level,
+                   confidence, created_at, updated_at, last_accessed_at, agent_id
+            FROM memories
+            WHERE {where}
+            ORDER BY updated_at DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+        """
+        params_with_pagination = params + [limit, offset]
+
+        total = await self.db.fetchval(count_query, *params)
+        rows = await self.db.fetch(data_query, *params_with_pagination)
 
         memories = [dict(row) for row in rows]
         logger.debug(f"Listed {len(memories)}/{total} memories for user={user_id}")
@@ -1068,6 +1072,7 @@ class MemoryManager:
         query: str,
         limit: int = 10,
         offset: int = 0,
+        agent_id: Optional[str] = None,
     ) -> tuple[list[dict], int]:
         """
         Search memories for a user by text.
@@ -1077,29 +1082,37 @@ class MemoryManager:
             query: Search term
             limit: Max memories to return
             offset: Offset for pagination
+            agent_id: Optional agent filter (e.g., 'lena', 'slashai')
 
         Returns:
             Tuple of (memories list, total count)
         """
         search_pattern = f"%{query}%"
 
-        count_query = """
-            SELECT COUNT(*) FROM memories
-            WHERE user_id = $1
-              AND (topic_summary ILIKE $2 OR raw_dialogue ILIKE $2)
-        """
-        data_query = """
-            SELECT id, topic_summary, memory_type, privacy_level,
-                   confidence, updated_at
-            FROM memories
-            WHERE user_id = $1
-              AND (topic_summary ILIKE $2 OR raw_dialogue ILIKE $2)
-            ORDER BY updated_at DESC
-            LIMIT $3 OFFSET $4
-        """
+        conditions = ["user_id = $1", "(topic_summary ILIKE $2 OR raw_dialogue ILIKE $2)"]
+        params: list = [user_id, search_pattern]
+        idx = 3
 
-        total = await self.db.fetchval(count_query, user_id, search_pattern)
-        rows = await self.db.fetch(data_query, user_id, search_pattern, limit, offset)
+        if agent_id:
+            conditions.append(f"agent_id = ${idx}")
+            params.append(agent_id)
+            idx += 1
+
+        where = " AND ".join(conditions)
+
+        count_query = f"SELECT COUNT(*) FROM memories WHERE {where}"
+        data_query = f"""
+            SELECT id, topic_summary, memory_type, privacy_level,
+                   confidence, updated_at, agent_id
+            FROM memories
+            WHERE {where}
+            ORDER BY updated_at DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+        """
+        params_with_pagination = params + [limit, offset]
+
+        total = await self.db.fetchval(count_query, *params)
+        rows = await self.db.fetch(data_query, *params_with_pagination)
 
         memories = [dict(row) for row in rows]
         logger.debug(f"Search '{query}' returned {len(memories)}/{total} for user={user_id}")
@@ -1240,49 +1253,76 @@ class MemoryManager:
             logger.info(f"Deleted memory={memory_id} for user={user_id}: {memory['topic_summary'][:50]}...")
         return deleted
 
-    async def get_user_stats(self, user_id: int) -> dict:
+    async def get_user_stats(self, user_id: int, agent_id: Optional[str] = None) -> dict:
         """
         Get memory statistics for a user.
 
         Args:
             user_id: Discord user ID
+            agent_id: Optional agent filter (e.g., 'lena', 'slashai')
 
         Returns:
-            Dict with stats: total, by_privacy, by_type, last_updated
+            Dict with stats: total, by_privacy, by_type, by_agent, last_updated
         """
+        # Build agent filter clause
+        if agent_id:
+            agent_clause = " AND agent_id = $2"
+            agent_params = (user_id, agent_id)
+        else:
+            agent_clause = ""
+            agent_params = (user_id,)
+
         # Get counts by privacy level
         privacy_rows = await self.db.fetch(
-            """
+            f"""
             SELECT privacy_level, COUNT(*) as count
             FROM memories
-            WHERE user_id = $1
+            WHERE user_id = $1{agent_clause}
             GROUP BY privacy_level
             """,
-            user_id,
+            *agent_params,
         )
 
         # Get counts by type
         type_rows = await self.db.fetch(
-            """
+            f"""
             SELECT memory_type, COUNT(*) as count
             FROM memories
-            WHERE user_id = $1
+            WHERE user_id = $1{agent_clause}
             GROUP BY memory_type
             """,
-            user_id,
+            *agent_params,
         )
 
         # Get last updated
         last_updated = await self.db.fetchval(
-            "SELECT MAX(updated_at) FROM memories WHERE user_id = $1",
-            user_id,
+            f"SELECT MAX(updated_at) FROM memories WHERE user_id = $1{agent_clause}",
+            *agent_params,
         )
 
         total = sum(row["count"] for row in privacy_rows)
 
-        return {
+        result = {
             "total": total,
             "by_privacy": {row["privacy_level"]: row["count"] for row in privacy_rows},
             "by_type": {row["memory_type"]: row["count"] for row in type_rows},
             "last_updated": last_updated,
         }
+
+        # Add per-agent breakdown when not filtering by a specific agent
+        if not agent_id:
+            agent_rows = await self.db.fetch(
+                """
+                SELECT agent_id, COUNT(*) as count
+                FROM memories
+                WHERE user_id = $1
+                GROUP BY agent_id
+                ORDER BY count DESC
+                """,
+                user_id,
+            )
+            result["by_agent"] = {
+                (row["agent_id"] or "unknown"): row["count"] for row in agent_rows
+            }
+
+        return result

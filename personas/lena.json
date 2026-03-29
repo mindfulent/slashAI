@@ -29,7 +29,7 @@
       "speed": 1.0
     },
     "cartesia": {
-      "voice_id": "a0e99841-438c-4a64-b679-ae501e7d6091",
+      "voice_id": "ca9095ca-987f-4c63-bdc6-cc418167ea00",
       "model": "sonic-3",
       "language": "en",
       "default_emotion": "positivity:moderate",

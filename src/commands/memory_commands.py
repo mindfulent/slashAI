@@ -23,6 +23,7 @@ Discord slash commands for users to view, search, and manage their memories.
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import asyncpg
@@ -37,6 +38,52 @@ logger = logging.getLogger("slashAI.commands.memory")
 
 # Page size for memory lists
 PAGE_SIZE = 10
+
+# Cache persona display names for autocomplete labels
+_PERSONA_DISPLAY_NAMES: dict[str, str] = {}
+
+
+def _load_persona_display_names() -> None:
+    """Load persona display names from personas/ directory (cached)."""
+    if _PERSONA_DISPLAY_NAMES:
+        return
+    try:
+        from agents.persona_loader import PersonaConfig
+        personas = PersonaConfig.load_all(Path("personas"))
+        for persona in personas.values():
+            _PERSONA_DISPLAY_NAMES[persona.memory.agent_id] = persona.display_name
+    except Exception:
+        pass
+    # Always include the main bot
+    _PERSONA_DISPLAY_NAMES.setdefault("slashai", "slashAI")
+
+
+async def agent_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    """Autocomplete for agent parameter — shows agents that have memories about the user."""
+    cog = interaction.client.get_cog("MemoryCommands")
+    if not cog or not cog.db:
+        return []
+
+    try:
+        rows = await cog.db.fetch(
+            "SELECT DISTINCT agent_id FROM memories WHERE user_id = $1 AND agent_id IS NOT NULL",
+            interaction.user.id,
+        )
+    except Exception:
+        return []
+
+    _load_persona_display_names()
+
+    choices = []
+    for row in rows:
+        aid = row["agent_id"]
+        display = _PERSONA_DISPLAY_NAMES.get(aid, aid)
+        if current.lower() in display.lower() or current.lower() in aid.lower():
+            choices.append(app_commands.Choice(name=display, value=aid))
+
+    return choices[:25]  # Discord max
 
 
 class MemoryCommands(commands.Cog):
@@ -70,6 +117,7 @@ class MemoryCommands(commands.Cog):
     @app_commands.describe(
         page="Page number (default: 1)",
         privacy="Filter by privacy level (default: all)",
+        agent="Filter by agent (e.g., slashAI, Lena)",
     )
     @app_commands.choices(
         privacy=[
@@ -80,11 +128,13 @@ class MemoryCommands(commands.Cog):
             app_commands.Choice(name="Global", value="global"),
         ]
     )
+    @app_commands.autocomplete(agent=agent_autocomplete)
     async def list_memories(
         self,
         interaction: discord.Interaction,
         page: int = 1,
         privacy: str = "all",
+        agent: Optional[str] = None,
     ):
         """List your memories."""
         await interaction.response.defer(ephemeral=True)
@@ -96,7 +146,7 @@ class MemoryCommands(commands.Cog):
             user_id=interaction.user.id,
             channel_id=interaction.channel_id,
             guild_id=interaction.guild.id if interaction.guild else None,
-            properties={"command_name": "memories", "subcommand": "list", "page": page, "privacy": privacy},
+            properties={"command_name": "memories", "subcommand": "list", "page": page, "privacy": privacy, "agent": agent},
         )
 
         user_id = interaction.user.id
@@ -105,14 +155,19 @@ class MemoryCommands(commands.Cog):
         # Fetch memories
         privacy_filter = None if privacy == "all" else privacy
         memories, total = await self.memory.list_user_memories(
-            user_id, privacy_filter=privacy_filter, limit=PAGE_SIZE, offset=offset
+            user_id, privacy_filter=privacy_filter, limit=PAGE_SIZE, offset=offset,
+            agent_id=agent,
         )
 
         if total == 0:
-            await interaction.followup.send(
-                "You don't have any memories stored yet. Chat with me to build your memory!",
-                ephemeral=True,
+            _load_persona_display_names()
+            agent_label = _PERSONA_DISPLAY_NAMES.get(agent, agent) if agent else None
+            msg = (
+                f"{agent_label} doesn't have any memories about you yet."
+                if agent_label
+                else "You don't have any memories stored yet. Chat with me to build your memory!"
             )
+            await interaction.followup.send(msg, ephemeral=True)
             return
 
         total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
@@ -124,7 +179,7 @@ class MemoryCommands(commands.Cog):
             return
 
         # Create embed
-        embed = self._format_memory_list(memories, page, total_pages, total, privacy)
+        embed = self._format_memory_list(memories, page, total_pages, total, privacy, agent)
 
         # Create pagination view if needed
         if total_pages > 1:
@@ -132,9 +187,10 @@ class MemoryCommands(commands.Cog):
             async def fetch_page(new_page: int) -> discord.Embed:
                 new_offset = (new_page - 1) * PAGE_SIZE
                 new_memories, _ = await self.memory.list_user_memories(
-                    user_id, privacy_filter=privacy_filter, limit=PAGE_SIZE, offset=new_offset
+                    user_id, privacy_filter=privacy_filter, limit=PAGE_SIZE, offset=new_offset,
+                    agent_id=agent,
                 )
-                return self._format_memory_list(new_memories, new_page, total_pages, total, privacy)
+                return self._format_memory_list(new_memories, new_page, total_pages, total, privacy, agent)
 
             view = PaginationView(user_id, page, total_pages, fetch_page)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -148,11 +204,18 @@ class MemoryCommands(commands.Cog):
         total_pages: int,
         total: int,
         privacy_filter: str,
+        agent_filter: Optional[str] = None,
     ) -> discord.Embed:
         """Format a list of memories as an embed."""
         filter_text = f" ({privacy_filter})" if privacy_filter != "all" else ""
+        if agent_filter:
+            _load_persona_display_names()
+            agent_label = _PERSONA_DISPLAY_NAMES.get(agent_filter, agent_filter)
+            title = f"{agent_label}'s Memories{filter_text}"
+        else:
+            title = f"Your Memories{filter_text}"
         embed = discord.Embed(
-            title=f"Your Memories{filter_text}",
+            title=title,
             description=f"Page {page}/{total_pages} • {total} total memories",
             color=discord.Color.blue(),
         )
@@ -193,12 +256,15 @@ class MemoryCommands(commands.Cog):
     @app_commands.describe(
         query="Search term to find in your memories",
         page="Page number (default: 1)",
+        agent="Filter by agent (e.g., slashAI, Lena)",
     )
+    @app_commands.autocomplete(agent=agent_autocomplete)
     async def search_memories(
         self,
         interaction: discord.Interaction,
         query: str,
         page: int = 1,
+        agent: Optional[str] = None,
     ):
         """Search your memories by text."""
         await interaction.response.defer(ephemeral=True)
@@ -210,7 +276,7 @@ class MemoryCommands(commands.Cog):
             user_id=interaction.user.id,
             channel_id=interaction.channel_id,
             guild_id=interaction.guild.id if interaction.guild else None,
-            properties={"command_name": "memories", "subcommand": "search", "page": page},
+            properties={"command_name": "memories", "subcommand": "search", "page": page, "agent": agent},
         )
 
         user_id = interaction.user.id
@@ -218,14 +284,17 @@ class MemoryCommands(commands.Cog):
 
         # Fetch memories
         memories, total = await self.memory.search_user_memories(
-            user_id, query, limit=PAGE_SIZE, offset=offset
+            user_id, query, limit=PAGE_SIZE, offset=offset, agent_id=agent,
         )
 
         if total == 0:
-            await interaction.followup.send(
-                f'No memories found matching "{query}".',
-                ephemeral=True,
-            )
+            if agent:
+                _load_persona_display_names()
+                agent_label = _PERSONA_DISPLAY_NAMES.get(agent, agent)
+                msg = f'No memories from {agent_label} found matching "{query}".'
+            else:
+                msg = f'No memories found matching "{query}".'
+            await interaction.followup.send(msg, ephemeral=True)
             return
 
         total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
@@ -237,7 +306,7 @@ class MemoryCommands(commands.Cog):
             return
 
         # Create embed
-        embed = self._format_search_results(memories, query, page, total_pages, total)
+        embed = self._format_search_results(memories, query, page, total_pages, total, agent)
 
         # Create pagination view if needed
         if total_pages > 1:
@@ -245,9 +314,9 @@ class MemoryCommands(commands.Cog):
             async def fetch_page(new_page: int) -> discord.Embed:
                 new_offset = (new_page - 1) * PAGE_SIZE
                 new_memories, _ = await self.memory.search_user_memories(
-                    user_id, query, limit=PAGE_SIZE, offset=new_offset
+                    user_id, query, limit=PAGE_SIZE, offset=new_offset, agent_id=agent,
                 )
-                return self._format_search_results(new_memories, query, new_page, total_pages, total)
+                return self._format_search_results(new_memories, query, new_page, total_pages, total, agent)
 
             view = PaginationView(user_id, page, total_pages, fetch_page)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -261,10 +330,17 @@ class MemoryCommands(commands.Cog):
         page: int,
         total_pages: int,
         total: int,
+        agent_filter: Optional[str] = None,
     ) -> discord.Embed:
         """Format search results as an embed."""
+        if agent_filter:
+            _load_persona_display_names()
+            agent_label = _PERSONA_DISPLAY_NAMES.get(agent_filter, agent_filter)
+            title = f'Search in {agent_label}\'s Memories: "{query}"'
+        else:
+            title = f'Search Results: "{query}"'
         embed = discord.Embed(
-            title=f'Search Results: "{query}"',
+            title=title,
             description=f"Page {page}/{total_pages} • {total} matches",
             color=discord.Color.green(),
         )
@@ -655,7 +731,15 @@ class MemoryCommands(commands.Cog):
     # =========================================================================
 
     @memories_group.command(name="stats")
-    async def memory_stats(self, interaction: discord.Interaction):
+    @app_commands.describe(
+        agent="Filter by agent (e.g., slashAI, Lena)",
+    )
+    @app_commands.autocomplete(agent=agent_autocomplete)
+    async def memory_stats(
+        self,
+        interaction: discord.Interaction,
+        agent: Optional[str] = None,
+    ):
         """View your memory statistics."""
         await interaction.response.defer(ephemeral=True)
 
@@ -666,21 +750,31 @@ class MemoryCommands(commands.Cog):
             user_id=interaction.user.id,
             channel_id=interaction.channel_id,
             guild_id=interaction.guild.id if interaction.guild else None,
-            properties={"command_name": "memories", "subcommand": "stats"},
+            properties={"command_name": "memories", "subcommand": "stats", "agent": agent},
         )
 
         user_id = interaction.user.id
-        stats = await self.memory.get_user_stats(user_id)
+        stats = await self.memory.get_user_stats(user_id, agent_id=agent)
 
         if stats["total"] == 0:
-            await interaction.followup.send(
-                "You don't have any memories stored yet. Chat with me to build your memory!",
-                ephemeral=True,
-            )
+            if agent:
+                _load_persona_display_names()
+                agent_label = _PERSONA_DISPLAY_NAMES.get(agent, agent)
+                msg = f"{agent_label} doesn't have any memories about you yet."
+            else:
+                msg = "You don't have any memories stored yet. Chat with me to build your memory!"
+            await interaction.followup.send(msg, ephemeral=True)
             return
 
+        _load_persona_display_names()
+        if agent:
+            agent_label = _PERSONA_DISPLAY_NAMES.get(agent, agent)
+            title = f"{agent_label}'s Memory Statistics"
+        else:
+            title = "Your Memory Statistics"
+
         embed = discord.Embed(
-            title="Your Memory Statistics",
+            title=title,
             color=discord.Color.gold(),
         )
 
@@ -715,6 +809,19 @@ class MemoryCommands(commands.Cog):
                 value="\n".join(type_lines),
                 inline=True,
             )
+
+        # Per-agent breakdown (only when not filtering by specific agent)
+        if not agent and stats.get("by_agent"):
+            agent_lines = []
+            for aid, count in stats["by_agent"].items():
+                label = _PERSONA_DISPLAY_NAMES.get(aid, aid)
+                agent_lines.append(f"{label}: {count}")
+            if agent_lines:
+                embed.add_field(
+                    name="By Agent",
+                    value="\n".join(agent_lines),
+                    inline=True,
+                )
 
         # Last updated
         if stats["last_updated"]:

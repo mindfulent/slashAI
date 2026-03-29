@@ -16,6 +16,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.1] - 2026-03-28
+
+### Added
+- **Agent filter on memory commands** — `/memories list`, `/memories search`, and `/memories stats` now accept an optional `agent` parameter to filter by persona (e.g., `/memories list agent:Lena`). Autocomplete shows agents that have memories about the user.
+- **Per-agent stats breakdown** — `/memories stats` (without agent filter) now includes a "By Agent" section showing memory count per persona.
+- **INCEPTION unit tests** — 51 tests covering persona loading, memory bridge API, and agent-scoped memory:
+  - `tests/test_persona_loader.py` — JSON parsing, defaults, system prompt building, load_all
+  - `tests/test_memory_bridge.py` — Auth, store/retrieve endpoints, user resolution
+  - `tests/test_agent_memory.py` — agent_id passthrough in retriever and updater
+
+### New Files
+- `tests/test_persona_loader.py`
+- `tests/test_memory_bridge.py`
+- `tests/test_agent_memory.py`
+
+---
+
 ## [0.14.0] - 2026-03-28
 
 ### Added — INCEPTION: Cross-Platform AI Agent Personas
