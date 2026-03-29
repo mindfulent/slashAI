@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.14.2] - 2026-03-29
+
+### Fixed
+- **Clear stale slash commands on agent startup** — Agent bots (e.g., Lena) now sync an empty command tree on connect, removing any leftover slash commands from previous bot token usage (e.g., OpenClaw `/bluebubbles`, `/coding_agent`).
+
+---
+
 ## [0.14.1] - 2026-03-28
 
 ### Added

@@ -55,6 +55,12 @@ class AgentClient(discord.Client):
         )
         await self.change_presence(activity=activity)
 
+        # Clear any stale slash commands from previous bot usage of this token
+        tree = discord.app_commands.CommandTree(self)
+        tree.clear_commands(guild=None)
+        await tree.sync()
+        logger.info(f"Cleared stale slash commands for '{self.persona.display_name}'")
+
     async def on_message(self, message: discord.Message):
         # Ignore own messages and other bots
         if message.author == self.user or message.author.bot:

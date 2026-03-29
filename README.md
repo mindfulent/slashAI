@@ -6,7 +6,7 @@
 
 AI-powered Discord bot and MCP server. Powered by Claude Sonnet 4.6 with privacy-aware persistent memory.
 
-**Current Version:** 0.13.9
+**Current Version:** 0.14.2
 
 ## Overview
 
