@@ -44,6 +44,7 @@ class AudioReceiver:
         self._on_audio: Optional[Callable[[int, bytes], None]] = None
         self._callback: Optional[Callable[[bytes], None]] = None
         self._original_hook = None
+        self._packet_count = 0
 
     def start(self, on_audio: Callable[[int, bytes], None]) -> None:
         """Start receiving audio.
@@ -56,9 +57,14 @@ class AudioReceiver:
         self._callback = self._handle_packet
         self._vc._connection.add_socket_listener(self._callback)
 
-        # Hook into voice WebSocket for SPEAKING opcode (SSRC mapping)
+        # Hook into voice WebSocket for SPEAKING opcode (SSRC mapping).
+        # Must patch both _connection.hook (for future reconnects) AND
+        # the already-connected ws._hook (for the current session).
         self._original_hook = self._vc._connection.hook
         self._vc._connection.hook = self._speaking_hook
+        if hasattr(self._vc._connection, "ws") and self._vc._connection.ws:
+            self._original_ws_hook = self._vc._connection.ws._hook
+            self._vc._connection.ws._hook = self._speaking_hook
 
         logger.info("AudioReceiver started")
 
@@ -70,7 +76,7 @@ class AudioReceiver:
             user_id = d.get("user_id")
             if ssrc is not None and user_id is not None:
                 self._ssrc_to_user[ssrc] = int(user_id)
-                logger.debug(f"SSRC {ssrc} -> user {user_id}")
+                logger.info(f"SSRC {ssrc} -> user {user_id}")
 
         # Call original hook if present
         if self._original_hook:
@@ -82,9 +88,13 @@ class AudioReceiver:
             self._vc._connection.remove_socket_listener(self._callback)
             self._callback = None
 
-        # Restore original hook
+        # Restore original hooks
         if hasattr(self._vc, "_connection"):
             self._vc._connection.hook = self._original_hook
+            if hasattr(self._vc._connection, "ws") and self._vc._connection.ws:
+                self._vc._connection.ws._hook = getattr(
+                    self, "_original_ws_hook", self._original_hook
+                )
         self._original_hook = None
 
         self._decoders.clear()
@@ -99,6 +109,13 @@ class AudioReceiver:
 
     def _handle_packet(self, data: bytes) -> None:
         """Socket reader callback. Parse RTP, decrypt, decode, dispatch."""
+        self._packet_count += 1
+        if self._packet_count <= 3 or self._packet_count % 1000 == 0:
+            logger.info(
+                f"Packet #{self._packet_count}: {len(data)} bytes, "
+                f"header=[{data[0]:02x} {data[1]:02x}] SSRCs known={list(self._ssrc_to_user.keys())}"
+            )
+
         if len(data) < RTP_HEADER_SIZE + 1:
             return
 
