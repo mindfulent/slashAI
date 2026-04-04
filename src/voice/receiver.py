@@ -112,10 +112,12 @@ class AudioReceiver:
 
     def _handle_packet(self, data: bytes) -> None:
         """Socket reader callback. Parse RTP, decrypt, decode, dispatch."""
-        # Re-patch ws._hook if WebSocket was recreated (reconnect)
+        # Re-patch ws._hook if WebSocket was recreated (reconnect).
+        # Use an id-tracked marker to avoid re-patching the same WS repeatedly.
         ws = getattr(self._vc._connection, "ws", None)
-        if ws is not None and getattr(ws, "_hook", None) is not self._speaking_hook:
+        if ws is not None and id(ws) != getattr(self, "_patched_ws_id", None):
             ws._hook = self._speaking_hook
+            self._patched_ws_id = id(ws)
             logger.info("Re-patched ws._hook after WebSocket reconnect")
 
         self._packet_count += 1

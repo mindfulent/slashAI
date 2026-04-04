@@ -117,6 +117,12 @@ class VoiceSession:
 
     async def _handle_utterance(self, user_id: int, pcm_16k_mono: bytes) -> None:
         """Process a completed utterance: STT → echo check → LLM → TTS → play."""
+        try:
+            await self._handle_utterance_inner(user_id, pcm_16k_mono)
+        except Exception as e:
+            logger.error(f"[{self._persona.display_name}] Utterance pipeline error: {e}", exc_info=True)
+
+    async def _handle_utterance_inner(self, user_id: int, pcm_16k_mono: bytes) -> None:
         async with self._processing_lock:
             if not self._running:
                 return
