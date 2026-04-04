@@ -147,36 +147,49 @@ class AudioReceiver:
         # (SPEAKING opcode mapping may arrive late or not at all)
         user_id = self._ssrc_to_user.get(ssrc, ssrc)
 
-        # For aead_xchacha20_poly1305_rtpsize, AAD includes the full
-        # unencrypted header + RTP extension (if present).
+        # For aead_xchacha20_poly1305_rtpsize (SRTP-style layout):
+        # - AAD = 12-byte RTP header + 4-byte extension preamble (if ext bit set)
+        # - Extension DATA is encrypted (inside the ciphertext)
+        # - Nonce = last 4 bytes of payload
+        # Reference: discord-ext-voice-recv adjust_rtpsize()
         header_size = RTP_HEADER_SIZE
         if data[0] & 0x10:  # Extension bit set
             if len(data) < RTP_HEADER_SIZE + 4:
                 return
-            ext_length = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
-            header_size = RTP_HEADER_SIZE + 4 + ext_length * 4
+            # Only the 4-byte preamble (profile + length) is part of AAD
+            header_size = RTP_HEADER_SIZE + 4
 
-        if len(data) <= header_size + 4:  # Need header + nonce(4) + data
+        if len(data) <= header_size + 4:
             return
 
         header = data[:header_size]
-        encrypted = data[header_size:]
+        # Nonce is last 4 bytes, ciphertext is everything between header and nonce
+        nonce_bytes = data[-4:]
+        ciphertext = data[header_size:-4]
         try:
-            decrypted = self._decrypt(header, encrypted)
+            decrypted = self._decrypt_aead(header, ciphertext, nonce_bytes)
         except Exception as e:
             if self._packet_count <= 5:
-                nonce_bytes = encrypted[-4:] if len(encrypted) > 4 else b""
                 logger.warning(
                     f"Decrypt failed #{self._packet_count} SSRC={ssrc} "
                     f"mode={self._vc.mode} hdr_len={len(header)} "
-                    f"enc_size={len(encrypted)} nonce_tail={nonce_bytes.hex()} "
-                    f"full_hdr={header.hex()} "
-                    f"secret_key_len={len(self._vc.secret_key)}: {e}"
+                    f"ct_size={len(ciphertext)} nonce={nonce_bytes.hex()} "
+                    f"hdr={header.hex()}: {e}"
                 )
             return
 
-        # Extension was part of the AAD header, so decrypted is pure opus data
-        opus_data = decrypted
+        # Extension DATA is inside the decrypted payload — strip it
+        if data[0] & 0x10:
+            # Extension preamble (profile+length) was in AAD header
+            # But extension data (length*4 bytes) is at start of decrypted
+            ext_length = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
+            ext_data_size = ext_length * 4
+            if ext_data_size < len(decrypted):
+                opus_data = decrypted[ext_data_size:]
+            else:
+                return
+        else:
+            opus_data = decrypted
 
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
         opus_data = self._dave_decrypt(user_id, opus_data)
@@ -202,41 +215,13 @@ class AudioReceiver:
                 logger.warning(f"Opus decode failed SSRC={ssrc}: {e}")
             return
 
-    def _decrypt(self, header: bytes, encrypted: bytes) -> bytes:
-        """Decrypt voice data based on negotiated encryption mode."""
-        mode = self._vc.mode
+    def _decrypt_aead(self, header: bytes, ciphertext: bytes, nonce_bytes: bytes) -> bytes:
+        """Decrypt voice data using AEAD XChaCha20-Poly1305."""
         secret_key = bytes(self._vc.secret_key)
-
-        if mode == "aead_xchacha20_poly1305_rtpsize":
-            # Nonce is last 4 bytes, ciphertext is everything before
-            nonce_bytes = encrypted[-4:]
-            ciphertext = encrypted[:-4]
-            nonce = bytearray(24)
-            nonce[:4] = nonce_bytes
-            box = nacl.secret.Aead(secret_key)
-            return box.decrypt(bytes(ciphertext), aad=bytes(header), nonce=bytes(nonce))
-
-        elif mode == "xsalsa20_poly1305_lite":
-            nonce_bytes = encrypted[-4:]
-            ciphertext = encrypted[:-4]
-            nonce = bytearray(24)
-            nonce[:4] = nonce_bytes
-            box = nacl.secret.SecretBox(secret_key)
-            return box.decrypt(bytes(ciphertext), nonce=bytes(nonce))
-
-        elif mode == "xsalsa20_poly1305_suffix":
-            nonce = encrypted[-24:]
-            ciphertext = encrypted[:-24]
-            box = nacl.secret.SecretBox(secret_key)
-            return box.decrypt(bytes(ciphertext), nonce=bytes(nonce))
-
-        elif mode == "xsalsa20_poly1305":
-            nonce = bytearray(24)
-            nonce[:12] = header
-            box = nacl.secret.SecretBox(secret_key)
-            return box.decrypt(bytes(encrypted), nonce=bytes(nonce))
-
-        raise ValueError(f"Unsupported encryption mode: {mode}")
+        nonce = bytearray(24)
+        nonce[:4] = nonce_bytes
+        box = nacl.secret.Aead(secret_key)
+        return box.decrypt(bytes(ciphertext), aad=bytes(header), nonce=bytes(nonce))
 
     def _dave_decrypt(self, user_id: int, opus_data: bytes) -> Optional[bytes]:
         """Decrypt DAVE-encrypted Opus data if a DAVE session is active.
