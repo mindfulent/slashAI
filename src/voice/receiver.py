@@ -136,19 +136,31 @@ class AudioReceiver:
             return
 
         if self._packet_count <= 5:
-            logger.info(f"  RTP from SSRC={ssrc} (ours={own_ssrc}), ext={'yes' if data[0] & 0x10 else 'no'}")
+            ext_info = ""
+            if data[0] & 0x10 and len(data) >= RTP_HEADER_SIZE + 4:
+                ext_profile = data[RTP_HEADER_SIZE:RTP_HEADER_SIZE + 2].hex()
+                ext_len_val = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
+                ext_info = f" ext_profile={ext_profile} ext_words={ext_len_val} ext_total={4 + ext_len_val * 4}"
+            logger.info(f"  RTP SSRC={ssrc} (ours={own_ssrc}){ext_info}")
 
         # Look up user — if SSRC not yet mapped, use SSRC as temporary ID
         # (SPEAKING opcode mapping may arrive late or not at all)
         user_id = self._ssrc_to_user.get(ssrc, ssrc)
 
-        # For aead_xchacha20_poly1305_rtpsize, AAD is always the 12-byte RTP
-        # header. Extensions (if present) are part of the encrypted payload.
-        header = data[:RTP_HEADER_SIZE]
-        encrypted = data[RTP_HEADER_SIZE:]
+        # For aead_xchacha20_poly1305_rtpsize, AAD includes the full
+        # unencrypted header + RTP extension (if present).
+        header_size = RTP_HEADER_SIZE
+        if data[0] & 0x10:  # Extension bit set
+            if len(data) < RTP_HEADER_SIZE + 4:
+                return
+            ext_length = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
+            header_size = RTP_HEADER_SIZE + 4 + ext_length * 4
 
-        if len(encrypted) < 5:  # Need at least nonce(4) + 1 byte
+        if len(data) <= header_size + 4:  # Need header + nonce(4) + data
             return
+
+        header = data[:header_size]
+        encrypted = data[header_size:]
         try:
             decrypted = self._decrypt(header, encrypted)
         except Exception as e:
@@ -163,8 +175,8 @@ class AudioReceiver:
                 )
             return
 
-        # Strip RTP extension from decrypted payload if present
-        opus_data = self._strip_rtp_extensions(decrypted) if (data[0] & 0x10) else decrypted
+        # Extension was part of the AAD header, so decrypted is pure opus data
+        opus_data = decrypted
 
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
         opus_data = self._dave_decrypt(user_id, opus_data)
