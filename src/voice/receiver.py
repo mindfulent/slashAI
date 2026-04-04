@@ -192,9 +192,14 @@ class AudioReceiver:
             opus_data = decrypted
 
         if self._packet_count <= 3:
+            dave_session = getattr(self._vc._connection, "dave_session", None)
+            dave_ready = getattr(dave_session, "ready", False) if dave_session else False
+            dave_pt = getattr(self._vc._connection, "dave_downgraded", "N/A")
             logger.info(
                 f"  NaCl decrypt OK: {len(decrypted)} bytes, "
-                f"opus after ext strip: {len(opus_data)} bytes"
+                f"opus after ext strip: {len(opus_data)} bytes, "
+                f"dave_session={'yes' if dave_session else 'no'} "
+                f"dave_ready={dave_ready} dave_downgraded={dave_pt}"
             )
 
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
@@ -246,12 +251,15 @@ class AudioReceiver:
             # media_type 1 = audio (davey convention)
             result = dave_session.decrypt(user_id, 1, opus_data)
             if result is not None:
+                if self._packet_count <= 3:
+                    logger.info(f"  DAVE decrypt OK: {len(result)} bytes")
                 return result
-        except Exception:
-            pass
+        except Exception as e:
+            if self._packet_count <= 3:
+                logger.warning(f"  DAVE decrypt error: {e}")
 
-        # DAVE decrypt failed — try passthrough (data may not be E2EE)
-        return opus_data
+        # DAVE decrypt failed — return None to skip corrupted packet
+        return None
 
     @staticmethod
     def _strip_rtp_extensions(data: bytes) -> bytes:
