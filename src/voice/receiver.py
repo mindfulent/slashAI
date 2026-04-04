@@ -235,7 +235,8 @@ class AudioReceiver:
         """Decrypt DAVE-encrypted Opus data if a DAVE session is active.
 
         Returns decrypted Opus bytes, or original bytes if DAVE is not active.
-        Returns None if decryption fails.
+        Falls back to passthrough if DAVE decrypt fails (the voice server may
+        relay unencrypted audio to bots, or DAVE keys may not be ready yet).
         """
         dave_session = getattr(self._vc._connection, "dave_session", None)
         if dave_session is None or not getattr(dave_session, "ready", False):
@@ -243,10 +244,14 @@ class AudioReceiver:
 
         try:
             # media_type 1 = audio (davey convention)
-            return dave_session.decrypt(user_id, 1, opus_data)
+            result = dave_session.decrypt(user_id, 1, opus_data)
+            if result is not None:
+                return result
         except Exception:
-            logger.debug(f"DAVE decrypt failed for user {user_id}", exc_info=True)
-            return None
+            pass
+
+        # DAVE decrypt failed — try passthrough (data may not be E2EE)
+        return opus_data
 
     @staticmethod
     def _strip_rtp_extensions(data: bytes) -> bytes:
