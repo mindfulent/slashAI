@@ -110,7 +110,7 @@ class AudioReceiver:
     def _handle_packet(self, data: bytes) -> None:
         """Socket reader callback. Parse RTP, decrypt, decode, dispatch."""
         self._packet_count += 1
-        if self._packet_count <= 3 or self._packet_count % 1000 == 0:
+        if self._packet_count <= 5 or self._packet_count % 500 == 0:
             logger.info(
                 f"Packet #{self._packet_count}: {len(data)} bytes, "
                 f"header=[{data[0]:02x} {data[1]:02x}] SSRCs known={list(self._ssrc_to_user.keys())}"
@@ -129,10 +129,14 @@ class AudioReceiver:
 
         # Skip our own SSRC
         try:
-            if ssrc == self._vc.ssrc:
+            own_ssrc = self._vc.ssrc
+            if ssrc == own_ssrc:
                 return
         except Exception:
             return
+
+        if self._packet_count <= 5:
+            logger.info(f"  RTP from SSRC={ssrc} (ours={own_ssrc}), ext={'yes' if data[0] & 0x10 else 'no'}")
 
         # Look up user — if SSRC not yet mapped, use SSRC as temporary ID
         # (SPEAKING opcode mapping may arrive late or not at all)
@@ -155,8 +159,13 @@ class AudioReceiver:
         encrypted = data[header_size:]
         try:
             decrypted = self._decrypt(header, encrypted)
-        except Exception:
-            logger.debug(f"Failed to decrypt packet from SSRC {ssrc}", exc_info=True)
+        except Exception as e:
+            if self._packet_count <= 10:
+                logger.warning(
+                    f"Decrypt failed packet #{self._packet_count} SSRC={ssrc} "
+                    f"mode={self._vc.mode} hdr_size={header_size} "
+                    f"enc_size={len(encrypted)}: {e}"
+                )
             return
 
         # Opus data is the decrypted payload (extension already separated above)
@@ -177,10 +186,14 @@ class AudioReceiver:
                 self._decoders[ssrc] = decoder
 
             pcm = decoder.decode(opus_data)
+            if self._packet_count <= 5:
+                logger.info(f"  Decoded: {len(pcm) if pcm else 0} bytes PCM")
             if pcm and self._on_audio:
                 self._on_audio(user_id, pcm)
-        except Exception:
-            logger.debug(f"Failed to decode Opus from SSRC {ssrc}", exc_info=True)
+        except Exception as e:
+            if self._packet_count <= 10:
+                logger.warning(f"Opus decode failed SSRC={ssrc}: {e}")
+            return
 
     def _decrypt(self, header: bytes, encrypted: bytes) -> bytes:
         """Decrypt voice data based on negotiated encryption mode."""
