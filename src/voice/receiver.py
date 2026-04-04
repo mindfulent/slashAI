@@ -62,11 +62,14 @@ class AudioReceiver:
         # the already-connected ws._hook (for the current session).
         self._original_hook = self._vc._connection.hook
         self._vc._connection.hook = self._speaking_hook
-        if hasattr(self._vc._connection, "ws") and self._vc._connection.ws:
-            self._original_ws_hook = self._vc._connection.ws._hook
-            self._vc._connection.ws._hook = self._speaking_hook
 
-        logger.info("AudioReceiver started")
+        ws = getattr(self._vc._connection, "ws", None)
+        if ws is not None:
+            self._original_ws_hook = getattr(ws, "_hook", None)
+            ws._hook = self._speaking_hook
+            logger.info(f"AudioReceiver started (patched ws._hook, ws={type(ws).__name__})")
+        else:
+            logger.warning("AudioReceiver started (no ws to patch — SSRC mapping may fail)")
 
     async def _speaking_hook(self, ws, msg):
         """Intercept voice WebSocket messages for SSRC→user mapping."""
@@ -109,6 +112,12 @@ class AudioReceiver:
 
     def _handle_packet(self, data: bytes) -> None:
         """Socket reader callback. Parse RTP, decrypt, decode, dispatch."""
+        # Re-patch ws._hook if WebSocket was recreated (reconnect)
+        ws = getattr(self._vc._connection, "ws", None)
+        if ws is not None and getattr(ws, "_hook", None) is not self._speaking_hook:
+            ws._hook = self._speaking_hook
+            logger.info("Re-patched ws._hook after WebSocket reconnect")
+
         self._packet_count += 1
         if self._packet_count <= 5 or self._packet_count % 500 == 0:
             logger.info(
@@ -246,6 +255,13 @@ class AudioReceiver:
         dave_session = getattr(self._vc._connection, "dave_session", None)
         if dave_session is None or not getattr(dave_session, "ready", False):
             return opus_data  # No DAVE — pass through
+
+        # DAVE needs real Discord user_id (18+ digit snowflake).
+        # If we only have SSRC as temporary user_id, we can't decrypt.
+        if user_id < 1_000_000_000:  # SSRC values are small integers
+            if self._packet_count <= 3:
+                logger.warning(f"  DAVE skip: no real user_id for SSRC-based id {user_id}")
+            return None
 
         try:
             import davey as _davey
