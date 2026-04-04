@@ -163,26 +163,35 @@ class VoiceSession:
             self._echo_guard.add_bot_text(result.text)
 
             # TTS and play
-            await self._speak(result.text)
+            logger.info(f"[{self._persona.display_name}] LLM response ({len(result.text)} chars), starting TTS...")
+            try:
+                await self._speak(result.text)
+            except Exception as e:
+                logger.error(f"[{self._persona.display_name}] Speak failed: {e}", exc_info=True)
 
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play through voice channel."""
         if not self._voice_client or not self._voice_client.is_connected():
+            logger.warning("Cannot speak — not connected to voice")
             return
 
         # Clean and chunk for TTS
         cleaned = self._preprocessor.clean_for_tts(text)
         chunks = self._preprocessor.chunk_for_tts(cleaned)
         if not chunks:
+            logger.warning("No TTS chunks after cleaning")
             return
+
+        logger.info(f"TTS: {len(chunks)} chunk(s), first: {chunks[0][:60]}...")
 
         source = StreamingAudioSource()
         play_started = False
+        total_bytes = 0
 
         # Estimate speech duration for echo guard (~60ms per char)
         self._echo_guard.mark_bot_speaking(len(cleaned) * 0.06)
 
-        for chunk_text in chunks:
+        for i, chunk_text in enumerate(chunks):
             # Infer emotion from text
             emotion = self._emotion.infer(chunk_text)
             cartesia_voice = self._persona.voice.cartesia
@@ -191,17 +200,25 @@ class VoiceSession:
 
             speed = cartesia_voice.speed if cartesia_voice else 1.0
 
+            logger.info(f"TTS chunk {i+1}/{len(chunks)}: synthesizing ({len(chunk_text)} chars)...")
+            chunk_bytes = 0
             async for pcm_24k in self._tts.synthesize(
                 chunk_text, emotion=emotion, speed=speed
             ):
                 pcm_48k_stereo = self._resampler.tts_to_discord(pcm_24k)
                 source.feed(pcm_48k_stereo)
+                chunk_bytes += len(pcm_48k_stereo)
 
                 if not play_started and self._voice_client:
                     self._voice_client.play(source, signal_type="voice")
                     play_started = True
+                    logger.info("Playback started")
+
+            total_bytes += chunk_bytes
+            logger.info(f"TTS chunk {i+1} done: {chunk_bytes} bytes audio")
 
         source.finish()
+        logger.info(f"TTS complete: {total_bytes} total bytes, play_started={play_started}")
 
         # Wait for playback to complete
         if play_started:
