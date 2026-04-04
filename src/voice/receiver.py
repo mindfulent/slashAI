@@ -248,8 +248,9 @@ class AudioReceiver:
             return opus_data  # No DAVE — pass through
 
         try:
-            # media_type 1 = audio (davey convention)
-            result = dave_session.decrypt(user_id, 1, opus_data)
+            import davey as _davey
+
+            result = dave_session.decrypt(user_id, _davey.MediaType.audio, opus_data)
             if result is not None:
                 if self._packet_count <= 3:
                     logger.info(f"  DAVE decrypt OK: {len(result)} bytes")
