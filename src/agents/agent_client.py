@@ -9,12 +9,14 @@ Responds to mentions and DMs only — no slash commands, no MCP tools.
 
 import logging
 import os
+import re
 from typing import Optional
 
 import discord
 
 from agents.persona_loader import PersonaConfig
 from claude_client import ClaudeClient
+from voice.session import VoiceSession
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ class AgentClient(discord.Client):
     def __init__(self, persona: PersonaConfig, memory_manager=None):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.voice_states = True
         super().__init__(intents=intents)
 
         self.persona = persona
@@ -37,6 +40,7 @@ class AgentClient(discord.Client):
             system_prompt=persona.build_system_prompt(),
             agent_id=persona.memory.agent_id,
         )
+        self._voice_session: Optional[VoiceSession] = None
 
     async def on_ready(self):
         logger.info(
@@ -77,6 +81,11 @@ class AgentClient(discord.Client):
             f"{message.content[:100]}"
         )
 
+        # Check for voice commands
+        voice_handled = await self._handle_voice_command(message)
+        if voice_handled:
+            return
+
         async with message.channel.typing():
             try:
                 result = await self.claude.chat(
@@ -101,6 +110,112 @@ class AgentClient(discord.Client):
         chunks = _chunk_message(text, DISCORD_MAX_LENGTH)
         for chunk in chunks:
             await channel.send(chunk)
+
+    # --- Voice support ---
+
+    _VOICE_JOIN_RE = re.compile(
+        r"\b(?:join|enter|hop\s+in(?:to)?|come\s+to)\s+(?:voice|vc|the\s+(?:voice|vc))\b",
+        re.IGNORECASE,
+    )
+    _VOICE_LEAVE_RE = re.compile(
+        r"\b(?:leave|exit|disconnect\s+from|get\s+out\s+of)\s+(?:voice|vc|the\s+(?:voice|vc))\b",
+        re.IGNORECASE,
+    )
+
+    async def _handle_voice_command(self, message: discord.Message) -> bool:
+        """Check for voice join/leave commands. Returns True if handled."""
+        content = message.content.lower()
+
+        if self._VOICE_JOIN_RE.search(content):
+            return await self._handle_voice_join(message)
+
+        if self._VOICE_LEAVE_RE.search(content):
+            return await self._handle_voice_leave(message)
+
+        return False
+
+    async def _handle_voice_join(self, message: discord.Message) -> bool:
+        """Join the user's voice channel."""
+        if not os.getenv("CARTESIA_API_KEY"):
+            await message.channel.send("Voice is not configured (missing API key).")
+            return True
+
+        if self._voice_session and self._voice_session.is_connected:
+            await message.channel.send(
+                f"I'm already in {self._voice_session.channel.mention}!"
+                if self._voice_session.channel
+                else "I'm already in a voice channel!"
+            )
+            return True
+
+        # Find the user's voice channel
+        if not message.guild:
+            await message.channel.send("Voice only works in servers, not DMs.")
+            return True
+
+        member = message.guild.get_member(message.author.id)
+        if not member or not member.voice or not member.voice.channel:
+            await message.channel.send(
+                "Join a voice channel first, then ask me to join!"
+            )
+            return True
+
+        voice_channel = member.voice.channel
+        try:
+            self._voice_session = VoiceSession(self, self.persona, self.claude)
+            await self._voice_session.join(voice_channel)
+            await message.channel.send(f"Joined {voice_channel.mention}!")
+        except Exception as e:
+            logger.error(
+                f"[{self.persona.display_name}] Voice join error: {e}", exc_info=True
+            )
+            await message.channel.send(f"Couldn't join voice: {e}")
+            self._voice_session = None
+
+        return True
+
+    async def _handle_voice_leave(self, message: discord.Message) -> bool:
+        """Leave the current voice channel."""
+        if not self._voice_session or not self._voice_session.is_connected:
+            await message.channel.send("I'm not in a voice channel.")
+            return True
+
+        try:
+            await self._voice_session.leave()
+            self._voice_session = None
+            await message.channel.send("Left the voice channel.")
+        except Exception as e:
+            logger.error(
+                f"[{self.persona.display_name}] Voice leave error: {e}", exc_info=True
+            )
+            self._voice_session = None
+
+        return True
+
+    async def on_voice_state_update(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ):
+        """Auto-leave voice when the channel becomes empty (no humans)."""
+        if not self._voice_session or not self._voice_session.is_connected:
+            return
+
+        channel = self._voice_session.channel
+        if channel is None:
+            return
+
+        # Check if a human left our channel
+        if before.channel == channel and after.channel != channel:
+            humans = [m for m in channel.members if not m.bot]
+            if not humans:
+                logger.info(
+                    f"[{self.persona.display_name}] No humans left in "
+                    f"{channel.name}, auto-leaving"
+                )
+                await self._voice_session.leave()
+                self._voice_session = None
 
 
 def _chunk_message(text: str, max_length: int) -> list[str]:

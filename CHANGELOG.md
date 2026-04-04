@@ -16,6 +16,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.0] - 2026-04-04
+
+### Added — INCEPTION Phase 6: Discord Voice Channels
+Persona agents can now join Discord voice channels and have real-time voice conversations. Ported from SoulCraft's Minecraft voice pipeline to Python.
+
+#### Voice Pipeline (`src/voice/`)
+- **Audio receiver** (`receiver.py`) — Hooks into discord.py internals to receive, decrypt (AEAD XChaCha20-Poly1305), and decode Opus audio from other users via `SocketReader` and SPEAKING opcode interception.
+- **Cartesia TTS** (`cartesia_tts.py`) — WebSocket streaming text-to-speech via Cartesia Sonic-3. Uses persona voice config (voice_id, emotion, speed).
+- **Cartesia STT** (`cartesia_stt.py`) — REST speech-to-text via Cartesia ink-whisper model. Accepts 16kHz mono WAV.
+- **Audio resampler** (`resampler.py`) — Format conversion between Cartesia (24kHz mono / 16kHz mono) and Discord (48kHz stereo) via `audioop-lts`.
+- **Voice activity detection** (`vad.py`) — RMS-based VAD with configurable threshold (500.0), silence timeout (800ms), and minimum utterance length.
+- **Echo guard** (`echo_guard.py`) — Two-layer echo cancellation: temporal (bot speaking window) + content (Jaccard word similarity).
+- **Text processor** (`text_processor.py`) — TTS text cleaning (strip markdown/emotes/emoji/slang/URLs, convert laughter) and sentence chunking. Keyword-based emotion inference for Cartesia emotion tags.
+- **Streaming audio source** (`audio_source.py`) — Thread-safe `discord.AudioSource` subclass with buffered PCM frame delivery and volume control.
+- **Voice session** (`session.py`) — Orchestrates the full conversation loop: receive → downsample → VAD → STT → echo guard → ClaudeClient.chat() → TTS → upsample → play.
+
+#### Agent Integration
+- **Voice commands** — "@Lena join voice" / "@Lena leave voice" (regex-based, supports variations like "join vc", "hop into voice").
+- **Auto-leave** — Bot automatically disconnects when all humans leave the voice channel.
+- **Voice states intent** — Added to `AgentClient` for voice channel event tracking.
+
+#### Tests (94 new)
+- `test_text_processor.py` (24) — TTS cleaning, chunking, emotion inference
+- `test_resampler.py` (11) — Format conversion, WAV headers, energy preservation
+- `test_vad.py` (7) — Silence detection, utterance accumulation, thresholds
+- `test_echo_guard.py` (8) — Temporal/content rejection, similarity calculation
+- `test_audio_source.py` (10) — Frame buffering, threading, volume scaling
+- `test_cartesia_stt.py` (6) — Mocked HTTP, headers, transcript parsing
+- `test_cartesia_tts.py` (8) — Mocked WebSocket, payload structure, speed clamping
+- `test_receiver.py` (12) — Socket listener registration, SSRC mapping, packet filtering
+- `test_session.py` (8) — Join/leave lifecycle, utterance pipeline, echo guard integration
+
+### New Files
+- `src/voice/__init__.py`
+- `src/voice/text_processor.py`
+- `src/voice/resampler.py`
+- `src/voice/vad.py`
+- `src/voice/echo_guard.py`
+- `src/voice/audio_source.py`
+- `src/voice/cartesia_stt.py`
+- `src/voice/cartesia_tts.py`
+- `src/voice/receiver.py`
+- `src/voice/session.py`
+- `tests/test_text_processor.py`
+- `tests/test_resampler.py`
+- `tests/test_vad.py`
+- `tests/test_echo_guard.py`
+- `tests/test_audio_source.py`
+- `tests/test_cartesia_stt.py`
+- `tests/test_cartesia_tts.py`
+- `tests/test_receiver.py`
+- `tests/test_session.py`
+
+### Dependencies
+- Added `PyNaCl>=1.5.0,<1.6` for Discord voice encryption/decryption
+
+### Configuration
+- New env var: `CARTESIA_API_KEY` (required for voice features)
+
+---
+
 ## [0.14.2] - 2026-03-29
 
 ### Fixed
