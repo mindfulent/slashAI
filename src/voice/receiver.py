@@ -119,8 +119,9 @@ class AudioReceiver:
         if len(data) < RTP_HEADER_SIZE + 1:
             return
 
-        # Check RTP version and payload type
-        if data[0] != RTP_VERSION_BYTE or data[1] != RTP_PAYLOAD_TYPE:
+        # Check RTP version (top 2 bits = 0b10) and payload type
+        # Byte 0 can have extension (0x10), padding (0x20), and CSRC bits set
+        if (data[0] & 0xC0) != 0x80 or data[1] != RTP_PAYLOAD_TYPE:
             return
 
         # Extract SSRC from RTP header
@@ -133,22 +134,33 @@ class AudioReceiver:
         except Exception:
             return
 
-        # Look up user
-        user_id = self._ssrc_to_user.get(ssrc)
-        if user_id is None:
+        # Look up user — if SSRC not yet mapped, use SSRC as temporary ID
+        # (SPEAKING opcode mapping may arrive late or not at all)
+        user_id = self._ssrc_to_user.get(ssrc, ssrc)
+
+        # Determine header size (may include RTP extension)
+        header_size = RTP_HEADER_SIZE
+        if data[0] & 0x10:  # Extension bit set
+            if len(data) < RTP_HEADER_SIZE + 4:
+                return
+            # Extension header: 2 bytes profile + 2 bytes length (in 32-bit words)
+            ext_length = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
+            header_size = RTP_HEADER_SIZE + 4 + ext_length * 4
+
+        if len(data) <= header_size:
             return
 
-        # Decrypt
-        header = data[:RTP_HEADER_SIZE]
-        encrypted = data[RTP_HEADER_SIZE:]
+        # Decrypt — header (including extension) is AAD, rest is ciphertext + nonce
+        header = data[:header_size]
+        encrypted = data[header_size:]
         try:
             decrypted = self._decrypt(header, encrypted)
         except Exception:
             logger.debug(f"Failed to decrypt packet from SSRC {ssrc}", exc_info=True)
             return
 
-        # Handle RTP header extensions (strip before Opus decode)
-        opus_data = self._strip_rtp_extensions(decrypted)
+        # Opus data is the decrypted payload (extension already separated above)
+        opus_data = decrypted
 
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
         opus_data = self._dave_decrypt(user_id, opus_data)
