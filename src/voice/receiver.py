@@ -191,9 +191,17 @@ class AudioReceiver:
         else:
             opus_data = decrypted
 
+        if self._packet_count <= 3:
+            logger.info(
+                f"  NaCl decrypt OK: {len(decrypted)} bytes, "
+                f"opus after ext strip: {len(opus_data)} bytes"
+            )
+
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
         opus_data = self._dave_decrypt(user_id, opus_data)
         if opus_data is None:
+            if self._packet_count <= 3:
+                logger.warning(f"  DAVE decrypt returned None")
             return
 
         # Decode Opus -> PCM
@@ -206,8 +214,8 @@ class AudioReceiver:
                 self._decoders[ssrc] = decoder
 
             pcm = decoder.decode(opus_data)
-            if self._packet_count <= 5:
-                logger.info(f"  Decoded: {len(pcm) if pcm else 0} bytes PCM")
+            if self._packet_count <= 3:
+                logger.info(f"  Opus decoded: {len(pcm) if pcm else 0} bytes PCM")
             if pcm and self._on_audio:
                 self._on_audio(user_id, pcm)
         except Exception as e:
