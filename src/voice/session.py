@@ -156,7 +156,11 @@ class VoiceSession:
                 content=cleaned,
             )
 
+            logger.info(f"[{self._persona.display_name}] LLM result: text={bool(result.text)}, len={len(result.text) if result.text else 0}, type={type(result)}")
+            if hasattr(result, '__dict__'):
+                logger.info(f"  result attrs: {list(result.__dict__.keys())}")
             if not result.text:
+                logger.warning(f"[{self._persona.display_name}] LLM returned empty text, result={result}")
                 return
 
             # Track for echo guard
