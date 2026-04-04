@@ -150,11 +150,11 @@ class VoiceSession:
                 f"[{self._persona.display_name}] Voice from user {user_id}: {cleaned}"
             )
 
-            # LLM response
+            # LLM response — use the voice channel's ID as channel_id
             channel_id = (
-                f"voice-{self._voice_client.channel.id}"
+                str(self._voice_client.channel.id)
                 if self._voice_client
-                else "voice-unknown"
+                else "0"
             )
             result = await self._claude.chat(
                 user_id=str(user_id),
