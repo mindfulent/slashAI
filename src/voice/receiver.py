@@ -133,6 +133,11 @@ class AudioReceiver:
         # Handle RTP header extensions (strip before Opus decode)
         opus_data = self._strip_rtp_extensions(decrypted)
 
+        # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
+        opus_data = self._dave_decrypt(user_id, opus_data)
+        if opus_data is None:
+            return
+
         # Decode Opus -> PCM
         try:
             from discord.opus import Decoder as OpusDecoder
@@ -183,6 +188,23 @@ class AudioReceiver:
             return box.decrypt(bytes(encrypted), nonce=bytes(nonce))
 
         raise ValueError(f"Unsupported encryption mode: {mode}")
+
+    def _dave_decrypt(self, user_id: int, opus_data: bytes) -> Optional[bytes]:
+        """Decrypt DAVE-encrypted Opus data if a DAVE session is active.
+
+        Returns decrypted Opus bytes, or original bytes if DAVE is not active.
+        Returns None if decryption fails.
+        """
+        dave_session = getattr(self._vc._connection, "dave_session", None)
+        if dave_session is None or not getattr(dave_session, "ready", False):
+            return opus_data  # No DAVE — pass through
+
+        try:
+            # media_type 1 = audio (davey convention)
+            return dave_session.decrypt(user_id, 1, opus_data)
+        except Exception:
+            logger.debug(f"DAVE decrypt failed for user {user_id}", exc_info=True)
+            return None
 
     @staticmethod
     def _strip_rtp_extensions(data: bytes) -> bytes:
