@@ -16,6 +16,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.1] - 2026-04-04
+
+### Fixed
+- **davey dependency** — discord.py 2.7.1 (production) requires the `davey` library for Discord's DAVE (Audio & Video E2EE) protocol. Added to requirements.txt alongside PyNaCl.
+- **RTP extension bit** — Discord voice packets have the RTP extension bit set (`0x90`), not plain `0x80`. Fixed version check to mask top 2 bits only. Extended AAD header to include RTP extension data for correct AEAD decryption.
+- **SSRC mapping** — Accept audio from unmapped SSRCs using SSRC as temporary user ID, since SPEAKING opcode mapping may arrive late.
+- **Voice WebSocket hook** — Patch `ws._hook` directly on the already-connected WebSocket, not just `_connection.hook` (which only applies to future reconnects).
+
+### Added
+- **Standalone voice agent** (`src/voice_agent.py`) — Entry point for running persona agents independently on UDP-capable infrastructure (DO Droplet), since App Platform blocks UDP.
+- **Dockerfile.voice** — Docker image for the voice agent container.
+- **DAVE decrypt layer** (`receiver.py`) — Handles end-to-end encrypted voice channels via `davey.DaveSession.decrypt()`.
+
+### Infrastructure
+- **Droplet deployment** — Lena's voice agent runs on the `umami-stats` Droplet (resized 1GB→2GB) as a Docker container, separate from App Platform. `AGENT_LENA_TOKEN` moved from App Platform to Droplet.
+
+### New Files
+- `src/voice_agent.py`
+- `Dockerfile.voice`
+
+---
+
 ## [0.15.0] - 2026-04-04
 
 ### Added — INCEPTION Phase 6: Discord Voice Channels
