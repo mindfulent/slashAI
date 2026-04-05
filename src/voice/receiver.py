@@ -121,11 +121,6 @@ class AudioReceiver:
             logger.info("Re-patched ws._hook after WebSocket reconnect")
 
         self._packet_count += 1
-        if self._packet_count <= 5 or self._packet_count % 500 == 0:
-            logger.info(
-                f"Packet #{self._packet_count}: {len(data)} bytes, "
-                f"header=[{data[0]:02x} {data[1]:02x}] SSRCs known={list(self._ssrc_to_user.keys())}"
-            )
 
         if len(data) < RTP_HEADER_SIZE + 1:
             return
@@ -145,14 +140,6 @@ class AudioReceiver:
                 return
         except Exception:
             return
-
-        if self._packet_count <= 5:
-            ext_info = ""
-            if data[0] & 0x10 and len(data) >= RTP_HEADER_SIZE + 4:
-                ext_profile = data[RTP_HEADER_SIZE:RTP_HEADER_SIZE + 2].hex()
-                ext_len_val = struct.unpack_from(">H", data, RTP_HEADER_SIZE + 2)[0]
-                ext_info = f" ext_profile={ext_profile} ext_words={ext_len_val} ext_total={4 + ext_len_val * 4}"
-            logger.info(f"  RTP SSRC={ssrc} (ours={own_ssrc}){ext_info}")
 
         # Look up user — if SSRC not yet mapped, try to infer from channel members
         user_id = self._ssrc_to_user.get(ssrc)
@@ -182,14 +169,7 @@ class AudioReceiver:
         ciphertext = data[header_size:-4]
         try:
             decrypted = self._decrypt_aead(header, ciphertext, nonce_bytes)
-        except Exception as e:
-            if self._packet_count <= 5:
-                logger.warning(
-                    f"Decrypt failed #{self._packet_count} SSRC={ssrc} "
-                    f"mode={self._vc.mode} hdr_len={len(header)} "
-                    f"ct_size={len(ciphertext)} nonce={nonce_bytes.hex()} "
-                    f"hdr={header.hex()}: {e}"
-                )
+        except Exception:
             return
 
         # Extension DATA is inside the decrypted payload — strip it
@@ -205,22 +185,9 @@ class AudioReceiver:
         else:
             opus_data = decrypted
 
-        if self._packet_count <= 3:
-            dave_session = getattr(self._vc._connection, "dave_session", None)
-            dave_ready = getattr(dave_session, "ready", False) if dave_session else False
-            dave_pt = getattr(self._vc._connection, "dave_downgraded", "N/A")
-            logger.info(
-                f"  NaCl decrypt OK: {len(decrypted)} bytes, "
-                f"opus after ext strip: {len(opus_data)} bytes, "
-                f"dave_session={'yes' if dave_session else 'no'} "
-                f"dave_ready={dave_ready} dave_downgraded={dave_pt}"
-            )
-
         # DAVE decryption (end-to-end voice encryption, discord.py 2.7+)
         opus_data = self._dave_decrypt(user_id, opus_data)
         if opus_data is None:
-            if self._packet_count <= 3:
-                logger.warning(f"  DAVE decrypt returned None")
             return
 
         # Decode Opus -> PCM
@@ -233,13 +200,9 @@ class AudioReceiver:
                 self._decoders[ssrc] = decoder
 
             pcm = decoder.decode(opus_data)
-            if self._packet_count <= 3:
-                logger.info(f"  Opus decoded: {len(pcm) if pcm else 0} bytes PCM")
             if pcm and self._on_audio:
                 self._on_audio(user_id, pcm)
-        except Exception as e:
-            if self._packet_count <= 10:
-                logger.warning(f"Opus decode failed SSRC={ssrc}: {e}")
+        except Exception:
             return
 
     def _infer_user_for_ssrc(self, ssrc: int) -> Optional[int]:
@@ -284,9 +247,7 @@ class AudioReceiver:
 
         # DAVE needs real Discord user_id (18+ digit snowflake).
         # If we only have SSRC as temporary user_id, we can't decrypt.
-        if user_id < 1_000_000_000:  # SSRC values are small integers
-            if self._packet_count <= 3:
-                logger.warning(f"  DAVE skip: no real user_id for SSRC-based id {user_id}")
+        if user_id < 1_000_000_000:
             return None
 
         try:
@@ -294,12 +255,9 @@ class AudioReceiver:
 
             result = dave_session.decrypt(user_id, _davey.MediaType.audio, opus_data)
             if result is not None:
-                if self._packet_count <= 3:
-                    logger.info(f"  DAVE decrypt OK: {len(result)} bytes")
                 return result
-        except Exception as e:
-            if self._packet_count <= 3:
-                logger.warning(f"  DAVE decrypt error: {e}")
+        except Exception:
+            pass
 
         # DAVE decrypt failed — return None to skip corrupted packet
         return None

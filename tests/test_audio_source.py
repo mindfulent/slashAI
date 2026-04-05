@@ -86,6 +86,16 @@ class TestStreamingAudioSource:
         assert scaled_rms < original_rms
         assert scaled_rms > 0
 
+    def test_buffered_bytes(self):
+        source = StreamingAudioSource()
+        assert source.buffered_bytes == 0
+        source.feed(b"\x01" * FRAME_SIZE)
+        assert source.buffered_bytes == FRAME_SIZE
+        source.feed(b"\x01" * FRAME_SIZE)
+        assert source.buffered_bytes == FRAME_SIZE * 2
+        source.read()
+        assert source.buffered_bytes == FRAME_SIZE
+
     def test_cleanup(self):
         source = StreamingAudioSource()
         source.feed(b"\x01" * FRAME_SIZE * 5)

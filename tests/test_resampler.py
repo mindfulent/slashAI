@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from voice.resampler import AudioResampler
+from voice.resampler import AudioResampler, StreamResampler
 
 
 def _make_silence(num_samples: int, channels: int = 1) -> bytes:
@@ -113,3 +113,38 @@ class TestPcmToWav:
         mono_16k = AudioResampler.discord_to_stt(stereo_48k)
         rms = audioop.rms(mono_16k, 2)
         assert rms > 0
+
+
+class TestStreamResampler:
+    def test_output_matches_static(self):
+        mono_24k = _make_tone(2400)
+        static_result = AudioResampler.tts_to_discord(mono_24k)
+        stream = StreamResampler()
+        stream_result = stream.tts_to_discord(mono_24k)
+        # Same length (may differ slightly in values due to state)
+        assert abs(len(static_result) - len(stream_result)) < 100
+
+    def test_state_continuity_across_chunks(self):
+        """Multiple calls should produce smooth audio (no state reset)."""
+        stream = StreamResampler()
+        chunk1 = _make_tone(2400, amplitude=10000)
+        chunk2 = _make_tone(2400, amplitude=10000)
+        out1 = stream.tts_to_discord(chunk1)
+        out2 = stream.tts_to_discord(chunk2)
+        # Both should have similar RMS (no discontinuity artifacts)
+        rms1 = audioop.rms(out1, 2)
+        rms2 = audioop.rms(out2, 2)
+        assert rms1 > 0
+        assert rms2 > 0
+        assert abs(rms1 - rms2) / max(rms1, rms2) < 0.3  # Within 30%
+
+    def test_reset(self):
+        stream = StreamResampler()
+        stream.tts_to_discord(_make_tone(2400))
+        assert stream._upsample_state is not None
+        stream.reset()
+        assert stream._upsample_state is None
+
+    def test_empty_input(self):
+        stream = StreamResampler()
+        assert stream.tts_to_discord(b"") == b""

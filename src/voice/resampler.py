@@ -22,14 +22,13 @@ class AudioResampler:
         """Convert Cartesia TTS output to Discord playback format.
 
         24kHz mono s16le -> 48kHz stereo s16le (4x size increase).
+        Note: For streaming TTS, use StreamResampler instead to maintain
+        interpolation state across chunks.
         """
         if not pcm_24k_mono:
             return b""
-        # Upsample 24kHz -> 48kHz
         upsampled, _ = audioop.ratecv(pcm_24k_mono, 2, 1, 24000, 48000, None)
-        # Mono -> stereo (duplicate channel)
-        stereo = audioop.tostereo(upsampled, 2, 1, 1)
-        return stereo
+        return audioop.tostereo(upsampled, 2, 1, 1)
 
     @staticmethod
     def discord_to_stt(pcm_48k_stereo: bytes) -> bytes:
@@ -77,3 +76,30 @@ class AudioResampler:
             data_size,
         )
         return header + pcm_16k_mono
+
+
+class StreamResampler:
+    """Stateful resampler that maintains audioop.ratecv state across calls.
+
+    Use one instance per speech utterance to avoid clicks/pops at chunk
+    boundaries caused by interpolation state resets.
+    """
+
+    def __init__(self):
+        self._upsample_state = None
+
+    def tts_to_discord(self, pcm_24k_mono: bytes) -> bytes:
+        """Convert Cartesia TTS output to Discord playback format.
+
+        Maintains ratecv interpolation state for smooth audio across chunks.
+        """
+        if not pcm_24k_mono:
+            return b""
+        upsampled, self._upsample_state = audioop.ratecv(
+            pcm_24k_mono, 2, 1, 24000, 48000, self._upsample_state
+        )
+        return audioop.tostereo(upsampled, 2, 1, 1)
+
+    def reset(self):
+        """Reset interpolation state (e.g., between utterances)."""
+        self._upsample_state = None

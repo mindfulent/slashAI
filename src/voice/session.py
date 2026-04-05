@@ -23,7 +23,8 @@ from voice.cartesia_stt import CartesiaSTTClient
 from voice.cartesia_tts import CartesiaTTSClient
 from voice.echo_guard import EchoGuard
 from voice.receiver import AudioReceiver
-from voice.resampler import AudioResampler
+from voice.audio_source import FRAME_SIZE
+from voice.resampler import AudioResampler, StreamResampler
 from voice.text_processor import EmotionInference, TextPreprocessor
 from voice.vad import VADConfig, VoiceActivityDetector
 
@@ -162,11 +163,7 @@ class VoiceSession:
                 content=cleaned,
             )
 
-            logger.info(f"[{self._persona.display_name}] LLM result: text={bool(result.text)}, len={len(result.text) if result.text else 0}, type={type(result)}")
-            if hasattr(result, '__dict__'):
-                logger.info(f"  result attrs: {list(result.__dict__.keys())}")
             if not result.text:
-                logger.warning(f"[{self._persona.display_name}] LLM returned empty text, result={result}")
                 return
 
             # Track for echo guard
@@ -179,77 +176,58 @@ class VoiceSession:
             except Exception as e:
                 logger.error(f"[{self._persona.display_name}] Speak failed: {e}", exc_info=True)
 
+    # Pre-buffer 100ms of audio before starting playback to avoid
+    # playing Cartesia's initial silence/low-energy lead-in
+    MIN_PREBUFFER_BYTES = 5 * FRAME_SIZE  # 5 frames = 100ms
+
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play through voice channel."""
         if not self._voice_client or not self._voice_client.is_connected():
-            logger.warning("Cannot speak — not connected to voice")
             return
 
         # Clean and chunk for TTS
         cleaned = self._preprocessor.clean_for_tts(text)
         chunks = self._preprocessor.chunk_for_tts(cleaned)
         if not chunks:
-            logger.warning("No TTS chunks after cleaning")
             return
 
-        logger.info(f"TTS: {len(chunks)} chunk(s), first: {chunks[0][:60]}...")
-
-        source = StreamingAudioSource()
-        play_started = False
-        total_bytes = 0
+        # Infer emotion from first chunk
+        emotion = self._emotion.infer(chunks[0])
+        cartesia_voice = self._persona.voice.cartesia
+        if not emotion and cartesia_voice and cartesia_voice.default_emotion:
+            emotion = cartesia_voice.default_emotion
+        speed = cartesia_voice.speed if cartesia_voice else 1.0
 
         # Estimate speech duration for echo guard (~60ms per char)
         self._echo_guard.mark_bot_speaking(len(cleaned) * 0.06)
 
-        for i, chunk_text in enumerate(chunks):
-            # Infer emotion from text
-            emotion = self._emotion.infer(chunk_text)
-            cartesia_voice = self._persona.voice.cartesia
-            if not emotion and cartesia_voice and cartesia_voice.default_emotion:
-                emotion = cartesia_voice.default_emotion
+        # Stateful resampler for smooth audio across TTS chunks
+        resampler = StreamResampler()
+        source = StreamingAudioSource()
+        play_started = False
 
-            speed = cartesia_voice.speed if cartesia_voice else 1.0
+        logger.info(f"TTS: {len(chunks)} chunk(s), {len(cleaned)} chars")
 
-            logger.info(f"TTS chunk {i+1}/{len(chunks)}: synthesizing ({len(chunk_text)} chars)...")
-            chunk_bytes = 0
-            chunk_count = 0
-            async for pcm_24k in self._tts.synthesize(
-                chunk_text, emotion=emotion, speed=speed
-            ):
-                chunk_count += 1
-                if chunk_count <= 2:
-                    import audioop as _ao
-                    rms_24k = _ao.rms(pcm_24k, 2) if len(pcm_24k) >= 2 else 0
-                    logger.info(f"  TTS raw chunk {chunk_count}: {len(pcm_24k)} bytes, RMS={rms_24k}")
+        # Stream all chunks as one continuous audio context
+        async for pcm_24k in self._tts.synthesize_stream(
+            chunks, emotion=emotion, speed=speed
+        ):
+            pcm_48k_stereo = resampler.tts_to_discord(pcm_24k)
+            source.feed(pcm_48k_stereo)
 
-                pcm_48k_stereo = self._resampler.tts_to_discord(pcm_24k)
-
-                if chunk_count <= 2:
-                    rms_48k = _ao.rms(pcm_48k_stereo, 2) if len(pcm_48k_stereo) >= 2 else 0
-                    logger.info(f"  After resample: {len(pcm_48k_stereo)} bytes, RMS={rms_48k}")
-
-                source.feed(pcm_48k_stereo)
-                chunk_bytes += len(pcm_48k_stereo)
-
-                if not play_started and self._voice_client:
-                    # Log DAVE outgoing encryption state
-                    conn = self._voice_client._connection
-                    dave_s = getattr(conn, "dave_session", None)
-                    can_enc = getattr(conn, "can_encrypt", "N/A")
-                    logger.info(
-                        f"Playback starting: dave_session={'yes' if dave_s else 'no'} "
-                        f"can_encrypt={can_enc} "
-                        f"dave_ready={getattr(dave_s, 'ready', 'N/A')}"
-                    )
+            # Start playback after buffering enough audio
+            if not play_started and self._voice_client:
+                if source.buffered_bytes >= self.MIN_PREBUFFER_BYTES:
                     self._voice_client.play(source, signal_type="voice")
                     play_started = True
-                    logger.info("Playback started")
 
-            total_bytes += chunk_bytes
-            logger.info(f"TTS chunk {i+1} done: {chunk_bytes} bytes, {chunk_count} ws chunks")
+        # If we never hit the pre-buffer threshold (very short response),
+        # start playback now with whatever we have
+        if not play_started and self._voice_client and source.buffered_bytes > 0:
+            self._voice_client.play(source, signal_type="voice")
+            play_started = True
 
         source.finish()
-        logger.info(f"TTS complete: {total_bytes} total bytes, play_started={play_started}")
 
         # Wait for playback to complete
         if play_started:

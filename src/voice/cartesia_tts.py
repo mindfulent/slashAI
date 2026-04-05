@@ -120,6 +120,85 @@ class CartesiaTTSClient:
                 logger.error("Cartesia TTS WebSocket closed unexpectedly")
                 break
 
+    async def synthesize_stream(
+        self,
+        chunks: list[str],
+        *,
+        emotion: Optional[str] = None,
+        speed: float = 1.0,
+        language: str = "en",
+    ) -> AsyncIterator[bytes]:
+        """Synthesize multiple text chunks as one continuous audio stream.
+
+        Uses Cartesia's `continue` flag to chain chunks in a single voice
+        context, producing seamless audio without gaps between segments.
+
+        Args:
+            chunks: List of text segments to synthesize in order.
+            emotion: Optional Cartesia emotion tag.
+            speed: Speech speed multiplier (clamped to [0.6, 1.5]).
+            language: Language code.
+
+        Yields:
+            Bytes of PCM audio data (24kHz mono s16le).
+        """
+        if not self._ws or self._ws.closed:
+            raise RuntimeError("WebSocket not connected. Call connect() first.")
+
+        if not chunks:
+            return
+
+        self._context_counter += 1
+        context_id = f"slashai-{self._context_counter}"
+        speed = max(0.6, min(1.5, speed))
+
+        for i, chunk_text in enumerate(chunks):
+            request = {
+                "model_id": self._model,
+                "transcript": chunk_text,
+                "context_id": context_id,
+                "continue": i > 0,
+                "language": language,
+                "voice": {
+                    "mode": "id",
+                    "id": self._voice_id,
+                },
+                "output_format": {
+                    "container": "raw",
+                    "encoding": "pcm_s16le",
+                    "sample_rate": 24000,
+                },
+            }
+
+            gen_config: dict = {"speed": speed}
+            if emotion:
+                gen_config["emotions"] = [emotion]
+            request["generation_config"] = gen_config
+
+            await self._ws.send_json(request)
+
+            # Read audio chunks until "done" for this segment
+            async for msg in self._ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    if data.get("context_id") != context_id:
+                        continue
+
+                    msg_type = data.get("type", "")
+                    if msg_type == "chunk":
+                        audio_b64 = data.get("data", "")
+                        if audio_b64:
+                            yield base64.b64decode(audio_b64)
+                    elif msg_type == "done":
+                        break
+                    elif msg_type == "error":
+                        logger.error(f"Cartesia TTS error: {data.get('error')}")
+                        return  # Abort entire stream on error
+
+                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                    logger.error("Cartesia TTS WebSocket closed unexpectedly")
+                    return
+
     async def close(self) -> None:
         """Close WebSocket and HTTP session."""
         if self._ws and not self._ws.closed:

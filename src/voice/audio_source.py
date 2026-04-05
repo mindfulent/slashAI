@@ -78,6 +78,12 @@ class StreamingAudioSource(AudioSource):
             self._buffer.clear()
 
     @property
+    def buffered_bytes(self) -> int:
+        """Total bytes currently in the buffer."""
+        with self._lock:
+            return sum(len(f) for f in self._buffer)
+
+    @property
     def is_speaking(self) -> bool:
         """True if there is still audio to play."""
         with self._lock:
