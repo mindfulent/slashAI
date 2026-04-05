@@ -1000,12 +1000,17 @@ class ClaudeClient:
         key = self._get_conversation_key(user_id, channel_id)
         conversation = self._conversations[key]
 
-        # Retrieve relevant memories
+        # Retrieve relevant memories (with timeout to avoid blocking voice)
         memory_context = ""
         if self.memory:
             try:
-                retrieval = await self.memory.retrieve(
-                    int(user_id), content, channel, agent_id=self.agent_id
+                import asyncio as _asyncio
+
+                retrieval = await _asyncio.wait_for(
+                    self.memory.retrieve(
+                        int(user_id), content, channel, agent_id=self.agent_id
+                    ),
+                    timeout=1.0,
                 )
                 if retrieval.memories:
                     memory_context = self._format_memories(
@@ -1014,6 +1019,8 @@ class ClaudeClient:
                     logger.info(
                         f"Voice memory: {len(retrieval.memories)} memories retrieved"
                     )
+            except _asyncio.TimeoutError:
+                logger.warning("Voice memory retrieval timed out (1s)")
             except Exception as e:
                 logger.warning(f"Voice memory retrieval failed: {e}")
 
@@ -1076,20 +1083,8 @@ class ClaudeClient:
             # Always update conversation history
             if full_response:
                 conversation.add_message("assistant", full_response)
-
-            # Track for memory extraction
-            if self.memory and full_response:
-                try:
-                    await self.memory.track_message(
-                        int(user_id),
-                        int(channel_id),
-                        channel,
-                        content,
-                        full_response,
-                        agent_id=self.agent_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"Voice memory tracking failed: {e}")
+            # Note: memory tracking is handled by the caller (voice session)
+            # to avoid blocking the streaming pipeline with extraction
 
     async def _execute_tool(
         self,

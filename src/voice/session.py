@@ -132,14 +132,12 @@ class VoiceSession:
             logger.error(f"[{self._persona.display_name}] Utterance pipeline error: {e}", exc_info=True)
 
     async def _handle_utterance_inner(self, user_id: int, pcm_16k_mono: bytes, t0: float) -> None:
-        logger.info(f"  Acquiring processing lock (is_speaking={self._is_speaking})")
+        # Acquire lock only for STT + LLM + TTS synthesis (not playback)
         async with self._processing_lock:
             if not self._running:
-                logger.info("  Not running, skipping")
                 return
 
             t_lock = time.monotonic()
-            logger.info(f"  Lock acquired, starting STT ({len(pcm_16k_mono)} bytes)")
 
             # Wrap PCM in WAV for STT
             wav_data = self._resampler.pcm_to_wav(pcm_16k_mono)
@@ -164,7 +162,7 @@ class VoiceSession:
                 f"[{self._persona.display_name}] Voice from user {user_id}: {cleaned}"
             )
 
-            # Streaming LLM → TTS → playback pipeline
+            # Streaming LLM → TTS → start playback (lock released after synthesis)
             channel_id = (
                 str(self._voice_client.channel.id)
                 if self._voice_client
@@ -178,6 +176,31 @@ class VoiceSession:
                 t_stt=t_stt,
                 t_lock=t_lock,
             )
+        # Lock released here — playback continues via AudioPlayer thread
+        # _is_speaking cleared by _on_playback_done callback
+
+    def _on_playback_done(self, error) -> None:
+        """Called by discord.py AudioPlayer thread when playback finishes."""
+        self._is_speaking = False
+        if error:
+            logger.error(f"Playback error: {error}")
+
+    async def _track_memory_async(
+        self, user_id: str, channel_id: str, content: str, response: str
+    ) -> None:
+        """Fire-and-forget memory tracking. Runs outside the processing lock."""
+        try:
+            channel = self._voice_client.channel if self._voice_client else None
+            await self._claude.memory.track_message(
+                int(user_id),
+                int(channel_id),
+                channel,
+                content,
+                response,
+                agent_id=self._persona.memory.agent_id,
+            )
+        except Exception as e:
+            logger.warning(f"Voice memory tracking failed: {e}")
 
     async def _speak_streaming(
         self,
@@ -190,9 +213,10 @@ class VoiceSession:
     ) -> None:
         """Stream LLM response sentence-by-sentence through TTS to voice.
 
-        Combines LLM streaming + TTS synthesis + playback in one pipeline.
-        Each sentence plays as soon as it's synthesized, while the LLM
-        continues generating the next sentence.
+        Starts playback and returns after all TTS audio is fed to the buffer.
+        Does NOT wait for playback to complete — that happens via the
+        _on_playback_done callback. This keeps the processing lock held
+        only during synthesis, not during the 10-20s playback.
         """
         if not self._voice_client or not self._voice_client.is_connected():
             return
@@ -234,11 +258,15 @@ class VoiceSession:
                     source.feed(pcm_48k)
 
                     if not play_started and self._voice_client:
-                        self._voice_client.play(source, signal_type="voice")
+                        # Use after callback to clear _is_speaking when done
+                        self._voice_client.play(
+                            source, signal_type="voice",
+                            after=self._on_playback_done,
+                        )
                         play_started = True
-                        t_play = time.monotonic()
 
                         if t0:
+                            t_play = time.monotonic()
                             logger.info(
                                 f"LATENCY: lock_wait={_ms(t_lock - t0)} "
                                 f"stt={_ms(t_stt - t_lock)} "
@@ -252,17 +280,18 @@ class VoiceSession:
             full_text = " ".join(sentences)
             self._echo_guard.add_bot_text(full_text)
 
-            # Wait for playback to complete
-            if play_started:
-                while self._voice_client and self._voice_client.is_playing():
-                    await asyncio.sleep(0.1)
+            logger.info(f"TTS: {sentence_count} sentence(s), {len(full_text)} chars")
 
-                logger.info(
-                    f"TTS: {sentence_count} sentence(s), {len(full_text)} chars, "
-                    f"playback={_ms(time.monotonic() - t_play)}"
+            # Fire-and-forget memory tracking (don't block the pipeline)
+            if self._claude.memory and full_text:
+                asyncio.create_task(
+                    self._track_memory_async(user_id, channel_id, content, full_text)
                 )
-        finally:
+
+        except Exception:
+            # If synthesis fails, make sure we unmute
             self._is_speaking = False
+            raise
 
     async def leave(self) -> None:
         """Disconnect from voice and clean up all resources."""
