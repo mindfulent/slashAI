@@ -1,0 +1,93 @@
+name: Deploy Voice Agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/voice/**'
+      - 'src/voice_agent.py'
+      - 'src/agents/**'
+      - 'src/claude_client.py'
+      - 'src/memory/**'
+      - 'personas/**'
+      - 'Dockerfile.voice'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: voice-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Droplet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy voice agent
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VOICE_DROPLET_IP }}
+          username: root
+          key: ${{ secrets.VOICE_DROPLET_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+
+            cd /opt/lena-voice
+
+            echo "==> Pulling latest code"
+            git pull --ff-only
+
+            echo "==> Capturing env vars from running container"
+            ENV_ARGS=""
+            if docker inspect lena-voice >/dev/null 2>&1; then
+              ENV_ARGS=$(docker inspect lena-voice \
+                --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                | grep -E '^(AGENT_|ANTHROPIC_|CARTESIA_|PERSONA|DATABASE_URL|VOYAGE_)' \
+                | sed 's/^/-e /' \
+                | tr '\n' ' ')
+            fi
+
+            if [ -z "$ENV_ARGS" ]; then
+              echo "ERROR: No env vars captured -- aborting to avoid losing secrets"
+              exit 1
+            fi
+
+            echo "==> Tagging current image as rollback"
+            docker tag lena-voice:latest lena-voice:rollback 2>/dev/null || true
+
+            echo "==> Building new image"
+            docker build -f Dockerfile.voice -t lena-voice:latest .
+
+            echo "==> Stopping old container"
+            docker stop lena-voice 2>/dev/null || true
+            docker rm lena-voice 2>/dev/null || true
+
+            echo "==> Starting new container"
+            docker run -d --name lena-voice --restart unless-stopped $ENV_ARGS lena-voice:latest
+
+            echo "==> Waiting for health check (up to 30s)"
+            for i in $(seq 1 6); do
+              sleep 5
+              if docker logs lena-voice 2>&1 | grep -q "connected as"; then
+                echo "SUCCESS: Voice agent connected to Discord gateway"
+                docker image prune -f --filter "until=24h" >/dev/null 2>&1 || true
+                exit 0
+              fi
+              echo "  ...attempt $i/6"
+            done
+
+            echo "FAILED: Agent did not connect within 30s"
+            echo "==> Rolling back"
+            docker stop lena-voice 2>/dev/null || true
+            docker rm lena-voice 2>/dev/null || true
+
+            if docker image inspect lena-voice:rollback >/dev/null 2>&1; then
+              docker run -d --name lena-voice --restart unless-stopped $ENV_ARGS lena-voice:rollback
+              echo "Rolled back to previous image"
+            else
+              echo "No rollback image available -- container is DOWN"
+            fi
+            exit 1

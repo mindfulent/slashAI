@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.9] - 2026-04-05
+
+### Added — Auto-deploy voice agent on push
+
+- **GitHub Actions workflow** (`deploy-voice.yml`) — Automatically deploys the voice agent to the DigitalOcean droplet when voice-related files are pushed to main. SSHes in, pulls code, rebuilds Docker image, restarts container with health check and one-deep rollback. Also supports manual `workflow_dispatch`.
+- **Path-filtered triggers** — Only rebuilds when relevant files change (`src/voice/`, `src/agents/`, `src/claude_client.py`, `src/memory/`, `personas/`, `Dockerfile.voice`, `requirements.txt`).
+
+---
+
 ## [0.15.8] - 2026-04-05
 
 ### Added — Multi-participant voice name filtering
