@@ -40,7 +40,8 @@
         "sample_rate": 24000
       }
     },
-    "default_provider": "cartesia"
+    "default_provider": "cartesia",
+    "name_aliases": ["Alina", "Elena", "Lina", "Lenna"]
   },
 
   "memory": {

@@ -22,6 +22,7 @@ from voice.audio_source import StreamingAudioSource
 from voice.cartesia_stt import CartesiaSTTClient
 from voice.cartesia_tts import CartesiaTTSClient
 from voice.echo_guard import EchoGuard
+from voice.name_filter import NameFilter
 from voice.receiver import AudioReceiver
 from voice.resampler import AudioResampler, StreamResampler
 from voice.text_processor import EmotionInference, TextPreprocessor
@@ -66,6 +67,10 @@ class VoiceSession:
         self._preprocessor = TextPreprocessor()
         self._emotion = EmotionInference()
         self._echo_guard = EchoGuard()
+        self._name_filter = NameFilter(
+            display_name=persona.display_name,
+            aliases=persona.voice.name_aliases,
+        )
 
         # Per-user VAD instances
         self._user_vads: dict[int, VoiceActivityDetector] = {}
@@ -185,6 +190,14 @@ class VoiceSession:
             # Clean transcript
             cleaned = self._preprocessor.clean_for_tts(transcript)
             if not cleaned:
+                return
+
+            # Name-address filter: in multi-user channels, only respond when addressed
+            if self._human_count() >= 2 and not self._name_filter.is_addressed(cleaned):
+                logger.debug(
+                    f"[{self._persona.display_name}] Skipped (not addressed) "
+                    f"from user {user_id}: {cleaned!r}"
+                )
                 return
 
             logger.info(
@@ -351,6 +364,12 @@ class VoiceSession:
         self._user_vads.clear()
 
         logger.info(f"[{self._persona.display_name}] Left voice channel")
+
+    def _human_count(self) -> int:
+        """Count non-bot members in the current voice channel."""
+        if not self._voice_client or not self._voice_client.channel:
+            return 0
+        return sum(1 for m in self._voice_client.channel.members if not m.bot)
 
     @property
     def is_connected(self) -> bool:

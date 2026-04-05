@@ -52,6 +52,7 @@ class VoiceConfig:
     kokoro: Optional[KokoroVoice] = None
     cartesia: Optional[CartesiaVoice] = None
     default_provider: str = "kokoro"
+    name_aliases: list[str] = field(default_factory=list)  # STT name variants for multi-user filtering
 
 
 @dataclass
@@ -103,6 +104,7 @@ class PersonaConfig:
                 kokoro=kokoro,
                 cartesia=cartesia,
                 default_provider=voice_data.get("default_provider", "kokoro"),
+                name_aliases=voice_data.get("name_aliases", []),
             ),
             memory=MemoryConfig(**memory_data),
         )

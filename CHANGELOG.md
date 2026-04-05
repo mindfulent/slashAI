@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.8] - 2026-04-05
+
+### Added — Multi-participant voice name filtering
+
+- **Name-address filter** (`name_filter.py`, `session.py`) — In voice channels with 2+ humans, Lena only responds when addressed by name. Prevents responding to cross-talk between other participants. In 1-on-1 channels, all utterances are processed as before.
+- **Configurable name aliases** (`persona_loader.py`, `lena.json`) — New `voice.name_aliases` field in persona JSON for common STT mishearings. Lena's aliases: "Alina", "Elena", "Lina", "Lenna". Display name is always matched automatically.
+- **`NameFilter` utility** (`name_filter.py`) — Pre-compiled regex with word-boundary matching. Case-insensitive, prevents substring false positives (e.g., "Helena" won't match "Lena").
+
+---
+
 ## [0.15.7] - 2026-04-05
 
 ### Improved — Timezone-aware timestamps for memory context
