@@ -311,6 +311,12 @@ class VoiceSession:
 
             logger.info(f"TTS: {sentence_count} sentence(s), {len(full_text)} chars")
 
+            # If no audio was produced (TTS error, single-char response, etc.),
+            # playback never started so _on_playback_done won't fire.
+            # Clear _is_speaking now or all future audio is silently dropped.
+            if not play_started:
+                self._is_speaking = False
+
             # Fire-and-forget memory tracking (don't block the pipeline)
             if self._claude.memory and full_text:
                 asyncio.create_task(
