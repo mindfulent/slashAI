@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.4] - 2026-04-05
+
+### Added — Voice Memory Integration
+Voice conversations now participate in the persistent memory system. Lena recalls past context during voice calls and remembers what was said for future conversations.
+
+- **Memory retrieval in voice** — `chat_streaming()` retrieves relevant memories before the LLM call, injecting context from past text, voice, and Minecraft conversations.
+- **Memory tracking from voice** — Voice exchanges are tracked for extraction. After 5 exchanges, the extraction pipeline runs and persists memories to the database.
+- **Cross-platform memory** — Same `agent_id` scoping ("lena") means Minecraft memories (via bridge), text chat memories, and voice memories all surface together.
+- **Voice agent memory init** (`voice_agent.py`) — Initializes `asyncpg` pool + `MemoryManager` when `DATABASE_URL` and `VOYAGE_API_KEY` are set. Gracefully degrades if missing.
+- **VoiceChannel privacy** (`memory/privacy.py`) — `classify_channel_privacy()` now handles `VoiceChannel` and `StageChannel` (checks `connect` permission). Also handles `channel=None` (defaults to `guild_public`).
+
+---
+
 ## [0.15.3] - 2026-04-05
 
 ### Added — LLM Streaming with Sentence-Level TTS
