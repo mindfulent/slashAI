@@ -30,6 +30,11 @@ from voice.vad import VADConfig, VoiceActivityDetector
 logger = logging.getLogger(__name__)
 
 
+def _ms(seconds: float) -> str:
+    """Format seconds as milliseconds string."""
+    return f"{seconds * 1000:.0f}ms"
+
+
 class VoiceSession:
     """Manages a single voice channel session for a persona agent.
 
@@ -109,37 +114,41 @@ class VoiceSession:
         # Feed to VAD
         utterance = vad.process(pcm_16k_mono, time.monotonic())
         if utterance is not None:
+            vad_trigger_time = time.monotonic()
+            logger.info(f"[{self._persona.display_name}] VAD triggered: {len(utterance)} bytes audio")
             # Schedule async processing on the event loop
             loop = self._client.loop
             asyncio.run_coroutine_threadsafe(
-                self._handle_utterance(user_id, utterance),
+                self._handle_utterance(user_id, utterance, vad_trigger_time),
                 loop,
             )
 
-    async def _handle_utterance(self, user_id: int, pcm_16k_mono: bytes) -> None:
+    async def _handle_utterance(self, user_id: int, pcm_16k_mono: bytes, t0: float = 0) -> None:
         """Process a completed utterance: STT → echo check → LLM → TTS → play."""
         try:
-            await self._handle_utterance_inner(user_id, pcm_16k_mono)
+            await self._handle_utterance_inner(user_id, pcm_16k_mono, t0)
         except Exception as e:
             logger.error(f"[{self._persona.display_name}] Utterance pipeline error: {e}", exc_info=True)
 
-    async def _handle_utterance_inner(self, user_id: int, pcm_16k_mono: bytes) -> None:
+    async def _handle_utterance_inner(self, user_id: int, pcm_16k_mono: bytes, t0: float) -> None:
         async with self._processing_lock:
             if not self._running:
                 return
+
+            t_lock = time.monotonic()
 
             # Wrap PCM in WAV for STT
             wav_data = self._resampler.pcm_to_wav(pcm_16k_mono)
 
             # Transcribe
             transcript = await self._stt.transcribe(wav_data)
+            t_stt = time.monotonic()
+
             if not transcript:
-                logger.debug("Empty transcript, skipping")
                 return
 
             # Echo guard
             if self._echo_guard.should_reject(transcript):
-                logger.debug(f"Echo guard rejected: {transcript[:50]}")
                 return
 
             # Clean transcript
@@ -162,6 +171,7 @@ class VoiceSession:
                 channel_id=channel_id,
                 content=cleaned,
             )
+            t_llm = time.monotonic()
 
             if not result.text:
                 return
@@ -170,13 +180,9 @@ class VoiceSession:
             self._echo_guard.add_bot_text(result.text)
 
             # TTS and play
-            logger.info(f"[{self._persona.display_name}] LLM response ({len(result.text)} chars), starting TTS...")
-            try:
-                await self._speak(result.text)
-            except Exception as e:
-                logger.error(f"[{self._persona.display_name}] Speak failed: {e}", exc_info=True)
+            await self._speak(result.text, t0=t0, t_stt=t_stt, t_llm=t_llm, t_lock=t_lock)
 
-    async def _speak(self, text: str) -> None:
+    async def _speak(self, text: str, *, t0: float = 0, t_stt: float = 0, t_llm: float = 0, t_lock: float = 0) -> None:
         """Convert text to speech and play through voice channel."""
         if not self._voice_client or not self._voice_client.is_connected():
             return
@@ -204,8 +210,7 @@ class VoiceSession:
         resampler = StreamResampler()
         source = StreamingAudioSource()
         play_started = False
-
-        logger.info(f"TTS: {len(chunks)} chunk(s), {len(cleaned)} chars")
+        t_tts_start = time.monotonic()
 
         try:
             # Stream all chunks as one continuous audio context
@@ -218,13 +223,32 @@ class VoiceSession:
                 if not play_started and self._voice_client:
                     self._voice_client.play(source, signal_type="voice")
                     play_started = True
+                    t_play = time.monotonic()
+
+                    # Log full latency breakdown
+                    if t0:
+                        logger.info(
+                            f"LATENCY: lock_wait={_ms(t_lock - t0)} "
+                            f"stt={_ms(t_stt - t_lock)} "
+                            f"llm={_ms(t_llm - t_stt)} "
+                            f"tts_first_byte={_ms(t_play - t_llm)} "
+                            f"TOTAL={_ms(t_play - t0)}"
+                        )
 
             source.finish()
+            t_done = time.monotonic()
 
             # Wait for playback to complete
             if play_started:
                 while self._voice_client and self._voice_client.is_playing():
                     await asyncio.sleep(0.1)
+
+                t_playback_done = time.monotonic()
+                logger.info(
+                    f"TTS: {len(chunks)} chunk(s), {len(cleaned)} chars, "
+                    f"synthesis={_ms(t_done - t_tts_start)}, "
+                    f"playback={_ms(t_playback_done - t_play)}"
+                )
         finally:
             # Unmute reception after playback completes (or on error)
             self._is_speaking = False

@@ -162,8 +162,9 @@ class TestVoiceSession:
         call_kwargs = claude.chat.call_args
         assert "Hello can you hear me" in str(call_kwargs)
 
-        # Verify TTS was triggered
-        mock_speak.assert_awaited_once_with("I'm here to help!")
+        # Verify TTS was triggered (with timing kwargs)
+        mock_speak.assert_awaited_once()
+        assert mock_speak.call_args[0][0] == "I'm here to help!"
 
     @pytest.mark.asyncio
     async def test_echo_guard_rejects(self):

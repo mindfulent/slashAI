@@ -107,25 +107,24 @@ class TestStreamingAudioSource:
     def test_thread_safety(self):
         """Feed from one thread, read from another."""
         source = StreamingAudioSource()
-        frames_read = []
         num_frames = 50
+
+        # Pre-feed all frames before starting reader to avoid race
+        for _ in range(num_frames):
+            source.feed(b"\x01\x02" * (FRAME_SIZE // 2))
+        source.finish()
+
+        frames_read = []
 
         def reader():
             while True:
                 frame = source.read()
                 if frame == b"":
                     break
-                if frame != b"\x00" * FRAME_SIZE:  # Skip silence frames
-                    frames_read.append(frame)
+                frames_read.append(frame)
 
         reader_thread = threading.Thread(target=reader, daemon=True)
         reader_thread.start()
-
-        # Feed frames from main thread
-        for _ in range(num_frames):
-            source.feed(b"\x01\x02" * (FRAME_SIZE // 2))
-
-        source.finish()
         reader_thread.join(timeout=5.0)
         assert not reader_thread.is_alive()
         assert len(frames_read) == num_frames
