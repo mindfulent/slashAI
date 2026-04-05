@@ -212,10 +212,22 @@ class VoiceSession:
 
             logger.info(f"TTS chunk {i+1}/{len(chunks)}: synthesizing ({len(chunk_text)} chars)...")
             chunk_bytes = 0
+            chunk_count = 0
             async for pcm_24k in self._tts.synthesize(
                 chunk_text, emotion=emotion, speed=speed
             ):
+                chunk_count += 1
+                if chunk_count <= 2:
+                    import audioop as _ao
+                    rms_24k = _ao.rms(pcm_24k, 2) if len(pcm_24k) >= 2 else 0
+                    logger.info(f"  TTS raw chunk {chunk_count}: {len(pcm_24k)} bytes, RMS={rms_24k}")
+
                 pcm_48k_stereo = self._resampler.tts_to_discord(pcm_24k)
+
+                if chunk_count <= 2:
+                    rms_48k = _ao.rms(pcm_48k_stereo, 2) if len(pcm_48k_stereo) >= 2 else 0
+                    logger.info(f"  After resample: {len(pcm_48k_stereo)} bytes, RMS={rms_48k}")
+
                 source.feed(pcm_48k_stereo)
                 chunk_bytes += len(pcm_48k_stereo)
 
@@ -225,7 +237,7 @@ class VoiceSession:
                     logger.info("Playback started")
 
             total_bytes += chunk_bytes
-            logger.info(f"TTS chunk {i+1} done: {chunk_bytes} bytes audio")
+            logger.info(f"TTS chunk {i+1} done: {chunk_bytes} bytes, {chunk_count} ws chunks")
 
         source.finish()
         logger.info(f"TTS complete: {total_bytes} total bytes, play_started={play_started}")
