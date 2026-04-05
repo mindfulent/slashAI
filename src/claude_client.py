@@ -1000,25 +1000,22 @@ class ClaudeClient:
         key = self._get_conversation_key(user_id, channel_id)
         conversation = self._conversations[key]
 
-        # Start memory retrieval in background (don't block LLM call)
-        memory_task = None
+        # Retrieve relevant memories
+        memory_context = ""
         if self.memory:
-            import asyncio as _asyncio
-
-            async def _retrieve_memories():
-                try:
-                    retrieval = await self.memory.retrieve(
-                        int(user_id), content, channel, agent_id=self.agent_id
+            try:
+                retrieval = await self.memory.retrieve(
+                    int(user_id), content, channel, agent_id=self.agent_id
+                )
+                if retrieval.memories:
+                    memory_context = self._format_memories(
+                        retrieval.memories, current_user_id=int(user_id)
                     )
-                    if retrieval.memories:
-                        return self._format_memories(
-                            retrieval.memories, current_user_id=int(user_id)
-                        )
-                except Exception as e:
-                    logger.warning(f"Voice memory retrieval failed: {e}")
-                return ""
-
-            memory_task = _asyncio.create_task(_retrieve_memories())
+                    logger.info(
+                        f"Voice memory: {len(retrieval.memories)} memories retrieved"
+                    )
+            except Exception as e:
+                logger.warning(f"Voice memory retrieval failed: {e}")
 
         # Add user message to history
         conversation.add_message("user", content)
@@ -1040,17 +1037,8 @@ class ClaudeClient:
             f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.**"
         ]
 
-        # Collect memory result (with timeout — don't delay LLM if retrieval is slow)
-        if memory_task:
-            try:
-                memory_context = await _asyncio.wait_for(memory_task, timeout=1.5)
-                if memory_context:
-                    context_parts.append(memory_context)
-                    logger.info("Voice memory: context injected")
-            except _asyncio.TimeoutError:
-                logger.info("Voice memory: skipped (retrieval still running)")
-            except Exception:
-                pass
+        if memory_context:
+            context_parts.append(memory_context)
 
         combined_context = "\n\n".join(context_parts)
         if combined_context:
