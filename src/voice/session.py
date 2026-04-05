@@ -125,17 +125,21 @@ class VoiceSession:
 
     async def _handle_utterance(self, user_id: int, pcm_16k_mono: bytes, t0: float = 0) -> None:
         """Process a completed utterance: STT → echo check → LLM → TTS → play."""
+        logger.info(f"[{self._persona.display_name}] Processing utterance: {len(pcm_16k_mono)} bytes")
         try:
             await self._handle_utterance_inner(user_id, pcm_16k_mono, t0)
         except Exception as e:
             logger.error(f"[{self._persona.display_name}] Utterance pipeline error: {e}", exc_info=True)
 
     async def _handle_utterance_inner(self, user_id: int, pcm_16k_mono: bytes, t0: float) -> None:
+        logger.info(f"  Acquiring processing lock (is_speaking={self._is_speaking})")
         async with self._processing_lock:
             if not self._running:
+                logger.info("  Not running, skipping")
                 return
 
             t_lock = time.monotonic()
+            logger.info(f"  Lock acquired, starting STT ({len(pcm_16k_mono)} bytes)")
 
             # Wrap PCM in WAV for STT
             wav_data = self._resampler.pcm_to_wav(pcm_16k_mono)
