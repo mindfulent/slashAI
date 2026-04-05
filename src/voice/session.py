@@ -160,97 +160,103 @@ class VoiceSession:
                 f"[{self._persona.display_name}] Voice from user {user_id}: {cleaned}"
             )
 
-            # LLM response — use the voice channel's ID as channel_id
+            # Streaming LLM → TTS → playback pipeline
             channel_id = (
                 str(self._voice_client.channel.id)
                 if self._voice_client
                 else "0"
             )
-            result = await self._claude.chat(
+            await self._speak_streaming(
                 user_id=str(user_id),
                 channel_id=channel_id,
                 content=cleaned,
+                t0=t0,
+                t_stt=t_stt,
+                t_lock=t_lock,
             )
-            t_llm = time.monotonic()
 
-            if not result.text:
-                return
+    async def _speak_streaming(
+        self,
+        user_id: str,
+        channel_id: str,
+        content: str,
+        t0: float = 0,
+        t_stt: float = 0,
+        t_lock: float = 0,
+    ) -> None:
+        """Stream LLM response sentence-by-sentence through TTS to voice.
 
-            # Track for echo guard
-            self._echo_guard.add_bot_text(result.text)
-
-            # TTS and play
-            await self._speak(result.text, t0=t0, t_stt=t_stt, t_llm=t_llm, t_lock=t_lock)
-
-    async def _speak(self, text: str, *, t0: float = 0, t_stt: float = 0, t_llm: float = 0, t_lock: float = 0) -> None:
-        """Convert text to speech and play through voice channel."""
+        Combines LLM streaming + TTS synthesis + playback in one pipeline.
+        Each sentence plays as soon as it's synthesized, while the LLM
+        continues generating the next sentence.
+        """
         if not self._voice_client or not self._voice_client.is_connected():
             return
 
-        # Clean and chunk for TTS
-        cleaned = self._preprocessor.clean_for_tts(text)
-        chunks = self._preprocessor.chunk_for_tts(cleaned)
-        if not chunks:
-            return
-
-        # Infer emotion from first chunk
-        emotion = self._emotion.infer(chunks[0])
+        # Voice config
         cartesia_voice = self._persona.voice.cartesia
-        if not emotion and cartesia_voice and cartesia_voice.default_emotion:
-            emotion = cartesia_voice.default_emotion
+        emotion = cartesia_voice.default_emotion if cartesia_voice else None
         speed = cartesia_voice.speed if cartesia_voice else 1.0
 
         # Mute audio reception while speaking (prevents echo feedback)
         self._is_speaking = True
-        # Reset all user VADs to discard any partially accumulated audio
         for vad in self._user_vads.values():
             vad.reset()
 
-        # Stateful resampler for smooth audio across TTS chunks
         resampler = StreamResampler()
         source = StreamingAudioSource()
         play_started = False
-        t_tts_start = time.monotonic()
+        sentences = []
+        sentence_count = 0
 
         try:
-            # Stream all chunks as one continuous audio context
-            async for pcm_24k in self._tts.synthesize_stream(
-                chunks, emotion=emotion, speed=speed
+            async for sentence in self._claude.chat_streaming(
+                user_id=user_id,
+                channel_id=channel_id,
+                content=content,
             ):
-                pcm_48k_stereo = resampler.tts_to_discord(pcm_24k)
-                source.feed(pcm_48k_stereo)
+                sentence_count += 1
+                sentences.append(sentence)
 
-                if not play_started and self._voice_client:
-                    self._voice_client.play(source, signal_type="voice")
-                    play_started = True
-                    t_play = time.monotonic()
+                # Infer emotion from this sentence
+                sent_emotion = self._emotion.infer(sentence) or emotion
 
-                    # Log full latency breakdown
-                    if t0:
-                        logger.info(
-                            f"LATENCY: lock_wait={_ms(t_lock - t0)} "
-                            f"stt={_ms(t_stt - t_lock)} "
-                            f"llm={_ms(t_llm - t_stt)} "
-                            f"tts_first_byte={_ms(t_play - t_llm)} "
-                            f"TOTAL={_ms(t_play - t0)}"
-                        )
+                # TTS this sentence immediately
+                async for pcm_24k in self._tts.synthesize(
+                    sentence, emotion=sent_emotion, speed=speed
+                ):
+                    pcm_48k = resampler.tts_to_discord(pcm_24k)
+                    source.feed(pcm_48k)
+
+                    if not play_started and self._voice_client:
+                        self._voice_client.play(source, signal_type="voice")
+                        play_started = True
+                        t_play = time.monotonic()
+
+                        if t0:
+                            logger.info(
+                                f"LATENCY: lock_wait={_ms(t_lock - t0)} "
+                                f"stt={_ms(t_stt - t_lock)} "
+                                f"llm_first_sentence={_ms(t_play - t_stt)} "
+                                f"TOTAL={_ms(t_play - t0)}"
+                            )
 
             source.finish()
-            t_done = time.monotonic()
+
+            # Echo guard with full response
+            full_text = " ".join(sentences)
+            self._echo_guard.add_bot_text(full_text)
 
             # Wait for playback to complete
             if play_started:
                 while self._voice_client and self._voice_client.is_playing():
                     await asyncio.sleep(0.1)
 
-                t_playback_done = time.monotonic()
                 logger.info(
-                    f"TTS: {len(chunks)} chunk(s), {len(cleaned)} chars, "
-                    f"synthesis={_ms(t_done - t_tts_start)}, "
-                    f"playback={_ms(t_playback_done - t_play)}"
+                    f"TTS: {sentence_count} sentence(s), {len(full_text)} chars, "
+                    f"playback={_ms(time.monotonic() - t_play)}"
                 )
         finally:
-            # Unmute reception after playback completes (or on error)
             self._is_speaking = False
 
     async def leave(self) -> None:

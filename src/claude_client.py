@@ -24,10 +24,11 @@ Integrates with memory system for persistent context.
 """
 
 import base64
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 import discord
 from anthropic import AsyncAnthropic
@@ -59,8 +60,24 @@ class ChatResult:
     expansion_reason: str = "none"
     query_count: int = 1
 
+logger = logging.getLogger(__name__)
+
 # Claude Sonnet 4.6 model ID
 MODEL_ID = "claude-sonnet-4-6"
+
+
+def _split_sentence(text: str) -> tuple[Optional[str], str]:
+    """Split first complete sentence from a text buffer.
+
+    Returns (sentence, remaining) or (None, text) if no boundary found.
+    Used by chat_streaming() to yield sentences as they complete.
+    """
+    for i, char in enumerate(text):
+        if char in ".!?" and i > 10:  # Min sentence length to avoid "Dr." etc.
+            next_char = text[i + 1] if i + 1 < len(text) else " "
+            if next_char in " \n\r":
+                return text[: i + 1].strip(), text[i + 1 :].lstrip()
+    return None, text
 
 # Discord tools for agentic actions (owner-only)
 DISCORD_TOOLS = [
@@ -964,6 +981,80 @@ class ClaudeClient:
             expansion_reason=expansion_reason,
             query_count=query_count,
         )
+
+    async def chat_streaming(
+        self,
+        user_id: str,
+        channel_id: str,
+        content: str,
+    ) -> AsyncIterator[str]:
+        """Stream LLM response, yielding text at sentence boundaries.
+
+        Designed for voice: yields each sentence as soon as it completes
+        during streaming, enabling sentence-level TTS pipelining.
+
+        Manages conversation history the same as chat().
+        No tool use (voice doesn't need Discord actions).
+        """
+        key = self._get_conversation_key(user_id, channel_id)
+        conversation = self._conversations[key]
+
+        # Add user message to history
+        conversation.add_message("user", content)
+
+        # Build system prompt with caching (same as chat())
+        system = [
+            {
+                "type": "text",
+                "text": self.system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+        # Add date context
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        context_parts = [
+            f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.**"
+        ]
+        combined_context = "\n\n".join(context_parts)
+        if combined_context:
+            system.append({"type": "text", "text": combined_context})
+
+        messages = conversation.get_messages()
+
+        # Stream response, yielding at sentence boundaries
+        full_response = ""
+        buffer = ""
+
+        try:
+            async with self.client.messages.stream(
+                model=self.model,
+                max_tokens=1024,
+                system=system,
+                messages=messages,
+            ) as stream:
+                async for text in stream.text_stream:
+                    buffer += text
+                    full_response += text
+
+                    # Yield complete sentences as they form
+                    while True:
+                        sentence, remaining = _split_sentence(buffer)
+                        if sentence is None:
+                            break
+                        yield sentence
+                        buffer = remaining
+
+            # Yield any remaining text
+            if buffer.strip():
+                yield buffer.strip()
+
+        finally:
+            # Always update conversation history
+            if full_response:
+                conversation.add_message("assistant", full_response)
 
     async def _execute_tool(
         self,

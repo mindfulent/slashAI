@@ -124,13 +124,12 @@ class TestVoiceSession:
 
     @pytest.mark.asyncio
     async def test_utterance_pipeline(self):
-        """Test the full pipeline: STT → echo guard → LLM → TTS → play."""
+        """Test the full pipeline: STT → LLM streaming → TTS → play."""
         from voice.session import VoiceSession
 
         persona = _make_persona()
         client = _make_mock_client()
         claude = AsyncMock()
-        claude.chat = AsyncMock(return_value=FakeChatResult(text="I'm here to help!"))
 
         session = VoiceSession(client, persona, claude)
 
@@ -151,20 +150,17 @@ class TestVoiceSession:
                 new_callable=AsyncMock,
                 return_value="Hello can you hear me",
             ),
-            patch.object(session, "_speak", new_callable=AsyncMock) as mock_speak,
+            patch.object(
+                session, "_speak_streaming", new_callable=AsyncMock
+            ) as mock_speak,
         ):
-            # Feed a fake utterance (already 16kHz mono PCM)
-            pcm = b"\x00\x01" * 6400  # Above min_audio_bytes
+            pcm = b"\x00\x01" * 6400
             await session._handle_utterance(user_id=999, pcm_16k_mono=pcm)
 
-        # Verify LLM was called with the transcript
-        claude.chat.assert_awaited_once()
-        call_kwargs = claude.chat.call_args
-        assert "Hello can you hear me" in str(call_kwargs)
-
-        # Verify TTS was triggered (with timing kwargs)
+        # Verify streaming speak was called with the transcript
         mock_speak.assert_awaited_once()
-        assert mock_speak.call_args[0][0] == "I'm here to help!"
+        call_kwargs = mock_speak.call_args
+        assert call_kwargs.kwargs["content"] == "Hello can you hear me"
 
     @pytest.mark.asyncio
     async def test_echo_guard_rejects(self):
