@@ -218,6 +218,7 @@ class VoiceSession:
                 user_id=user_id,
                 channel_id=channel_id,
                 content=content,
+                channel=self._voice_client.channel if self._voice_client else None,
             ):
                 sentence_count += 1
                 sentences.append(sentence)

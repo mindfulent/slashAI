@@ -987,17 +987,35 @@ class ClaudeClient:
         user_id: str,
         channel_id: str,
         content: str,
+        channel: Optional[discord.abc.Messageable] = None,
     ) -> AsyncIterator[str]:
         """Stream LLM response, yielding text at sentence boundaries.
 
         Designed for voice: yields each sentence as soon as it completes
         during streaming, enabling sentence-level TTS pipelining.
 
-        Manages conversation history the same as chat().
-        No tool use (voice doesn't need Discord actions).
+        Manages conversation history, memory retrieval, and memory tracking
+        the same as chat(). No tool use (voice doesn't need Discord actions).
         """
         key = self._get_conversation_key(user_id, channel_id)
         conversation = self._conversations[key]
+
+        # Retrieve relevant memories
+        memory_context = ""
+        if self.memory:
+            try:
+                retrieval = await self.memory.retrieve(
+                    int(user_id), content, channel, agent_id=self.agent_id
+                )
+                if retrieval.memories:
+                    memory_context = self._format_memories(
+                        retrieval.memories, current_user_id=int(user_id)
+                    )
+                    logger.info(
+                        f"Voice memory: {len(retrieval.memories)} memories retrieved"
+                    )
+            except Exception as e:
+                logger.warning(f"Voice memory retrieval failed: {e}")
 
         # Add user message to history
         conversation.add_message("user", content)
@@ -1011,13 +1029,16 @@ class ClaudeClient:
             }
         ]
 
-        # Add date context
+        # Build dynamic context (date + memories)
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
         context_parts = [
             f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.**"
         ]
+        if memory_context:
+            context_parts.append(memory_context)
+
         combined_context = "\n\n".join(context_parts)
         if combined_context:
             system.append({"type": "text", "text": combined_context})
@@ -1055,6 +1076,20 @@ class ClaudeClient:
             # Always update conversation history
             if full_response:
                 conversation.add_message("assistant", full_response)
+
+            # Track for memory extraction
+            if self.memory and full_response:
+                try:
+                    await self.memory.track_message(
+                        int(user_id),
+                        int(channel_id),
+                        channel,
+                        content,
+                        full_response,
+                        agent_id=self.agent_id,
+                    )
+                except Exception as e:
+                    logger.warning(f"Voice memory tracking failed: {e}")
 
     async def _execute_tool(
         self,

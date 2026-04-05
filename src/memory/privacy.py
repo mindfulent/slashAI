@@ -52,6 +52,10 @@ async def classify_channel_privacy(
     Returns:
         PrivacyLevel based on channel accessibility
     """
+    # None channel (e.g., voice without channel ref) — default to guild_public
+    if channel is None:
+        return PrivacyLevel.GUILD_PUBLIC
+
     # DMs are always private
     if isinstance(channel, discord.DMChannel):
         return PrivacyLevel.DM
@@ -59,13 +63,22 @@ async def classify_channel_privacy(
     if isinstance(channel, discord.GroupChannel):
         return PrivacyLevel.DM  # Group DMs treated as private
 
-    # For guild channels, check if @everyone can view
+    # For guild channels, check if @everyone can view/connect
     if isinstance(channel, discord.TextChannel):
         everyone_role = channel.guild.default_role
         permissions = channel.permissions_for(everyone_role)
 
-        # If @everyone can't read messages, it's restricted
         if not permissions.read_messages:
+            return PrivacyLevel.CHANNEL_RESTRICTED
+
+        return PrivacyLevel.GUILD_PUBLIC
+
+    # Voice/stage channels — check connect permission
+    if isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
+        everyone_role = channel.guild.default_role
+        permissions = channel.permissions_for(everyone_role)
+
+        if not permissions.connect:
             return PrivacyLevel.CHANNEL_RESTRICTED
 
         return PrivacyLevel.GUILD_PUBLIC
