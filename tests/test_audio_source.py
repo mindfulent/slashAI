@@ -48,16 +48,20 @@ class TestStreamingAudioSource:
         assert len(frame1) == FRAME_SIZE
         assert len(frame2) == FRAME_SIZE
 
-    def test_partial_frame_padded(self):
+    def test_partial_frame_carried(self):
         source = StreamingAudioSource()
-        # Feed less than one frame
+        # Feed less than one frame — should be carried, not padded
         data = b"\x01\x02" * 100  # 200 bytes
         source.feed(data)
+        # No complete frame yet — read returns silence
+        frame = source.read()
+        assert frame == b"\x00" * FRAME_SIZE
+
+        # finish() flushes the remainder with padding
+        source.finish()
         frame = source.read()
         assert len(frame) == FRAME_SIZE
-        # First 200 bytes should be our data, rest silence
         assert frame[:200] == data
-        assert frame[200:] == b"\x00" * (FRAME_SIZE - 200)
 
     def test_is_opus_false(self):
         source = StreamingAudioSource()

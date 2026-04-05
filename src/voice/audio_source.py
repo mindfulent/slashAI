@@ -27,28 +27,42 @@ class StreamingAudioSource(AudioSource):
 
     def __init__(self, *, volume: float = 1.0):
         self._buffer: collections.deque[bytes] = collections.deque()
+        self._remainder = b""  # Partial frame carried across feed() calls
         self._lock = threading.Lock()
         self._finished = threading.Event()
         self._volume = max(0.0, min(2.0, volume))
 
     def feed(self, pcm_48k_stereo: bytes) -> None:
-        """Push resampled TTS audio. Chunks into FRAME_SIZE pieces."""
+        """Push resampled TTS audio. Chunks into FRAME_SIZE pieces.
+
+        Partial frames are carried to the next feed() call to avoid
+        zero-padding artifacts (clicks/pops at chunk boundaries).
+        """
         if not pcm_48k_stereo:
             return
 
         with self._lock:
-            # Chunk into frame-sized pieces
+            # Prepend any remainder from previous feed
+            data = self._remainder + pcm_48k_stereo
+            self._remainder = b""
+
             offset = 0
-            while offset < len(pcm_48k_stereo):
-                chunk = pcm_48k_stereo[offset : offset + FRAME_SIZE]
-                if len(chunk) < FRAME_SIZE:
-                    # Pad last chunk with silence
-                    chunk = chunk + b"\x00" * (FRAME_SIZE - len(chunk))
-                self._buffer.append(chunk)
+            while offset + FRAME_SIZE <= len(data):
+                self._buffer.append(data[offset : offset + FRAME_SIZE])
                 offset += FRAME_SIZE
+
+            # Carry partial frame to next feed (don't pad with silence)
+            if offset < len(data):
+                self._remainder = data[offset:]
 
     def finish(self) -> None:
         """Signal that no more audio will be fed."""
+        with self._lock:
+            # Flush any remaining partial frame (pad only at the very end)
+            if self._remainder:
+                padded = self._remainder + b"\x00" * (FRAME_SIZE - len(self._remainder))
+                self._buffer.append(padded)
+                self._remainder = b""
         self._finished.set()
 
     def read(self) -> bytes:
@@ -76,6 +90,7 @@ class StreamingAudioSource(AudioSource):
     def cleanup(self) -> None:
         with self._lock:
             self._buffer.clear()
+            self._remainder = b""
 
     @property
     def buffered_bytes(self) -> int:
