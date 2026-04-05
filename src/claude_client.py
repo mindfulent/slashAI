@@ -1028,8 +1028,9 @@ class ClaudeClient:
                     int(user_id), content, channel, agent_id=self.agent_id
                 )
                 if retrieval.memories:
+                    guild = getattr(channel, "guild", None) if channel else None
                     memory_context = self._format_memories(
-                        retrieval.memories, current_user_id=int(user_id)
+                        retrieval.memories, current_user_id=int(user_id), guild=guild
                     )
                     logger.info(
                         f"Voice memory: {len(retrieval.memories)} memories retrieved"
@@ -1049,9 +1050,29 @@ class ClaudeClient:
             }
         ]
 
-        # Build dynamic context (date + memories)
+        # Build dynamic context (date + speaker identity + memories)
         date_context = await self._build_date_context(user_id)
         context_parts = [date_context]
+
+        # Identify who is speaking in the voice channel
+        if channel:
+            speaker_name = self._resolve_display_name(int(user_id),
+                                                       getattr(channel, "guild", None))
+            channel_name = getattr(channel, "name", "voice")
+            # List other humans in the channel
+            members = getattr(channel, "members", [])
+            humans = [m for m in members if not m.bot and m.id != int(user_id)]
+            if humans:
+                others = ", ".join(m.display_name for m in humans)
+                context_parts.append(
+                    f"You are in voice channel **#{channel_name}**. "
+                    f"**{speaker_name}** is speaking to you. "
+                    f"Also in the channel: {others}."
+                )
+            else:
+                context_parts.append(
+                    f"You are in voice channel **#{channel_name}** with **{speaker_name}**."
+                )
 
         if memory_context:
             context_parts.append(memory_context)

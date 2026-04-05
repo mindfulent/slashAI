@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.10] - 2026-04-05
+
+### Fixed — Voice speaker identity and channel context
+
+- **Speaker identity in voice** (`claude_client.py`) — Voice conversations now inject who is speaking and who else is in the channel (e.g., "You are in voice channel #General. **slashdaemon** is speaking to you. Also in the channel: Bob."). Previously Claude had no idea who it was talking to.
+- **Display name resolution for voice memories** (`claude_client.py`) — `chat_streaming()` now passes `guild` to `_format_memories()`, so memory labels show proper display names instead of bare numeric user IDs.
+
+---
+
 ## [0.15.9] - 2026-04-05
 
 ### Added — Auto-deploy voice agent on push
