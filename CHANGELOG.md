@@ -16,6 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.3] - 2026-04-05
+
+### Added — LLM Streaming with Sentence-Level TTS
+- **`chat_streaming()`** (`claude_client.py`) — Streams LLM response via Anthropic streaming API, yielding text at sentence boundaries as they complete. Enables sentence-level TTS pipelining.
+- **`_speak_streaming()`** (`session.py`) — Combines LLM streaming → per-sentence TTS → playback in one pipeline. First audio plays within ~500ms of LLM stream start instead of waiting for the full response.
+- **`_split_sentence()`** — Sentence boundary detection for streaming token buffer.
+
+### Fixed
+- **Audio clipping** — Partial PCM frames were zero-padded every ~20ms, creating repeated clicks/pops. Now carries remainder across `feed()` calls; only the final frame gets padded.
+- **Echo feedback** — Mutes audio reception (`_is_speaking` flag) while bot is playing TTS. Resets all user VADs on speak start to discard partial audio.
+- **SSRC mapping reliability** — Infers SSRC→user from voice channel members when SPEAKING opcode hook fails (only one human in channel).
+
+### Performance
+- **Latency to first audio**: 1.3–4.7s → **1.2–1.7s** (consistent regardless of response length)
+- STT: 107–191ms | LLM first sentence: ~1.1–1.6s | TTS first byte: ~130ms
+
+---
+
 ## [0.15.1] - 2026-04-04
 
 ### Fixed
