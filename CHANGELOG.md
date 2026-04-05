@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
+- **slashAI Desktop** — Tauri (Rust) system tray app for screen share vision in voice chat (see `docs/DESKTOP-PLAN.md`)
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management
 - Multi-guild configuration support
