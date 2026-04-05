@@ -21,6 +21,7 @@ class VADConfig:
     rms_threshold: float = 500.0  # Minimum RMS for speech (speech: 1000-5000, music: 50-300)
     silence_timeout_ms: int = 1500  # Milliseconds of silence before finalizing
     min_audio_bytes: int = 48000  # Minimum utterance size (~1.5s at 16kHz mono s16le, avoids STT fragments)
+    max_utterance_bytes: int = 896000  # Max buffer before forced flush (~28s at 16kHz mono s16le, under Whisper 30s limit)
 
 
 class VoiceActivityDetector:
@@ -51,6 +52,13 @@ class VoiceActivityDetector:
             self._is_speaking = True
             self._last_voice_time = timestamp
             self._audio_buffer.extend(pcm_chunk)
+
+            # Force flush if buffer exceeds max duration (Whisper 30s limit)
+            if len(self._audio_buffer) >= self._config.max_utterance_bytes:
+                result = bytes(self._audio_buffer)
+                self.reset()
+                return result
+
             return None
 
         if self._is_speaking:

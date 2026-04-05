@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **VAD flush timer** (`vad.py`, `session.py`) — Discord stops sending audio packets when a user goes silent (Opus DTX), so the VAD silence timeout never fired. Added `flush()` method and a 200ms background timer that detects timed-out utterances without needing new audio packets. Users no longer have to make a second sound to trigger processing.
 - **Cartesia TTS auto-reconnect** (`cartesia_tts.py`) — Cartesia drops idle WebSocket connections after ~10 minutes, but aiohttp still reports the socket as open. Added `_ensure_connected()` pre-check and try/except reconnection on `ClientConnectionResetError`, fixing "Cannot write to closing transport" crashes after idle periods.
 - **`_is_speaking` stuck after TTS error** (`session.py`) — When TTS produced no audio (e.g., Cartesia rejecting a 1-char response), playback never started so `_on_playback_done` never fired, leaving `_is_speaking=True` permanently. All future audio was silently dropped. Now clears the flag when no playback was started.
+- **Max utterance duration** (`vad.py`) — Long monologues were truncated by Whisper's ~30s limit. Added `max_utterance_bytes` (28s) that forces a flush mid-speech, so long utterances get chunked into segments the STT can handle.
 
 ---
 

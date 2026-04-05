@@ -128,6 +128,22 @@ class TestVAD:
         vad = VoiceActivityDetector()
         assert vad.flush(1.0) is None
 
+    def test_max_utterance_forces_flush(self):
+        """Long continuous speech should be flushed at max_utterance_bytes."""
+        vad = VoiceActivityDetector(VADConfig(
+            rms_threshold=500.0,
+            max_utterance_bytes=6400,  # Small limit for testing
+            min_audio_bytes=100,
+        ))
+        # Feed loud audio until we exceed max
+        result = None
+        for i in range(10):
+            result = vad.process(_make_loud(800), i * 0.02)
+            if result is not None:
+                break
+        assert result is not None
+        assert vad._is_speaking is False  # Reset after forced flush
+
     def test_empty_chunk_returns_none(self):
         vad = VoiceActivityDetector()
         assert vad.process(b"", 0.0) is None
