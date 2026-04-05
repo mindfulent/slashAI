@@ -232,6 +232,15 @@ class VoiceSession:
                 chunk_bytes += len(pcm_48k_stereo)
 
                 if not play_started and self._voice_client:
+                    # Log DAVE outgoing encryption state
+                    conn = self._voice_client._connection
+                    dave_s = getattr(conn, "dave_session", None)
+                    can_enc = getattr(conn, "can_encrypt", "N/A")
+                    logger.info(
+                        f"Playback starting: dave_session={'yes' if dave_s else 'no'} "
+                        f"can_encrypt={can_enc} "
+                        f"dave_ready={getattr(dave_s, 'ready', 'N/A')}"
+                    )
                     self._voice_client.play(source, signal_type="voice")
                     play_started = True
                     logger.info("Playback started")
