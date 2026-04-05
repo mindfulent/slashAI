@@ -1010,7 +1010,7 @@ class ClaudeClient:
                     self.memory.retrieve(
                         int(user_id), content, channel, agent_id=self.agent_id
                     ),
-                    timeout=1.0,
+                    timeout=2.0,
                 )
                 if retrieval.memories:
                     memory_context = self._format_memories(
@@ -1020,7 +1020,7 @@ class ClaudeClient:
                         f"Voice memory: {len(retrieval.memories)} memories retrieved"
                     )
             except _asyncio.TimeoutError:
-                logger.warning("Voice memory retrieval timed out (1s)")
+                logger.warning("Voice memory retrieval timed out (2s)")
             except Exception as e:
                 logger.warning(f"Voice memory retrieval failed: {e}")
 

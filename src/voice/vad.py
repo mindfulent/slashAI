@@ -19,8 +19,8 @@ class VADConfig:
     """Configuration for voice activity detection."""
 
     rms_threshold: float = 500.0  # Minimum RMS for speech (speech: 1000-5000, music: 50-300)
-    silence_timeout_ms: int = 800  # Milliseconds of silence before finalizing
-    min_audio_bytes: int = 6400  # Minimum utterance size (~0.2s at 16kHz mono s16le)
+    silence_timeout_ms: int = 1500  # Milliseconds of silence before finalizing (was 800ms, too aggressive for natural speech)
+    min_audio_bytes: int = 48000  # Minimum utterance size (~1.5s at 16kHz mono s16le, avoids STT fragments)
 
 
 class VoiceActivityDetector:
