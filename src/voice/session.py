@@ -23,7 +23,6 @@ from voice.cartesia_stt import CartesiaSTTClient
 from voice.cartesia_tts import CartesiaTTSClient
 from voice.echo_guard import EchoGuard
 from voice.receiver import AudioReceiver
-from voice.audio_source import FRAME_SIZE
 from voice.resampler import AudioResampler, StreamResampler
 from voice.text_processor import EmotionInference, TextPreprocessor
 from voice.vad import VADConfig, VoiceActivityDetector
@@ -70,6 +69,7 @@ class VoiceSession:
         self._voice_client: Optional[discord.VoiceClient] = None
         self._receiver: Optional[AudioReceiver] = None
         self._running = False
+        self._is_speaking = False  # Mute reception while bot is playing
         self._processing_lock = asyncio.Lock()
 
     async def join(self, channel: discord.VoiceChannel) -> None:
@@ -94,7 +94,7 @@ class VoiceSession:
 
         Downsample, feed to per-user VAD, and schedule async processing.
         """
-        if not self._running:
+        if not self._running or self._is_speaking:
             return
 
         # Downsample for STT
@@ -176,10 +176,6 @@ class VoiceSession:
             except Exception as e:
                 logger.error(f"[{self._persona.display_name}] Speak failed: {e}", exc_info=True)
 
-    # Pre-buffer 100ms of audio before starting playback to avoid
-    # playing Cartesia's initial silence/low-energy lead-in
-    MIN_PREBUFFER_BYTES = 5 * FRAME_SIZE  # 5 frames = 100ms
-
     async def _speak(self, text: str) -> None:
         """Convert text to speech and play through voice channel."""
         if not self._voice_client or not self._voice_client.is_connected():
@@ -198,8 +194,11 @@ class VoiceSession:
             emotion = cartesia_voice.default_emotion
         speed = cartesia_voice.speed if cartesia_voice else 1.0
 
-        # Estimate speech duration for echo guard (~60ms per char)
-        self._echo_guard.mark_bot_speaking(len(cleaned) * 0.06)
+        # Mute audio reception while speaking (prevents echo feedback)
+        self._is_speaking = True
+        # Reset all user VADs to discard any partially accumulated audio
+        for vad in self._user_vads.values():
+            vad.reset()
 
         # Stateful resampler for smooth audio across TTS chunks
         resampler = StreamResampler()
@@ -208,31 +207,27 @@ class VoiceSession:
 
         logger.info(f"TTS: {len(chunks)} chunk(s), {len(cleaned)} chars")
 
-        # Stream all chunks as one continuous audio context
-        async for pcm_24k in self._tts.synthesize_stream(
-            chunks, emotion=emotion, speed=speed
-        ):
-            pcm_48k_stereo = resampler.tts_to_discord(pcm_24k)
-            source.feed(pcm_48k_stereo)
+        try:
+            # Stream all chunks as one continuous audio context
+            async for pcm_24k in self._tts.synthesize_stream(
+                chunks, emotion=emotion, speed=speed
+            ):
+                pcm_48k_stereo = resampler.tts_to_discord(pcm_24k)
+                source.feed(pcm_48k_stereo)
 
-            # Start playback after buffering enough audio
-            if not play_started and self._voice_client:
-                if source.buffered_bytes >= self.MIN_PREBUFFER_BYTES:
+                if not play_started and self._voice_client:
                     self._voice_client.play(source, signal_type="voice")
                     play_started = True
 
-        # If we never hit the pre-buffer threshold (very short response),
-        # start playback now with whatever we have
-        if not play_started and self._voice_client and source.buffered_bytes > 0:
-            self._voice_client.play(source, signal_type="voice")
-            play_started = True
+            source.finish()
 
-        source.finish()
-
-        # Wait for playback to complete
-        if play_started:
-            while self._voice_client and self._voice_client.is_playing():
-                await asyncio.sleep(0.1)
+            # Wait for playback to complete
+            if play_started:
+                while self._voice_client and self._voice_client.is_playing():
+                    await asyncio.sleep(0.1)
+        finally:
+            # Unmute reception after playback completes (or on error)
+            self._is_speaking = False
 
     async def leave(self) -> None:
         """Disconnect from voice and clean up all resources."""
