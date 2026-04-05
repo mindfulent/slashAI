@@ -93,6 +93,41 @@ class TestVAD:
         assert vad._is_speaking is False
         assert len(vad._audio_buffer) == 0
 
+    def test_flush_returns_utterance_without_new_audio(self):
+        """Simulate Discord DTX: speech arrives, then no more packets.
+        flush() should return the utterance after the silence timeout."""
+        vad = VoiceActivityDetector(VADConfig(
+            rms_threshold=500.0,
+            silence_timeout_ms=100,
+            min_audio_bytes=100,
+        ))
+        # Feed loud audio at t=0
+        vad.process(_make_loud(1600), 0.0)
+        assert vad._is_speaking is True
+
+        # No more packets arrive (Discord DTX). Call flush after timeout.
+        result = vad.flush(0.2)  # 200ms later > 100ms timeout
+        assert result is not None
+        assert len(result) > 0
+        assert vad._is_speaking is False  # Reset after flush
+
+    def test_flush_returns_none_before_timeout(self):
+        """flush() should not trigger before the silence timeout."""
+        vad = VoiceActivityDetector(VADConfig(
+            rms_threshold=500.0,
+            silence_timeout_ms=1500,
+            min_audio_bytes=100,
+        ))
+        vad.process(_make_loud(1600), 0.0)
+        result = vad.flush(0.5)  # 500ms < 1500ms timeout
+        assert result is None
+        assert vad._is_speaking is True  # Still waiting
+
+    def test_flush_returns_none_when_not_speaking(self):
+        """flush() should be a no-op when no speech has been detected."""
+        vad = VoiceActivityDetector()
+        assert vad.flush(1.0) is None
+
     def test_empty_chunk_returns_none(self):
         vad = VoiceActivityDetector()
         assert vad.process(b"", 0.0) is None

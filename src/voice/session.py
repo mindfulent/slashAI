@@ -76,6 +76,7 @@ class VoiceSession:
         self._running = False
         self._is_speaking = False  # Mute reception while bot is playing
         self._processing_lock = asyncio.Lock()
+        self._flush_task: Optional[asyncio.Task] = None
 
     async def join(self, channel: discord.VoiceChannel) -> None:
         """Join a voice channel and start the listening loop."""
@@ -89,6 +90,11 @@ class VoiceSession:
         self._receiver = AudioReceiver(self._voice_client)
         self._running = True
         self._receiver.start(self._on_audio_received)
+
+        # Background timer to flush VAD buffers when Discord stops sending
+        # packets during silence (Opus DTX). Without this, utterances stay
+        # buffered until the user makes another sound.
+        self._flush_task = asyncio.create_task(self._vad_flush_loop())
 
         logger.info(
             f"[{self._persona.display_name}] Joined voice channel: {channel.name}"
@@ -122,6 +128,29 @@ class VoiceSession:
                 self._handle_utterance(user_id, utterance, vad_trigger_time),
                 loop,
             )
+
+    async def _vad_flush_loop(self) -> None:
+        """Periodically flush VAD buffers that Discord left hanging.
+
+        Discord uses Opus DTX — it stops sending packets when a user goes
+        silent. That means process() stops being called and the silence
+        timeout never fires. This loop checks every 200ms and flushes any
+        pending utterance whose silence timeout has elapsed.
+        """
+        while self._running:
+            await asyncio.sleep(0.2)
+            if not self._running or self._is_speaking:
+                continue
+            now = time.monotonic()
+            for user_id, vad in list(self._user_vads.items()):
+                utterance = vad.flush(now)
+                if utterance is not None:
+                    vad_trigger_time = time.monotonic()
+                    logger.info(
+                        f"[{self._persona.display_name}] VAD flush triggered: "
+                        f"{len(utterance)} bytes audio"
+                    )
+                    await self._handle_utterance(user_id, utterance, vad_trigger_time)
 
     async def _handle_utterance(self, user_id: int, pcm_16k_mono: bytes, t0: float = 0) -> None:
         """Process a completed utterance: STT → echo check → LLM → TTS → play."""
@@ -296,6 +325,10 @@ class VoiceSession:
     async def leave(self) -> None:
         """Disconnect from voice and clean up all resources."""
         self._running = False
+
+        if self._flush_task:
+            self._flush_task.cancel()
+            self._flush_task = None
 
         if self._receiver:
             self._receiver.stop()

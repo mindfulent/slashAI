@@ -56,19 +56,32 @@ class VoiceActivityDetector:
         if self._is_speaking:
             # Silence while previously speaking
             self._audio_buffer.extend(pcm_chunk)
-            elapsed_ms = (timestamp - self._last_voice_time) * 1000
+            return self._check_silence_timeout(timestamp)
 
-            if elapsed_ms >= self._config.silence_timeout_ms:
-                # Speech segment complete
-                if len(self._audio_buffer) >= self._config.min_audio_bytes:
-                    result = bytes(self._audio_buffer)
-                    self.reset()
-                    return result
-                else:
-                    # Too short — discard
-                    self.reset()
-                    return None
+        return None
 
+    def flush(self, timestamp: float) -> Optional[bytes]:
+        """Check for timed-out utterance without new audio.
+
+        Discord stops sending packets when a user goes silent (Opus DTX),
+        so process() stops being called. This method should be called
+        periodically from a background timer to flush pending utterances.
+        """
+        if not self._is_speaking:
+            return None
+        return self._check_silence_timeout(timestamp)
+
+    def _check_silence_timeout(self, timestamp: float) -> Optional[bytes]:
+        """Return utterance bytes if silence timeout has elapsed, else None."""
+        elapsed_ms = (timestamp - self._last_voice_time) * 1000
+        if elapsed_ms >= self._config.silence_timeout_ms:
+            if len(self._audio_buffer) >= self._config.min_audio_bytes:
+                result = bytes(self._audio_buffer)
+                self.reset()
+                return result
+            else:
+                self.reset()
+                return None
         return None
 
     def reset(self) -> None:

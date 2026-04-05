@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.6] - 2026-04-05
+
+### Fixed — Voice VAD flush & TTS reconnection
+
+- **VAD flush timer** (`vad.py`, `session.py`) — Discord stops sending audio packets when a user goes silent (Opus DTX), so the VAD silence timeout never fired. Added `flush()` method and a 200ms background timer that detects timed-out utterances without needing new audio packets. Users no longer have to make a second sound to trigger processing.
+- **Cartesia TTS auto-reconnect** (`cartesia_tts.py`) — Cartesia drops idle WebSocket connections after ~10 minutes, but aiohttp still reports the socket as open. Added `_ensure_connected()` pre-check and try/except reconnection on `ClientConnectionResetError`, fixing "Cannot write to closing transport" crashes after idle periods.
+
+---
+
 ## [0.15.5] - 2026-04-05
 
 ### Added — Agent Discord Tool Use

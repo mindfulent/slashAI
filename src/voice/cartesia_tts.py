@@ -38,6 +38,30 @@ class CartesiaTTSClient:
         self._ws = await self._session.ws_connect(url)
         logger.info("Connected to Cartesia TTS WebSocket")
 
+    async def _ensure_connected(self) -> None:
+        """Reconnect the WebSocket if it's dead or stale.
+
+        Cartesia drops idle WebSocket connections after ~10 minutes.
+        The aiohttp socket may still report as open even though the
+        underlying transport is gone, so we also handle reconnection
+        on send failure in synthesize().
+        """
+        if self._ws and not self._ws.closed:
+            return
+        logger.info("Cartesia TTS WebSocket stale, reconnecting...")
+        # Close old session cleanly
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+        if self._session:
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+        await self.connect()
+
     async def synthesize(
         self,
         text: str,
@@ -57,8 +81,7 @@ class CartesiaTTSClient:
         Yields:
             Bytes of PCM audio data (24kHz mono s16le).
         """
-        if not self._ws or self._ws.closed:
-            raise RuntimeError("WebSocket not connected. Call connect() first.")
+        await self._ensure_connected()
 
         self._context_counter += 1
         context_id = f"slashai-{self._context_counter}"
@@ -90,7 +113,12 @@ class CartesiaTTSClient:
             gen_config["emotions"] = [emotion]
         request["generation_config"] = gen_config
 
-        await self._ws.send_json(request)
+        try:
+            await self._ws.send_json(request)
+        except (aiohttp.ClientConnectionResetError, ConnectionResetError) as e:
+            logger.warning(f"Cartesia TTS send failed ({e}), reconnecting...")
+            await self.connect()
+            await self._ws.send_json(request)
 
         # Read response chunks
         async for msg in self._ws:
@@ -142,8 +170,7 @@ class CartesiaTTSClient:
         Yields:
             Bytes of PCM audio data (24kHz mono s16le).
         """
-        if not self._ws or self._ws.closed:
-            raise RuntimeError("WebSocket not connected. Call connect() first.")
+        await self._ensure_connected()
 
         if not chunks:
             return
@@ -175,7 +202,12 @@ class CartesiaTTSClient:
                 gen_config["emotions"] = [emotion]
             request["generation_config"] = gen_config
 
-            await self._ws.send_json(request)
+            try:
+                await self._ws.send_json(request)
+            except (aiohttp.ClientConnectionResetError, ConnectionResetError) as e:
+                logger.warning(f"Cartesia TTS send failed ({e}), reconnecting...")
+                await self.connect()
+                await self._ws.send_json(request)
 
             # Read audio chunks until "done" for this segment
             async for msg in self._ws:
