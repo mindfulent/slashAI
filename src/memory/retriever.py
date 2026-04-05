@@ -56,6 +56,7 @@ class RetrievedMemory:
     similarity: float
     confidence: float  # Extraction confidence (0.0-1.0)
     updated_at: datetime
+    created_at: datetime | None = None  # Original creation date (v0.15.7)
     reaction_summary: dict | None = None  # v0.12.1: Aggregated reaction data
 
 
@@ -136,6 +137,7 @@ class MemoryRetriever:
                 similarity=self._apply_reaction_boost(r["similarity"], r),
                 confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
+                created_at=r.get("created_at"),
                 # v0.12.1: Include reaction summary for context
                 reaction_summary=self._parse_reaction_summary(r.get("reaction_summary")),
             )
@@ -254,6 +256,7 @@ class MemoryRetriever:
                 similarity=self._apply_reaction_boost(r["similarity"], r),
                 confidence=r["confidence"] or 0.5,
                 updated_at=r["updated_at"],
+                created_at=r.get("created_at"),
                 reaction_summary=self._parse_reaction_summary(r.get("reaction_summary")),
             )
             for r in merged_rows
@@ -365,7 +368,7 @@ class MemoryRetriever:
             SELECT
                 id, user_id, topic_summary, raw_dialogue, memory_type, privacy_level,
                 confidence, 1 - (embedding <=> $1::vector) as similarity, updated_at,
-                reaction_summary
+                created_at, reaction_summary
             FROM memories
             WHERE 1 - (embedding <=> $1::vector) > $3
               AND ({privacy_filter})

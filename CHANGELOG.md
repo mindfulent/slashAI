@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.7] - 2026-04-05
+
+### Improved — Timezone-aware timestamps for memory context
+
+- **Timezone-aware system prompt** (`claude_client.py`) — Current date/time now uses the user's configured timezone (from `/remind timezone`) instead of always UTC. Includes time of day (e.g., "Saturday, April 05, 2026 at 2:14 PM PDT"). Falls back to UTC if no timezone is set or memory system is unavailable.
+- **Richer memory age labels** (`claude_client.py`) — Memory ages now include absolute dates for anything older than today (e.g., "updated 3 days ago, Apr 02" instead of just "3 days ago"). When a memory was created much earlier than its last update, shows both: "updated 1 week ago, Mar 28, first noted Jan 15".
+- **`created_at` in RetrievedMemory** (`retriever.py`) — Added `created_at` field to the memory retrieval dataclass and all query paths (hybrid search already returned it; semantic fallback now does too). Enables distinguishing old memories that were recently merged from genuinely recent ones.
+
+---
+
 ## [0.15.6] - 2026-04-05
 
 ### Fixed — Voice VAD flush & TTS reconnection

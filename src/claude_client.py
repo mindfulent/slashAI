@@ -821,11 +821,12 @@ class ClaudeClient:
 
         # Combine all context sources (dynamic, not cached)
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)
+        date_context = await self._build_date_context(user_id)
+        year = datetime.now(timezone.utc).year
         context_parts = [
-            f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.** "
-            f"Use this date for all time references. When generating event_date values, "
-            f"the year MUST be {now.year} (not {now.year - 1})."
+            f"{date_context} Use this date for all time references. "
+            f"When generating event_date values, "
+            f"the year MUST be {year} (not {year - 1})."
         ]
         if memory_context:
             context_parts.append(memory_context)
@@ -1049,12 +1050,8 @@ class ClaudeClient:
         ]
 
         # Build dynamic context (date + memories)
-        from datetime import datetime, timezone
-
-        now = datetime.now(timezone.utc)
-        context_parts = [
-            f"**Today is {now.strftime('%A, %B %d, %Y')}. The current year is {now.year}.**"
-        ]
+        date_context = await self._build_date_context(user_id)
+        context_parts = [date_context]
 
         if memory_context:
             context_parts.append(memory_context)
@@ -1653,7 +1650,7 @@ class ClaudeClient:
                 relevance = self._relevance_label(mem.similarity)
                 confidence = self._confidence_label(mem.confidence)
                 privacy = self._privacy_label(mem.privacy_level)
-                age = self._age_label(mem.updated_at)
+                age = self._age_label(mem.updated_at, mem.created_at)
                 reaction = self._reaction_label(mem.reaction_summary)
                 metadata = f"  [{relevance}] [{confidence}] [{privacy}] [{age}]"
                 if reaction:
@@ -1674,7 +1671,7 @@ class ClaudeClient:
                     # Add metadata for others' memories (skip privacy since always public)
                     relevance = self._relevance_label(mem.similarity)
                     confidence = self._confidence_label(mem.confidence)
-                    age = self._age_label(mem.updated_at)
+                    age = self._age_label(mem.updated_at, mem.created_at)
                     reaction = self._reaction_label(mem.reaction_summary)
                     metadata = f"  [{relevance}] [{confidence}] [{age}]"
                     if reaction:
@@ -1793,30 +1790,79 @@ class ClaudeClient:
         }
         return labels.get(privacy_level.value, privacy_level.value)
 
-    def _age_label(self, updated_at: "datetime") -> str:
-        """Convert timestamp to human-readable age label."""
+    async def _get_user_timezone(self, user_id: int) -> str:
+        """Look up user's IANA timezone from user_settings. Returns 'UTC' on any failure."""
+        if not self.memory or not self.memory.db:
+            return "UTC"
+        try:
+            row = await self.memory.db.fetchrow(
+                "SELECT timezone FROM user_settings WHERE user_id = $1",
+                user_id,
+            )
+            return row["timezone"] if row else "UTC"
+        except Exception:
+            return "UTC"
+
+    async def _build_date_context(self, user_id: str) -> str:
+        """Build timezone-aware date/time string for system prompt injection."""
+        import pytz
+        from datetime import datetime, timezone
+
+        tz_name = await self._get_user_timezone(int(user_id))
+        try:
+            tz = pytz.timezone(tz_name)
+        except pytz.exceptions.UnknownTimeZoneError:
+            tz = pytz.UTC
+
+        now = datetime.now(tz)
+        # Format time, stripping leading zero from hour (cross-platform)
+        time_str = now.strftime("%I:%M %p %Z").lstrip("0")
+        year = now.year
+
+        return (
+            f"**Today is {now.strftime('%A, %B %d, %Y')} at {time_str}. "
+            f"The current year is {year}.**"
+        )
+
+    def _age_label(self, updated_at: "datetime", created_at: "datetime | None" = None) -> str:
+        """Convert timestamps to human-readable age label with absolute date."""
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
-        # Ensure updated_at is timezone-aware
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=timezone.utc)
 
         delta = now - updated_at
         days = delta.days
 
+        # Relative part
         if days < 1:
-            return "today"
+            relative = "today"
         elif days == 1:
-            return "yesterday"
+            relative = "yesterday"
         elif days < 7:
-            return f"{days} days ago"
+            relative = f"{days} days ago"
         elif days < 30:
             weeks = days // 7
-            return f"{weeks} week{'s' if weeks > 1 else ''} ago"
+            relative = f"{weeks} week{'s' if weeks > 1 else ''} ago"
         else:
             months = days // 30
-            return f"{months} month{'s' if months > 1 else ''} ago"
+            relative = f"{months} month{'s' if months > 1 else ''} ago"
+
+        # Add absolute date for anything older than today
+        if days >= 1:
+            label = f"updated {relative}, {updated_at.strftime('%b %d')}"
+        else:
+            label = relative
+
+        # Show created_at if it differs meaningfully from updated_at (>1 day apart)
+        if created_at is not None:
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if (updated_at - created_at).days > 1:
+                label += f", first noted {created_at.strftime('%b %d')}"
+
+        return label
 
     def _reaction_label(self, reaction_summary: dict | None) -> str | None:
         """
