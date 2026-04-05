@@ -337,6 +337,20 @@ DISCORD_TOOLS = [
     LIST_GITHUB_DOCS_TOOL,
 ]
 
+# Tools available to agent personas (safe subset of DISCORD_TOOLS)
+AGENT_TOOLS = [
+    tool for tool in DISCORD_TOOLS
+    if tool["name"] in {
+        "send_message",
+        "edit_message",
+        "read_messages",
+        "list_channels",
+        "get_channel_info",
+        "describe_message_image",
+        "search_memories",
+    }
+]
+
 # Tools available to all users (not just owner)
 COMMUNITY_TOOLS = [
     {
@@ -691,12 +705,14 @@ class ClaudeClient:
         bot: Optional["DiscordBot"] = None,
         owner_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        is_agent: bool = False,
     ):
         self.client = AsyncAnthropic(api_key=api_key)
         self.memory = memory_manager
         self.system_prompt = system_prompt
         self.model = model
         self.bot = bot  # Discord bot for tool execution
+        self.is_agent = is_agent  # Agent persona (gets AGENT_TOOLS tier)
         self.owner_id = owner_id  # Owner's Discord user ID (tools only enabled for owner)
         self.agent_id = agent_id  # INCEPTION: agent persona identifier for memory scoping
         self.events_api = EventsAPIClient()  # Events API client (available to all users)
@@ -833,21 +849,24 @@ class ClaudeClient:
             messages[-1] = {"role": "user", "content": message_content}
 
         # Check if tools should be enabled
-        # Owner gets all tools; community users get COMMUNITY_TOOLS only
+        # Owner gets all tools; agents get AGENT_TOOLS; community users get COMMUNITY_TOOLS
         is_owner = (
             self.bot is not None
             and self.owner_id is not None
             and user_id == self.owner_id
         )
+        is_agent = self.is_agent and self.bot is not None
         # Community tools available to any user when bot is present
         has_community_tools = self.bot is not None
 
-        tools_enabled = is_owner or has_community_tools
+        tools_enabled = is_owner or is_agent or has_community_tools
 
         # Build tool list based on user
         active_tools = []
         if is_owner:
             active_tools = DISCORD_TOOLS + COMMUNITY_TOOLS
+        elif is_agent:
+            active_tools = AGENT_TOOLS + COMMUNITY_TOOLS
         elif has_community_tools:
             active_tools = COMMUNITY_TOOLS
 

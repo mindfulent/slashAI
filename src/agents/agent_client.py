@@ -4,7 +4,8 @@
 
 """
 Lightweight Discord client for a single agent persona.
-Responds to mentions and DMs only — no slash commands, no MCP tools.
+Responds to mentions and DMs only — no slash commands.
+Supports Discord tool use (send/read/edit messages, list channels, etc.).
 """
 
 import logging
@@ -39,6 +40,8 @@ class AgentClient(discord.Client):
             memory_manager=memory_manager,
             system_prompt=persona.build_system_prompt(),
             agent_id=persona.memory.agent_id,
+            bot=self,
+            is_agent=True,
         )
         self._voice_session: Optional[VoiceSession] = None
 
@@ -216,6 +219,102 @@ class AgentClient(discord.Client):
                 )
                 await self._voice_session.leave()
                 self._voice_session = None
+
+    # --- Discord tool methods (used by ClaudeClient._execute_tool) ---
+
+    async def _send_chunked(
+        self, channel: discord.abc.Messageable, content: str, reply_to: discord.Message = None
+    ) -> discord.Message:
+        """Send a message, splitting into chunks if needed. Returns the last message sent."""
+        chunks = _chunk_message(content, DISCORD_MAX_LENGTH)
+        last_msg = None
+        for i, chunk in enumerate(chunks):
+            if i == 0 and reply_to:
+                last_msg = await reply_to.reply(chunk)
+            else:
+                last_msg = await channel.send(chunk)
+        return last_msg
+
+    async def send_message(self, channel_id: int, content: str) -> discord.Message:
+        """Send a message to a channel."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        return await self._send_chunked(channel, content)
+
+    async def edit_message(
+        self, channel_id: int, message_id: int, content: str
+    ) -> discord.Message:
+        """Edit a message."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        message = await channel.fetch_message(message_id)
+        if len(content) > DISCORD_MAX_LENGTH:
+            content = content[: DISCORD_MAX_LENGTH - 20] + "\n\n[...truncated]"
+        return await message.edit(content=content)
+
+    async def read_messages(
+        self, channel_id: int, limit: int = 10
+    ) -> list[discord.Message]:
+        """Read recent messages from a channel."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        return [msg async for msg in channel.history(limit=limit)]
+
+    async def list_channels(
+        self, guild_id: Optional[int] = None
+    ) -> list[discord.TextChannel]:
+        """List text channels."""
+        channels = []
+        if guild_id:
+            guild = self.get_guild(guild_id)
+            if guild:
+                channels = [
+                    ch for ch in guild.channels if isinstance(ch, discord.TextChannel)
+                ]
+        else:
+            for guild in self.guilds:
+                channels.extend(
+                    ch for ch in guild.channels if isinstance(ch, discord.TextChannel)
+                )
+        return channels
+
+    async def get_channel_info(self, channel_id: int) -> dict:
+        """Get channel information."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        info = {
+            "id": channel.id,
+            "name": channel.name,
+            "type": str(channel.type),
+        }
+        if isinstance(channel, discord.TextChannel):
+            info.update({
+                "topic": channel.topic or "No topic",
+                "guild": channel.guild.name,
+                "guild_id": channel.guild.id,
+                "category": channel.category.name if channel.category else "None",
+                "position": channel.position,
+                "nsfw": channel.nsfw,
+            })
+        return info
+
+    async def get_message_image(
+        self, channel_id: int, message_id: int
+    ) -> tuple[bytes, str] | None:
+        """Fetch an image attachment from a message."""
+        channel = self.get_channel(channel_id)
+        if channel is None:
+            channel = await self.fetch_channel(channel_id)
+        message = await channel.fetch_message(message_id)
+        for attachment in message.attachments:
+            if attachment.content_type and attachment.content_type.startswith("image/"):
+                image_bytes = await attachment.read()
+                return (image_bytes, attachment.content_type)
+        return None
 
 
 def _chunk_message(text: str, max_length: int) -> list[str]:

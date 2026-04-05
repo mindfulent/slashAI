@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.5] - 2026-04-05
+
+### Added — Agent Discord Tool Use
+Agent personas (like Lena) now have Discord tool capabilities, enabling them to interact across channels rather than just reply to mentions.
+
+- **Agent tool tier** (`claude_client.py`) — New `AGENT_TOOLS` permission tier between owner and community. Agents get: `send_message`, `edit_message`, `read_messages`, `list_channels`, `get_channel_info`, `describe_message_image`, `search_memories`.
+- **`is_agent` flag** (`claude_client.py`) — `ClaudeClient` accepts `is_agent=True` to enable the agent tool tier without requiring owner privileges.
+- **Discord tool methods** (`agent_client.py`) — `AgentClient` now implements the Discord operation interface (`send_message`, `edit_message`, `read_messages`, `list_channels`, `get_channel_info`, `get_message_image`) and passes `bot=self` to `ClaudeClient`.
+- **Safety boundaries** — Agents cannot `delete_message`, use reminders, access owner analytics, or read GitHub docs. Destructive and owner-only tools are excluded from the agent tier.
+
+---
+
 ## [0.15.4] - 2026-04-05
 
 ### Added — Voice Memory Integration
