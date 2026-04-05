@@ -154,9 +154,12 @@ class AudioReceiver:
                 ext_info = f" ext_profile={ext_profile} ext_words={ext_len_val} ext_total={4 + ext_len_val * 4}"
             logger.info(f"  RTP SSRC={ssrc} (ours={own_ssrc}){ext_info}")
 
-        # Look up user — if SSRC not yet mapped, use SSRC as temporary ID
-        # (SPEAKING opcode mapping may arrive late or not at all)
-        user_id = self._ssrc_to_user.get(ssrc, ssrc)
+        # Look up user — if SSRC not yet mapped, try to infer from channel members
+        user_id = self._ssrc_to_user.get(ssrc)
+        if user_id is None:
+            user_id = self._infer_user_for_ssrc(ssrc)
+            if user_id is None:
+                user_id = ssrc  # Last resort: use SSRC as temporary ID
 
         # For aead_xchacha20_poly1305_rtpsize (SRTP-style layout):
         # - AAD = 12-byte RTP header + 4-byte extension preamble (if ext bit set)
@@ -238,6 +241,27 @@ class AudioReceiver:
             if self._packet_count <= 10:
                 logger.warning(f"Opus decode failed SSRC={ssrc}: {e}")
             return
+
+    def _infer_user_for_ssrc(self, ssrc: int) -> Optional[int]:
+        """Infer user_id for an unmapped SSRC from voice channel members.
+
+        If there's only one human in the channel (besides the bot), map the
+        SSRC to them. This handles the common case where SPEAKING opcode
+        arrives late or the WebSocket hook fails.
+        """
+        try:
+            channel = self._vc.channel
+            if channel is None:
+                return None
+            humans = [m for m in channel.members if not m.bot]
+            if len(humans) == 1:
+                user_id = humans[0].id
+                self._ssrc_to_user[ssrc] = user_id
+                logger.info(f"Inferred SSRC {ssrc} -> user {user_id} (only human in channel)")
+                return user_id
+        except Exception:
+            pass
+        return None
 
     def _decrypt_aead(self, header: bytes, ciphertext: bytes, nonce_bytes: bytes) -> bytes:
         """Decrypt voice data using AEAD XChaCha20-Poly1305."""
