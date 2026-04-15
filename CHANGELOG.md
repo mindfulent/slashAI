@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.11] - 2026-04-15
+
+### Fixed — License dashboard pagination
+
+- **Embed overflow crash** (`streamcraft_commands.py`, `synthcraft_commands.py`, `scenecraft_commands.py`, `shapecraft_commands.py`) — License and server listing commands crashed with `400 Bad Request` when the embed description exceeded Discord's 4096-character limit. All four mod dashboards now paginate with Prev/Next buttons via `PaginationView` when content overflows.
+- **Shared `paginate_lines` helper** (`views.py`) — Extracted line-level pagination into `views.py` so all command cogs share the same logic.
+
+---
+
 ## [0.15.10] - 2026-04-05
 
 ### Fixed — Voice speaker identity and channel context

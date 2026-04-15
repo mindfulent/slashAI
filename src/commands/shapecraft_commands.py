@@ -32,6 +32,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from commands.views import PaginationView, paginate_lines
 from utils.geoip import resolve_geo
 
 logger = logging.getLogger("slashAI.commands.shapecraft")
@@ -161,13 +162,33 @@ class ShapeCraftCommands(commands.Cog):
                     parts.append(row["activated_by_name"])
                 lines.append(" \u00b7 ".join(parts))
 
-        embed = discord.Embed(
-            title=title,
-            description="\n".join(lines).strip(),
-            color=_status_color(rows),
-            timestamp=datetime.utcnow(),
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        color = _status_color(rows)
+        pages = paginate_lines(lines)
+
+        def _make_embed(page_idx: int) -> discord.Embed:
+            page_title = title if len(pages) == 1 else f"{title} (p{page_idx + 1}/{len(pages)})"
+            return discord.Embed(
+                title=page_title,
+                description=pages[page_idx],
+                color=color,
+                timestamp=datetime.utcnow(),
+            )
+
+        embed = _make_embed(0)
+
+        if len(pages) > 1:
+            async def fetch_page(page_num: int) -> discord.Embed:
+                return _make_embed(page_num - 1)
+
+            view = PaginationView(
+                user_id=interaction.user.id,
+                current_page=1,
+                total_pages=len(pages),
+                fetch_page=fetch_page,
+            )
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
     # /shapecraft stats
@@ -313,13 +334,33 @@ class ShapeCraftCommands(commands.Cog):
                     parts.append(row["activated_by_name"])
                 lines.append(" \u00b7 ".join(parts))
 
-        embed = discord.Embed(
-            title=title,
-            description="\n".join(lines).strip(),
-            color=_status_color(rows),
-            timestamp=datetime.utcnow(),
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        color = _status_color(rows)
+        pages = paginate_lines(lines)
+
+        def _make_embed(page_idx: int) -> discord.Embed:
+            page_title = title if len(pages) == 1 else f"{title} (p{page_idx + 1}/{len(pages)})"
+            return discord.Embed(
+                title=page_title,
+                description=pages[page_idx],
+                color=color,
+                timestamp=datetime.utcnow(),
+            )
+
+        embed = _make_embed(0)
+
+        if len(pages) > 1:
+            async def fetch_page(page_num: int) -> discord.Embed:
+                return _make_embed(page_num - 1)
+
+            view = PaginationView(
+                user_id=interaction.user.id,
+                current_page=1,
+                total_pages=len(pages),
+                fetch_page=fetch_page,
+            )
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     # =========================================================================
     # /shapecraft player

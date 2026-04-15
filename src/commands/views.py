@@ -24,6 +24,33 @@ Provides interactive views for pagination and confirmation dialogs.
 import discord
 from typing import Callable, Awaitable, Optional
 
+EMBED_DESC_LIMIT = 4096
+
+
+def paginate_lines(lines: list[str], limit: int = EMBED_DESC_LIMIT) -> list[str]:
+    """Split lines into pages that fit within Discord's embed description limit.
+
+    Returns a list of page strings (joined with newlines), each at most
+    ``limit`` characters long.
+    """
+    pages: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for line in lines:
+        line_len = len(line) + (1 if current else 0)
+        if current and current_len + line_len > limit:
+            pages.append("\n".join(current).strip())
+            current = []
+            current_len = 0
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        pages.append("\n".join(current).strip())
+
+    return pages if pages else [""]
+
 
 class PaginationView(discord.ui.View):
     """
