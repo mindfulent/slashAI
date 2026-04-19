@@ -33,7 +33,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from commands.views import PaginationView, paginate_lines
-from utils.geoip import resolve_geo
 
 logger = logging.getLogger("slashAI.commands.streamcraft")
 
@@ -52,10 +51,14 @@ def _status_color(rows) -> discord.Color:
     return discord.Color.green()
 
 
-def _compact_label(row, geo_map: dict) -> str:
-    """Return a compact name for a server: label · geo, or just one."""
+def _compact_label(row) -> str:
+    """Return a compact name for a server: label · geo, or just one.
+
+    Reads geo_location from the row (populated by the backend) instead of
+    doing a live ip-api.com lookup on every command invocation.
+    """
     label = row.get("label")
-    geo = geo_map.get(row.get("server_ip", ""), "")
+    geo = row.get("geo_location") or ""
     if label and geo:
         return f"{label} \u00b7 {geo}"
     if label:
@@ -123,7 +126,7 @@ class StreamCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, credit_remaining,
-                   last_validated, server_ip, minecraft_version, hidden, label, activated_by_name
+                   last_validated, server_ip, geo_location, minecraft_version, hidden, label, activated_by_name
             FROM streamcraft_licenses
             WHERE ($1 OR hidden = false)
             ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
@@ -139,15 +142,13 @@ class StreamCraftCommands(commands.Cog):
         if show_hidden:
             title += " (incl. hidden)"
 
-        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
-
         lines: list[str] = []
         for state, group in groupby(rows, key=lambda r: r["state"]):
             state_rows = list(group)
             emoji = _STATE_EMOJI.get(state, "\u2796")
             lines.append(f"\n{emoji} **{state}** ({len(state_rows)})")
             for row in state_rows:
-                name = _compact_label(row, geo_map)
+                name = _compact_label(row)
                 hidden = " \U0001f6ab" if row["hidden"] else ""
                 credit = f"${row['credit_remaining']:.2f}" if row["credit_remaining"] is not None else "N/A"
                 mc_ver = row.get("minecraft_version") or "1.21.1"
@@ -283,7 +284,7 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
+                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -291,7 +292,7 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE sl.id = $1
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
+                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 server_id,
@@ -300,7 +301,7 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
+                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -308,7 +309,7 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE ($1 OR sl.hidden = false)
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
+                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 show_hidden,
@@ -322,8 +323,6 @@ class StreamCraftCommands(commands.Cog):
         title = f"StreamCraft Servers ({len(rows)})"
         if show_hidden and not server_id:
             title += " (incl. hidden)"
-
-        geo_map = await resolve_geo([r["server_ip"] for r in rows if r["server_ip"]])
 
         # Split TRIAL rows into used / no-usage buckets
         no_usage_rows: list = []
@@ -342,7 +341,7 @@ class StreamCraftCommands(commands.Cog):
             emoji = _STATE_EMOJI.get(state, "\u2796")
             lines.append(f"\n{emoji} **{state}** ({len(state_rows)})")
             for row in state_rows:
-                name = _compact_label(row, geo_map)
+                name = _compact_label(row)
                 hidden = " \U0001f6ab" if row["hidden"] else ""
                 mc_ver = row.get("minecraft_version") or "1.21.1"
                 parts = [f"**#{row['id']}** {name}{hidden}"]
@@ -363,7 +362,7 @@ class StreamCraftCommands(commands.Cog):
             emoji = _STATE_EMOJI["NO_USAGE"]
             lines.append(f"\n{emoji} **NO USAGE** ({len(no_usage_rows)})")
             for row in no_usage_rows:
-                name = _compact_label(row, geo_map)
+                name = _compact_label(row)
                 hidden = " \U0001f6ab" if row["hidden"] else ""
                 parts = [f"**#{row['id']}** {name}{hidden}"]
                 parts.append(f"`{row['tier'] or 'N/A'}`")
