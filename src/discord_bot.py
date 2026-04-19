@@ -1603,6 +1603,10 @@ class WebhookServer:
         self.app.router.add_post('/server/event-created', self.handle_event_created)
         self.app.router.add_post('/server/event-updated', self.handle_event_updated)
         self.app.router.add_post('/server/event-deleted', self.handle_event_deleted)
+        # BlockOps ops-channel notifications (PRD Epic K)
+        self.app.router.add_post('/server/streamcraft-new-server', self.handle_streamcraft_new_server)
+        self.app.router.add_post('/server/streamcraft-state-change', self.handle_streamcraft_state_change)
+        self.app.router.add_post('/server/streamcraft-stream-start', self.handle_streamcraft_stream_start)
         self.app.router.add_get('/health', self.handle_health)
 
         # Phase 3: Memory bridge API routes (INCEPTION)
@@ -2224,6 +2228,155 @@ class WebhookServer:
             return web.json_response({"error": "Invalid JSON"}, status=400)
         except Exception as e:
             logger.error(f"Error deleting Discord scheduled event: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ─── BlockOps ops-channel notifications ────────────────────────────────
+    #
+    # Handlers for notifications emitted from the theblockacademy backend.
+    # Shared helpers: auth check + channel send with graceful degradation.
+
+    def _blockops_auth_check(self, request: web.Request) -> Optional[web.Response]:
+        """Returns None on success, or a 401 Response on failure."""
+        auth_header = request.headers.get('Authorization', '')
+        expected_key = os.getenv('SLASHAI_API_KEY')
+        if expected_key and auth_header != f'Bearer {expected_key}':
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        return None
+
+    async def _blockops_send_embed(self, channel_id: str, embed: 'discord.Embed') -> web.Response:
+        try:
+            channel = self.bot.get_channel(int(channel_id))
+            if channel is None:
+                channel = await self.bot.fetch_channel(int(channel_id))
+            if not channel:
+                logger.warning(f"BlockOps notify: channel {channel_id} not found")
+                return web.json_response({"error": "Channel not found"}, status=404)
+            message = await channel.send(embed=embed)
+            return web.json_response({"success": True, "message_id": str(message.id)})
+        except discord.Forbidden:
+            logger.error(f"BlockOps notify: no permission in channel {channel_id}")
+            return web.json_response({"error": "No permission"}, status=403)
+
+    async def handle_streamcraft_new_server(self, request: web.Request) -> web.Response:
+        """Post when a new StreamCraft server registers (trial or paid activation)."""
+        denied = self._blockops_auth_check(request)
+        if denied:
+            return denied
+        try:
+            data = await request.json()
+            channel_id = data.get('channel_id')
+            if not channel_id:
+                return web.json_response({"error": "Missing channel_id"}, status=400)
+
+            license_id = data.get('license_id')
+            server_name = data.get('server_name') or 'Unknown server'
+            server_ip = data.get('server_ip') or '—'
+            minecraft_version = data.get('minecraft_version') or '—'
+            tier = data.get('tier') or '—'
+            state = data.get('state') or '—'
+
+            embed = discord.Embed(
+                title="🆕 New StreamCraft server",
+                color=0x2ecc71,
+                description=f"**{server_name}** just registered.",
+            )
+            embed.add_field(name="License", value=f"[#{license_id}](https://ops.theblock.academy/licenses/{license_id})", inline=True)
+            embed.add_field(name="State", value=f"{state} · {tier}", inline=True)
+            embed.add_field(name="MC", value=minecraft_version, inline=True)
+            embed.add_field(name="IP", value=server_ip, inline=True)
+
+            return await self._blockops_send_embed(channel_id, embed)
+        except Exception as e:
+            logger.error(f"streamcraft-new-server webhook error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_streamcraft_state_change(self, request: web.Request) -> web.Response:
+        """Post when a license transitions between states (admin or auto)."""
+        denied = self._blockops_auth_check(request)
+        if denied:
+            return denied
+        try:
+            data = await request.json()
+            channel_id = data.get('channel_id')
+            if not channel_id:
+                return web.json_response({"error": "Missing channel_id"}, status=400)
+
+            bulk = data.get('bulk', False)
+            if bulk:
+                count = data.get('count', 0)
+                new_state = data.get('new_state') or '—'
+                actor = data.get('actor_email') or 'system'
+                embed = discord.Embed(
+                    title="🔀 Bulk state change",
+                    color=0xf1c40f,
+                    description=f"**{count}** licenses → **{new_state}** by `{actor}`.",
+                )
+                return await self._blockops_send_embed(channel_id, embed)
+
+            license_id = data.get('license_id')
+            server_name = data.get('server_name') or 'Unknown'
+            old_state = data.get('old_state') or '—'
+            new_state = data.get('new_state') or '—'
+            actor = data.get('actor_email') or 'system'
+            audit_id = data.get('audit_id')
+
+            color_map = {
+                'TRIAL': 0x3498db,
+                'ACTIVE': 0x2ecc71,
+                'GRACE': 0xf39c12,
+                'EXPIRED': 0xe74c3c,
+            }
+            color = color_map.get(new_state, 0x95a5a6)
+
+            embed = discord.Embed(color=color)
+            embed.set_author(name=f"{server_name}")
+            embed.description = f"`{old_state}` → `{new_state}` · by `{actor}`"
+            if license_id is not None:
+                embed.add_field(
+                    name="License",
+                    value=f"[#{license_id}](https://ops.theblock.academy/licenses/{license_id})",
+                    inline=True,
+                )
+            if audit_id is not None:
+                embed.add_field(name="Audit", value=f"#{audit_id}", inline=True)
+
+            return await self._blockops_send_embed(channel_id, embed)
+        except Exception as e:
+            logger.error(f"streamcraft-state-change webhook error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_streamcraft_stream_start(self, request: web.Request) -> web.Response:
+        """Post when a LiveKit room transitions 0 → ≥1 participants."""
+        denied = self._blockops_auth_check(request)
+        if denied:
+            return denied
+        try:
+            data = await request.json()
+            channel_id = data.get('channel_id')
+            if not channel_id:
+                return web.json_response({"error": "Missing channel_id"}, status=400)
+
+            room_name = data.get('room_name') or '—'
+            server_name = data.get('server_name') or 'Unknown'
+            license_id = data.get('license_id')
+            first_player = data.get('first_player_name') or '—'
+
+            embed = discord.Embed(
+                title="🎥 Stream started",
+                color=0x9b59b6,
+                description=f"**{first_player}** is live on **{server_name}**.",
+            )
+            if license_id is not None:
+                embed.add_field(
+                    name="License",
+                    value=f"[#{license_id}](https://ops.theblock.academy/licenses/{license_id})",
+                    inline=True,
+                )
+            embed.add_field(name="Room", value=f"`{room_name}`", inline=True)
+
+            return await self._blockops_send_embed(channel_id, embed)
+        except Exception as e:
+            logger.error(f"streamcraft-stream-start webhook error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def start(self, port: int = 8000):
