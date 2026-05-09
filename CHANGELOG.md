@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.12] - 2026-05-08
+
+### Fixed — Chat handler crash on Discord typing rate limit
+
+- **Defensive `safe_typing` wrapper** (`utils/discord_typing.py`, `discord_bot.py`, `agents/agent_client.py`) — Discord's POST `/channels/{id}/typing` endpoint can return 429 with error code 40062 ("Service resource is being rate limited") on a per-channel shared bucket — common when datacenter egress IPs are deprioritized or multiple persona bots type in the same channel. discord.py raised `HTTPException` out of `__aenter__`, crashing `on_message` before the reply was sent and making the bot appear offline. The chat path now wraps `channel.typing()` in `safe_typing(...)`, which logs the rate-limit warning and proceeds without a typing indicator instead of aborting.
+
+---
+
 ## [0.15.11] - 2026-04-15
 
 ### Fixed — License dashboard pagination

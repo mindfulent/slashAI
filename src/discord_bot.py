@@ -41,6 +41,7 @@ from PIL import Image
 
 from analytics import track, shutdown as analytics_shutdown
 from claude_client import ChatResult, ClaudeClient, PendingEventDraft
+from utils.discord_typing import safe_typing
 
 load_dotenv()
 
@@ -1001,7 +1002,7 @@ class DiscordBot(commands.Bot):
             except discord.HTTPException:
                 pass  # Non-critical
 
-        async with message.channel.typing():
+        async with safe_typing(message.channel):
             try:
                 result = await self.claude_client.chat(
                     user_id=str(message.author.id),

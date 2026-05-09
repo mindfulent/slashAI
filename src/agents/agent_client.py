@@ -17,6 +17,7 @@ import discord
 
 from agents.persona_loader import PersonaConfig
 from claude_client import ClaudeClient
+from utils.discord_typing import safe_typing
 from voice.session import VoiceSession
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ class AgentClient(discord.Client):
         if voice_handled:
             return
 
-        async with message.channel.typing():
+        async with safe_typing(message.channel):
             try:
                 result = await self.claude.chat(
                     user_id=str(message.author.id),
