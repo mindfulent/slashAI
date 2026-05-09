@@ -34,6 +34,8 @@ logger = logging.getLogger("slashAI.proactive.actor")
 DISCORD_MAX_LENGTH = 2000
 REPLY_MAX_TOKENS = 400
 ENGAGE_MAX_TOKENS = 300
+NEW_TOPIC_MAX_TOKENS = 250
+NEW_TOPIC_HISTORY_HOURS = 72  # last 3 days for wider topical context
 
 
 @dataclass
@@ -246,13 +248,123 @@ class ProactiveActor:
         return "".join(text_parts).strip()
 
     # ------------------------------------------------------------------
-    # New topic (band 4 / v0.16.4) — still shadow / stub
+    # New topic (band 4 / v0.16.4) — silence-breaker, graduated out of shadow
     # ------------------------------------------------------------------
 
     async def _do_new_topic(
         self, decision: ValidatedDecision, ctx: DeciderInput
     ) -> ActionResult:
-        return await self._stub_or_shadow(decision, ctx, "new_topic", "v0.16.4")
+        if self.anthropic_client is None:
+            return await self._record_failure(
+                decision, ctx, "no_anthropic_client_configured"
+            )
+
+        channel = self.bot.get_channel(ctx.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(ctx.channel_id)
+            except discord.HTTPException as e:
+                return await self._record_failure(
+                    decision, ctx, f"fetch_channel_failed: {type(e).__name__}"
+                )
+
+        try:
+            topic_text = await self._generate_new_topic(decision, ctx, channel)
+        except Exception as e:
+            return await self._record_failure(
+                decision, ctx, f"new_topic_generation_failed: {type(e).__name__}"
+            )
+
+        if not topic_text:
+            return await self._record_failure(
+                decision, ctx, "new_topic_generation_empty"
+            )
+
+        if len(topic_text) > DISCORD_MAX_LENGTH:
+            topic_text = topic_text[: DISCORD_MAX_LENGTH - 3] + "..."
+
+        # Plain channel send — not a reply, no @-mention. The point of
+        # new_topic is breaking silence, not addressing a specific person.
+        try:
+            posted = await channel.send(topic_text)
+        except discord.HTTPException as e:
+            return await self._record_failure(
+                decision, ctx, f"send_new_topic_failed: {type(e).__name__}"
+            )
+
+        await self._record(decision, ctx, posted_message_id=posted.id)
+        logger.info(
+            f"[{self.persona.name}] new_topic posted in channel {ctx.channel_id} "
+            f"(message id={posted.id}, chars={len(topic_text)})"
+        )
+        return ActionResult(success=True, note="new_topic", posted_message_id=posted.id)
+
+    async def _generate_new_topic(
+        self,
+        decision: ValidatedDecision,
+        ctx: DeciderInput,
+        channel: discord.abc.Messageable,
+    ) -> str:
+        """Generate a silence-breaker for a quiet channel.
+
+        Pulls a wider history window (last ~3 days) than the decider's tick
+        used, so the new topic can be a callback to a stale conversation
+        rather than something out-of-the-blue.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        wide_history: list[str] = []
+        try:
+            after = datetime.now(timezone.utc) - timedelta(hours=NEW_TOPIC_HISTORY_HOURS)
+            async for m in channel.history(limit=50, after=after):
+                if m.author.bot:
+                    continue
+                content = (m.content or "").strip()
+                if not content:
+                    continue
+                # Keep one-line snippets; trim long messages
+                content = content[:200] + ("…" if len(content) > 200 else "")
+                wide_history.append(f"- {m.author.display_name or m.author.name}: {content}")
+        except discord.HTTPException as e:
+            logger.debug(f"new_topic wide history fetch failed: {e}")
+
+        wide_history_text = "\n".join(wide_history[-30:]) or "(no recent activity in the last 3 days)"
+        memories_text = "\n".join(f"- {m}" for m in ctx.relevant_memories) or "(none)"
+        reflections_text = "\n".join(f"- {r}" for r in ctx.reflections_about_others) or "(none)"
+
+        # Estimate silence in hours from the most recent recent_message
+        silence_hint = ""
+        if ctx.recent_messages:
+            latest = ctx.recent_messages[-1].created_at
+            now = datetime.now(timezone.utc)
+            hours = (now - latest).total_seconds() / 3600
+            silence_hint = f"The channel has been quiet for ~{hours:.1f} hours."
+
+        system_prompt = self.persona.build_system_prompt()
+
+        user_message = (
+            f"You're considering breaking silence in #{ctx.channel_name}. {silence_hint}\n\n"
+            f"Recent channel activity (last 3 days, humans only):\n"
+            f"{wide_history_text}\n\n"
+            f"Relevant memories:\n{memories_text}\n\n"
+            f"Reflections about people in this channel:\n{reflections_text}\n\n"
+            f"Write a short message that sparks conversation — could be a question, "
+            f"an observation, or a callback to a recent topic. 1-2 sentences. "
+            f"No 'Hey everyone!' preamble. No @-mentions. Match the channel's tone."
+        )
+
+        resp = await self.anthropic_client.messages.create(
+            model=self.persona.proactive.actor_model,
+            max_tokens=NEW_TOPIC_MAX_TOKENS,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        text_parts: list[str] = []
+        for block in resp.content:
+            if getattr(block, "type", None) == "text":
+                text_parts.append(block.text)
+        return "".join(text_parts).strip()
 
     # ------------------------------------------------------------------
     # Engage persona (band 3 / v0.16.3) — graduated; bot-to-bot threads

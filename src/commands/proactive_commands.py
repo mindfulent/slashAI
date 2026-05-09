@@ -358,12 +358,82 @@ class ProactiveCommands(commands.Cog):
 
     @proactive_group.command(name="reflect")
     @owner_only()
-    async def reflect(self, interaction: discord.Interaction, persona: str):
-        """Force-trigger reflection job (lands in v0.14.4)."""
-        await interaction.response.send_message(
-            "`/proactive reflect` lands in v0.14.4 with the reflection feature.",
-            ephemeral=True,
+    @app_commands.describe(
+        persona="Persona to reflect for (defaults to the primary bot if omitted)",
+    )
+    async def reflect(
+        self,
+        interaction: discord.Interaction,
+        persona: Optional[str] = None,
+    ):
+        """Force-trigger the reflection pipeline for a persona.
+
+        Bypasses the importance threshold (force=True) so an operator can
+        verify the synthesis pipeline end-to-end without waiting for ~150
+        importance points to accumulate.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        # Resolve which scheduler/anthropic_client to use
+        scheduler = None
+        if persona is None or persona == "slashai":
+            scheduler = getattr(self.bot, "proactive_scheduler", None)
+        else:
+            agent_manager = getattr(self.bot, "agent_manager", None)
+            if agent_manager is not None:
+                client = agent_manager.agents.get(persona)
+                if client is not None:
+                    scheduler = getattr(client, "proactive_scheduler", None)
+
+        if scheduler is None:
+            await interaction.followup.send(
+                f"Could not find a proactive scheduler for persona `{persona or 'slashai'}`. "
+                f"Is the persona configured and connected?",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            stats = await scheduler.reflection.maybe_reflect(
+                scheduler.persona.name,
+                scheduler._anthropic_client,
+                force=True,
+            )
+        except Exception as e:
+            logger.error(f"/proactive reflect failed: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"Reflection pipeline raised: `{type(e).__name__}: {e}`",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Reflection — {scheduler.persona.display_name}",
+            color=discord.Color.dark_gold(),
         )
+        embed.add_field(
+            name="Scoring",
+            value=(
+                f"Newly scored actions: **{stats.scored_count}**\n"
+                f"Accumulated importance since last reflection: "
+                f"**{stats.accumulated}** / threshold {stats.threshold}"
+            ),
+            inline=False,
+        )
+        if stats.skipped_reason:
+            embed.add_field(name="Skipped", value=f"`{stats.skipped_reason}`", inline=False)
+        if stats.questions:
+            embed.add_field(
+                name="Salient questions",
+                value="\n".join(f"• {q}" for q in stats.questions[:5]),
+                inline=False,
+            )
+        embed.add_field(
+            name="Stored",
+            value=f"**{stats.reflections_stored}** new reflections written to `agent_reflections`",
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @proactive_group.command(name="simulate")
     @owner_only()

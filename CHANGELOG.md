@@ -8,13 +8,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- **Enhancement 015 bands 4-5** — Reflection + heartbeat, polish (`docs/enhancements/015_PROACTIVE_INTERACTION.md`)
+- **Enhancement 015 band 5** — Polish: `/proactive simulate`, sycophancy detection, backfill (`docs/enhancements/015_PROACTIVE_INTERACTION.md`)
 - **slashAI Desktop** — Tauri (Rust) system tray app for screen share vision in voice chat (see `docs/DESKTOP-PLAN.md`)
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management
 - Multi-guild configuration support
 - User commands for build management (`/builds`, `/myprojects`)
 - Automatic milestone detection with notifications
+
+---
+
+## [0.16.4] - 2026-05-08
+
+### Added — Park-style reflection + heartbeat new_topic (Enhancement 015 band 4)
+
+The proactive subsystem now accumulates beliefs about other personas, users, and channels, and breaks silence in genuinely quiet channels. Personas reflect on what they've done — and what it told them about the people they interact with — using the Generative Agents (Park et al. 2023) prompt sequence nearly verbatim.
+
+- **Migration `018d_add_proactive_importance.sql`** — adds `importance INT NULL` to `proactive_actions` plus partial indexes for unscored rows and importance-sum queries. NULL = unscored; the reflection job batch-fills retroactively so the decider stays cheap.
+- **`src/proactive/reflection.py`** — full `ReflectionEngine` implementation:
+  - `score_importance(text)` — Park's 1-10 poignancy prompt with a strict "return a single integer" system message
+  - `score_unscored_actions(persona_id)` — bounded batch (default 20) so a heartbeat can't run away on a backlog
+  - `accumulated_importance_since_last_reflection(persona_id)` — sums scored rows since the persona's most recent `agent_reflections.created_at`; threshold defaults to Park's **150**
+  - `salient_questions(memories)` — Park's exact 3-questions prompt; resilient parser tolerates non-numbered prose
+  - `synthesize_for_question(question, memories)` — Park's "5 high-level insights" prompt with `(because of N, M)` citation format; falls back to citation-free insights when the model breaks format
+  - `store_reflection(...)` — embeds content via Voyage 1024-dim (matches `agent_reflections.embedding` in migration 018c), inserts with provenance JSONB
+  - `retrieve_about(persona_id, query, subject_filter, limit)` — vector search (cosine distance via pgvector ivfflat) filtered by subject_id; falls back to recency-ordered subject_filter match when Voyage is unavailable
+  - `maybe_reflect(persona_id, force=False)` — full pipeline: score → check threshold → questions → per-question synthesis → store. Returns `ReflectStats` with counters for observability
+- **`src/proactive/scheduler.py`** — heartbeat tick now calls `maybe_reflect` after channel iteration. Wrapped in `try/except` so a reflection failure can't kill the loop. Logs at INFO when reflections were stored, DEBUG when only scoring happened.
+- **`src/proactive/observer.py`** — populates `DeciderInput.reflections_about_others` via `retrieve_about`. Subject filter combines other persona names + recent human author IDs + the channel ID, so reflections about anyone visible in this conversation surface to the decider. Query text is the triggering message content (or the most recent human message when on heartbeat).
+- **`src/proactive/actor.py:_do_new_topic`** — silence-breaker generation. Pulls last 72h of human-only history (wider than the decider's 15-message window) plus relevant memories + reflections, feeds them to the persona's actor model with the spec's new-topic directive ("1-2 sentences, no preamble, no @-mentions, match the channel's tone"). Posts via `channel.send` (not `reference=` — this isn't a reply). Graduated out of `PROACTIVE_SHADOW_MODE`.
+- **`/proactive reflect [persona]`** — owner-only force-trigger. Runs `maybe_reflect(force=True)` to bypass the importance threshold so the operator can verify the synthesis pipeline end-to-end. Reports newly-scored count, accumulated importance, salient questions, and stored reflection count.
+- **34 new tests** (`tests/test_proactive_reflection.py`) — parsing helpers (importance, questions, insights with strict + fallback formats), threshold heuristic at boundary, `maybe_reflect` orchestrator branching (early returns at threshold-not-reached / no-memories / no-questions), Park importance prompt via mocked Anthropic, and `score_unscored_actions` issuing per-row UPDATEs.
+
+### Architectural notes
+
+- **Voyage is optional**. The engine lazy-initializes `voyageai.AsyncClient` only when first needed, and `_embed` returns `None` if the env var is missing or the import fails. `store_reflection` still inserts when embedding fails (with `embedding=NULL`); `retrieve_about` falls back to recency-ordered subject_filter match. This means deployments without Voyage still log reflections — they just can't vector-rank them.
+- **Why score retroactively**: importance scoring is one extra LLM call per non-none decision. Doing it inline at decision time would double the proactive tick latency. Doing it in batches at heartbeat time spreads the cost and keeps the activity-path responsive. The trade-off is that the threshold check lags reality by up to one heartbeat interval.
+- **Subject inference is heuristic**: actions targeting a persona → subject_type='persona', target_persona_id; otherwise → subject_type='channel', channel_id. Future work (band 5+) will infer 'user' subjects from `target_message_id → message author` lookups.
+- **TODO from band 2 still live**: proactive replies aren't yet fed into the reflection job's importance source set (only proactive_actions rows are). Reactions and engage_persona openings are scored, replies are scored, but inbound mentions and chat-handler responses aren't visible to the reflection job. Band 5 will close this gap.
+
+### Operator workflow (band 4)
+
+1. Apply migration 018d (auto on bot restart).
+2. Confirm `VOYAGE_API_KEY` is set if you want vector-ranked reflection retrieval. Without it, the engine falls back to recency-ordered subject_filter match.
+3. Restart. The heartbeat will start scoring proactive_actions importance. Watch `/proactive history` for the importance column populating.
+4. Once a persona's accumulated importance crosses 150 (typically several days for normal traffic), the next heartbeat tick will synthesize reflections automatically. Or use `/proactive reflect` to force-trigger.
+5. Subsequent decider calls will surface reflections in the prompt's "What I've previously concluded about people in this channel" section — visible in `/proactive history` reasoning fields when the persona references them.
 
 ---
 

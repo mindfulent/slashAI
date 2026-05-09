@@ -21,6 +21,7 @@ import discord
 from agents.persona_loader import PersonaConfig
 
 from .policy import PreFilterContext
+from .reflection import ReflectionEngine
 from .store import BudgetSummary
 from .threads import InterAgentThreads, engagement_decay_factor
 
@@ -89,12 +90,14 @@ class ProactiveObserver:
         memory_manager,
         store,
         threads: Optional[InterAgentThreads] = None,
+        reflection: Optional[ReflectionEngine] = None,
     ):
         self.persona = persona
         self.bot = bot
         self.memory = memory_manager
         self.store = store
         self.threads = threads
+        self.reflection = reflection
 
     async def build(
         self,
@@ -120,6 +123,13 @@ class ProactiveObserver:
 
         active_thread_summary = await self._active_thread_summary(prefilter.channel_id)
 
+        reflections_text = await self._fetch_reflections(
+            triggering_message=triggering_message,
+            recent=recent,
+            other_personas=other_personas_present,
+            channel_id=prefilter.channel_id,
+        )
+
         return DeciderInput(
             persona=self.persona,
             channel_id=prefilter.channel_id,
@@ -129,7 +139,7 @@ class ProactiveObserver:
             recent_messages=recent,
             triggering_message=triggering,
             relevant_memories=memories,
-            reflections_about_others=[],  # populated in v0.16.4
+            reflections_about_others=reflections_text,
             budget_remaining=prefilter.budget,
             last_action_summary=last_action_summary,
             other_personas_present=other_personas_present,
@@ -138,6 +148,53 @@ class ProactiveObserver:
             now_local=self._format_now_local(prefilter.now),
             is_human_conversation_active=is_active,
         )
+
+    async def _fetch_reflections(
+        self,
+        triggering_message: Optional[discord.Message],
+        recent: list["FormattedMsg"],
+        other_personas: list[str],
+        channel_id: int,
+    ) -> list[str]:
+        """Pull top-3 reflections relevant to the current context.
+
+        Subject filter = other personas in the server + recent author IDs +
+        the channel itself, so reflections about anyone visible in this
+        conversation surface to the decider.
+        """
+        if self.reflection is None:
+            return []
+
+        # Build query text from the most contextually anchoring source available
+        if triggering_message is not None and triggering_message.content:
+            query = triggering_message.content
+        else:
+            recent_human_content = [
+                fm.content for fm in reversed(recent)
+                if not fm.is_bot and fm.content
+            ]
+            query = recent_human_content[0] if recent_human_content else ""
+
+        if not query:
+            return []
+
+        # Subject filter: other personas + recent human authors + channel
+        subject_filter: list[str] = list(other_personas)
+        for fm in recent:
+            if not fm.is_bot:
+                subject_filter.append(str(fm.author_id))
+        subject_filter.append(str(channel_id))
+
+        try:
+            return await self.reflection.retrieve_about(
+                persona_id=self.persona.name,
+                query=query,
+                subject_filter=subject_filter,
+                limit=3,
+            )
+        except Exception as e:
+            logger.debug(f"reflection.retrieve_about failed (non-fatal): {e}")
+            return []
 
     async def _active_thread_summary(self, channel_id: int) -> Optional[dict[str, Any]]:
         """Compact dict for DeciderInput.active_inter_agent_thread.

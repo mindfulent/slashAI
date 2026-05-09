@@ -225,37 +225,6 @@ class TestNoOp:
 
 class TestStubPaths:
     @pytest.mark.asyncio
-    async def test_new_topic_stub_in_shadow_mode(self):
-        """Band 4 hasn't landed; new_topic still shadow-mode-gated."""
-        bot = MagicMock()
-        store = _store_mock()
-        actor = ProactiveActor(_persona(), bot, store, _global_config(shadow_mode=True))
-
-        decision = _decision(action="new_topic")
-        result = await actor.execute(decision, _ctx())
-
-        assert result.success is False
-        assert result.note == "shadow_mode_skipped"
-        recorded = store.record_action.await_args.args[0]
-        assert recorded.reasoning.startswith("[SHADOW]")
-
-    @pytest.mark.asyncio
-    async def test_new_topic_stub_out_of_shadow_mode(self):
-        """When operator turns off shadow mode prematurely, new_topic still
-        no-ops but the reasoning makes clear it's an unimplemented stub."""
-        bot = MagicMock()
-        store = _store_mock()
-        actor = ProactiveActor(_persona(), bot, store, _global_config(shadow_mode=False))
-
-        decision = _decision(action="new_topic")
-        result = await actor.execute(decision, _ctx())
-
-        assert result.success is False
-        assert "unimplemented" in result.note
-        recorded = store.record_action.await_args.args[0]
-        assert "[STUB:" in recorded.reasoning
-
-    @pytest.mark.asyncio
     async def test_unknown_action_logs_safely(self):
         bot = MagicMock()
         store = _store_mock()

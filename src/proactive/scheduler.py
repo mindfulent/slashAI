@@ -30,6 +30,7 @@ from .config import GlobalProactiveConfig
 from .decider import ProactiveDecider
 from .observer import ProactiveObserver
 from .policy import PreFilterContext, can_consider_acting, remaining_budget
+from .reflection import ReflectionEngine
 from .store import ActionRecord, ProactiveStore
 from .threads import InterAgentThreads, ThreadState
 
@@ -64,8 +65,11 @@ class ProactiveScheduler:
 
         self.store = ProactiveStore(db_pool)
         self.threads = InterAgentThreads(db_pool)
+        self.reflection = ReflectionEngine(db_pool)
         self.observer = ProactiveObserver(
-            persona, bot, memory_manager, self.store, threads=self.threads
+            persona, bot, memory_manager, self.store,
+            threads=self.threads,
+            reflection=self.reflection,
         )
         self.decider = ProactiveDecider(anthropic_client)
         self.actor = ProactiveActor(
@@ -74,6 +78,8 @@ class ProactiveScheduler:
             threads=self.threads,
             resolve_persona_user_id=self.resolve_persona_user_id,
         )
+        # Stash the anthropic client for the reflection job
+        self._anthropic_client = anthropic_client
 
         self._started = False
         # Runtime-mutable schedule period: discord.ext.tasks.loop is decorated
@@ -197,6 +203,27 @@ class ProactiveScheduler:
                     f"[{self.persona.name}] heartbeat tick on {cid} failed: {e}",
                     exc_info=True,
                 )
+
+        # End-of-tick reflection check (Enhancement 015 / v0.16.4).
+        # Wrapped in try/except so a reflection failure can't kill the loop.
+        try:
+            stats = await self.reflection.maybe_reflect(
+                self.persona.name, self._anthropic_client
+            )
+            if stats.reflections_stored > 0:
+                logger.info(
+                    f"[{self.persona.name}] reflection stored "
+                    f"{stats.reflections_stored} insights "
+                    f"(scored {stats.scored_count} actions, "
+                    f"accumulated {stats.accumulated})"
+                )
+            elif stats.scored_count > 0:
+                logger.debug(
+                    f"[{self.persona.name}] reflection scored {stats.scored_count} "
+                    f"actions; accumulated={stats.accumulated} (threshold={stats.threshold})"
+                )
+        except Exception as e:
+            logger.warning(f"[{self.persona.name}] heartbeat reflection failed: {e}")
 
     @_heartbeat.before_loop
     async def _before_heartbeat(self) -> None:
