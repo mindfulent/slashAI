@@ -177,6 +177,28 @@ These tools are exposed via `mcp_server.py` for Claude Code to control Discord:
 | `RECOGNITION_API_KEY` | For recognition | API key for recognition webhooks |
 | `EVENTS_API_URL` | For events | theblockacademy Events API URL (default: `https://theblock.academy/api/events`) |
 | `EVENTS_API_KEY` | For events | API key for event creation (same value as `MINECRAFT_SERVER_API_KEY`) |
+| `PROACTIVE_ENABLED` | No | Master switch for the proactive interaction subsystem (Enhancement 015). Default `false` |
+| `PROACTIVE_SHADOW_MODE` | No | When `true` (default), the actor is no-op — decider runs and logs but no Discord side-effects |
+| `PROACTIVE_HEARTBEAT_INTERVAL_SECONDS` | No | Heartbeat loop period (default `3600`) |
+| `PROACTIVE_DECIDER_MODEL` | No | Decider model (default `claude-haiku-4-5-20251001`) |
+| `PROACTIVE_ACTOR_MODEL` | No | Actor model (default `claude-sonnet-4-6`) |
+| `PROACTIVE_CROSS_PERSONA_LOCKOUT_SECONDS` | No | Min gap between any persona's actions in a channel (default `5`) |
+
+## Proactive Interaction (Enhancement 015 / v0.16.0+)
+
+Personas can autonomously react/reply/start topics in allowlisted channels. v0.16.0 ships **band 0** (shadow mode + audit) — the actor takes no Discord actions; every decision is logged to `proactive_actions` so the operator can read traces and tune the decider before turning on later bands. See `docs/enhancements/015_PROACTIVE_INTERACTION.md`.
+
+**Operator workflow:**
+1. Apply migrations 018a/b/c (auto on bot restart).
+2. Edit `personas/<name>.json:proactive.channel_allowlist` to opt a channel in.
+3. Set `PROACTIVE_ENABLED=true` (keep `PROACTIVE_SHADOW_MODE=true`).
+4. Restart bot. Watch `/proactive history` populate. The decider runs but no Discord actions fire.
+5. When the decision quality looks right, set `PROACTIVE_SHADOW_MODE=false` (band 1+ required for actor paths).
+
+**Migrations:**
+- `018a_create_proactive_actions.sql` — audit log of every decision (incl. no-ops)
+- `018b_create_inter_agent_threads.sql` — bot-to-bot thread state (active in band 3)
+- `018c_create_agent_reflections.sql` — Park-style reflections (active in band 4)
 
 ## Development Notes
 

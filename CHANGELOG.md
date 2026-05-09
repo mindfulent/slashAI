@@ -8,12 +8,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
+- **Enhancement 015 bands 4-5** — Reflection + heartbeat, polish (`docs/enhancements/015_PROACTIVE_INTERACTION.md`)
 - **slashAI Desktop** — Tauri (Rust) system tray app for screen share vision in voice chat (see `docs/DESKTOP-PLAN.md`)
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management
 - Multi-guild configuration support
 - User commands for build management (`/builds`, `/myprojects`)
 - Automatic milestone detection with notifications
+
+---
+
+## [0.16.3] - 2026-05-08
+
+### Added — Inter-agent threads (Enhancement 015 band 3)
+
+Personas can intentionally engage one another with hard turn caps, engagement-probability decay per turn, and human-interrupt-wins semantics. The thread state machine is observation-only — both bots use their normal chat handlers for the back-and-forth; threads.py just watches for limit conditions.
+
+- **`src/proactive/threads.py`** — Full `InterAgentThreads` implementation. `start_thread` supersedes any active thread in the same channel and returns a `ThreadState` with `turn_count=0`. `advance_thread` is called from the actor (after posting a seed) and from on_message hooks (when the other participant bot posts). `end_thread` is idempotent. `check_natural_end` returns `True` iff the persona's last 2 non-prefilter decisions in the thread are both `'none'` — pre-filter rejections (cooldowns, quiet hours) are excluded from the heuristic so they don't kill threads prematurely. `engagement_decay_factor(turn_count)` returns 1.0 at turn 0 → 0.2 floor at turn 4+, exposed as a percentage hint in the decider prompt.
+- **`src/proactive/actor.py:_do_engage_persona`** — Resolves the target persona's bot user.id via the AgentManager-provided callable, generates an opening via the persona's actor model with the spec's engage directive (1-2 sentences, no @-mention written by the LLM since the actor prepends one), posts via `channel.send()`, then creates the thread row + advances to turn 1. Failure modes (no anthropic client, target not connected, send HTTP error) all log `actor_failed: <reason>` without leaving phantom thread rows. Graduated out of `PROACTIVE_SHADOW_MODE` like reactions and replies.
+- **`src/proactive/scheduler.py:on_message_hook`** — Now handles bot messages too (previously filtered). Three concerns in one entry point: (1) human-interrupt termination — any non-bot message in an active-thread channel ends the thread immediately; (2) participant-bot message advances the thread + checks turn cap; (3) activity-path tick fires for participant-bot messages too while a thread is alive, so the persona can decide to continue. Natural-end check runs after every `'none'` decision in a thread.
+- **`src/proactive/observer.py`** — Populates `DeciderInput.active_inter_agent_thread` with `{id, turn_count, max_turns, other_participant, decay_factor, we_are_initiator}`. Decider prompt renders this as a written cue: "Active bot-to-bot thread with @lena: turn 2/4. Engagement strength is decaying — only continue if there's a clear reason to. Probability hint: ~60%."
+- **`src/agents/agent_manager.py`** — Now accepts `primary_bot` and exposes `resolve_persona_user_id(persona_id) -> Optional[int]`. The primary bot's `setup_hook` passes `primary_bot=self` and a closure to the primary's scheduler. AgentManager stops each persona's scheduler via `client.proactive_scheduler.stop()` on shutdown.
+- **`src/discord_bot.py:on_message` and `src/agents/agent_client.py:on_message`** — Bot messages now reach the proactive hook (for thread observation). Self-messages still ignored. No chat / image / voice handling for bot messages.
+- **`src/proactive/scheduler.py`** — `budget_exhausted` termination: when pre-filter rejects with `all_budgets_exhausted` AND the persona is the initiator of the active thread, the thread is ended with `reason='budget_exhausted'`.
+- **`/proactive threads`** — Owner-only embed listing recent threads. Active threads show 🟢 with current turn count; ended ones show ⚫ with `ended_reason` and duration.
+- **Analytics** — New `inter_agent_turn` event (category `system`) emitted on every `reply` / `engage_persona` decision while a thread is active, with `{thread_id, persona_id, target_persona_id, turn_count, action}`. Existing `proactive_decision` event now also carries `in_thread` flag.
+- **24 new tests** (`tests/test_proactive_threads.py`) — Full coverage of all 5 termination conditions: `superseded` (start_thread auto-ends prior active), `turn_cap` (advance + post-advance check), `human_interrupt` (any non-bot message), `natural_end` (2 consecutive non-prefilter `'none'` decisions; pre-filter rejections correctly excluded), `budget_exhausted` (initiator-only). Plus engagement decay function, ThreadState helpers, and the actor's engage_persona path (success, target-not-connected, send-failure-no-phantom-thread, missing-client).
+
+### Architectural notes
+
+- **Turn counting model**: turn 0 = thread created. Turn 1 = seed message posted (advanced explicitly by the actor). Turn N ≥ 2 = each subsequent participant-bot message advances via the OTHER bot's `on_message` hook. Each cross-bot message increments exactly once (the posting bot doesn't see its own message; only the other does), so no deduplication needed.
+- **Why observe-only state machine**: The originator and target use their normal mention/chat handlers for the actual back-and-forth. The thread state machine watches and terminates. This means we don't double up the LLM cost of replies — proactive replies still pay one Sonnet call, and the target's response to an `@-mention` comes from the existing chat path (which is already cached).
+- **Memory tracking still skipped** for proactive replies and engage_persona openings (TODO in `_do_reply` from band 2 + same comment applies here). Band 4's reflection job will retroactively score importance and feed proactive contributions into Park-style reflections.
+
+### Operator workflow (band 3)
+
+1. Confirm `PROACTIVE_ENABLED=true` and both `personas/slashai.json` and `personas/lena.json` have proactive enabled with channel allowlists.
+2. `AGENT_LENA_TOKEN` must be set so Lena's bot is connected (the resolver needs her bot user.id).
+3. Restart. `/proactive threads` should be empty initially.
+4. Watch `#devlog`. Threads start when one persona's decider returns `engage_persona`. Each thread caps at 4 turns. Any human message in the channel ends the thread immediately. Watch `/proactive threads` for live state and `/proactive history` for per-decision detail.
+5. Cost gate: each thread costs at most ~4 Haiku decider calls + ~4 Sonnet generation calls per persona before turn_cap. With one thread/day per pair under default budgets, full-band-3 cost is bounded.
+
+---
+
+## [0.16.2] - 2026-05-08
+
+### Added — Proactive replies live + Lena turns on (Enhancement 015 band 2)
+
+The actor now generates and posts replies via the persona's actor model. Lena joins the proactive system in `#devlog` alongside `@slashAI`. The cross-persona lockout (already wired up in band 0) now does real work — when one persona acts, the other waits 5 seconds before considering the same channel.
+
+- **`src/proactive/actor.py:_do_reply`** — Resolves channel + target message, calls `anthropic_client.messages.create(model=persona.proactive.actor_model, system=persona.build_system_prompt(), ...)` with a per-call user prompt that includes recent channel history and the spec's reply directive (1-3 sentences, no trailing questions, no @-mention). Posts via `channel.send(text, reference=target_message)` so Discord renders it as a native reply with the link visible. `discord.NotFound` / `HTTPException` paths log `actor_failed: <reason>` and continue. Long generations are truncated to Discord's 2000-char limit.
+- **`src/proactive/scheduler.py`** — Threads `anthropic_client` through to the actor (was previously only on the decider). Same client object — no extra connections.
+- **Reply path graduated out of `PROACTIVE_SHADOW_MODE`** — Replies fire whenever `PROACTIVE_ENABLED=true` and the channel is allowlisted, mirroring band 1's react treatment. `new_topic` and `engage_persona` remain shadow-stubbed and graduate in bands 4 and 3 respectively.
+- **`personas/lena.json`** — `proactive.enabled=true` and `#devlog` (`1456400291623604479`) added to her allowlist. Cross-persona lockout (`PROACTIVE_CROSS_PERSONA_LOCKOUT_SECONDS=5`) prevents Lena and slashAI from jumping on the same opening simultaneously.
+- **7 new tests** (`tests/test_proactive_actor.py`) — Successful reply with `reference=` argument verified, reply firing under shadow mode (band 2 graduation), missing anthropic_client records failure (no LLM call wasted), `discord.NotFound` short-circuits before generation, `HTTPException` on send records `send_reply_failed`, empty-generation guard, oversized-output truncation.
+
+### Architectural notes
+
+- Memory tracking is **deliberately skipped** for proactive replies in this band. Mention/DM replies feed into the memory extractor; proactive replies are not conversational turns the way mentions are. A TODO in `actor.py:_do_reply` flags this for revisit in band 4 — some proactive replies should feed into the reflection job (Park-style importance scoring) so personas accumulate beliefs from their own contributions, not just from inbound mentions.
+- The reply directive lives in the per-call user message, not the system prompt, so the persona's static system prompt stays cacheable across calls.
+
+### Operator workflow (band 2)
+
+1. Confirm `PROACTIVE_ENABLED=true` in env.
+2. Verify `personas/slashai.json` and `personas/lena.json` both have `proactive.enabled=true` and the test channel in their allowlists.
+3. Provide `AGENT_LENA_TOKEN` env var if Lena's bot account is configured (otherwise only slashAI runs).
+4. Restart. `/proactive status` confirms the primary's state; Lena's status is JSON-only for now (per-persona slash commands land later).
+5. Watch `#devlog`. Reactions ~10%, replies ~4%, no_op ~85% per the design distribution. Cross-persona lockout means at most one persona acts per 5-second window.
+
+---
+
+## [0.16.1] - 2026-05-08
+
+### Added — Proactive reactions live (Enhancement 015 band 1)
+
+The actor now fires real reactions in allowlisted channels for the primary `@slashAI` bot. Reply / new_topic / engage_persona stay shadow-stubbed — they'll graduate band-by-band so the operator can tune the decider on cheap reaction traces first.
+
+- **`src/proactive/actor.py`** — Per-action dispatch. `_do_reaction` calls `channel.fetch_message().add_reaction()`; `discord.NotFound` and `discord.HTTPException` paths log `actor_failed: <reason>` and continue without crashing the scheduler. The `react` path is graduated out of `PROACTIVE_SHADOW_MODE` — reactions fire whenever `PROACTIVE_ENABLED=true` and the channel is allowlisted. Reply / new_topic / engage_persona still shadow-mode-gate (or stub-log when shadow mode is off) so `/proactive history` shows the decider's intended behavior on those paths before they're implemented.
+- **`/proactive status`** — Shows global config (enabled, shadow mode, heartbeat period), persona config (enabled, decider/actor models, scheduler running), allowlisted channels with names, today's used + remaining budget, and the `engages_with_personas` allowlist. Owner-only ephemeral embed.
+- **`/proactive enable <channel>`** and **`/proactive disable <channel>`** — Mutate the in-memory `channel_allowlist` for the persona that owns the bot the command runs on (currently `slashai` only — Lena's allowlist is set via her JSON until per-persona slash commands land in band 2). Both commands include a footnote that the change is in-memory; persistent edits go in `personas/<name>.json`.
+- **`personas/slashai.json`** — `proactive.enabled` set to `true` and `#devlog` (`1456400291623604479`) added to `channel_allowlist` so band-1 traces start populating after restart.
+- **9 new tests** (`tests/test_proactive_actor.py`) — Successful reactions, reactions firing under shadow mode (the band-1 graduation), `discord.NotFound` and `discord.HTTPException` failure paths, fetch_channel fallback when the channel isn't in cache, no-op path bypasses Discord entirely, and the stub paths for reply/engage/new_topic log shadow vs stub reasoning correctly.
+
+### Operator workflow (band 1)
+
+1. Confirm migrations 018a/b/c are applied (auto on restart).
+2. `PROACTIVE_ENABLED=true` in the env (master switch).
+3. Verify `personas/slashai.json:proactive.enabled` is `true` and the channel_allowlist contains your test channel (defaults to `#devlog` `1456400291623604479`).
+4. Restart the bot. Check `/proactive status` to confirm.
+5. Watch the decider tick. Reactions should fire at ~10% rate when humans are active in the allowlisted channel. `/proactive history persona:slashai` shows every decision (incl. no-ops) with reasoning.
+6. To test in another channel: `/proactive enable #foo`, then optionally edit `personas/slashai.json` to make it persistent.
+
+---
+
+## [0.16.0] - 2026-05-08
+
+### Added — Proactive Interaction subsystem (Enhancement 015 band 0: shadow mode + audit)
+
+The first band of the proactive-interaction subsystem. Personas (`@slashAI`, Lena, future personas) gain an autonomous decision loop that fires on heartbeat ticks and inbound messages — but the actor is no-op in shadow mode (default). Every decision is logged to `proactive_actions` so the operator can read traces and tune the decider prompt before any side-effects ship.
+
+- **Three migrations** (`migrations/018a/b/c_*.sql`) — `proactive_actions` (audit log), `inter_agent_threads` (created but unused until band 3), `agent_reflections` (created but unused until band 4). Indexes for daily-budget queries and cross-persona lockout.
+- **`src/proactive/` module** (10 files) — `config`, `policy`, `observer`, `decider`, `actor`, `store`, `scheduler`, plus stubs for `threads` and `reflection`. Pure-Python pre-filter (cooldowns, quiet hours, allowlists, cross-persona lockout, daily budgets); Haiku JSON decider with sanitization layer (MAST FM-2.6 / FM-1.2 defense); actor logs to audit table and skips real Discord side-effects in shadow mode.
+- **Persona schema v2** (`personas/*.json`, `src/agents/persona_loader.py`) — `proactive` block with budgets, cooldowns, quiet-hours window (with timezone), engagement temperature, decider/actor model overrides, silence threshold, and `engages_with_personas` allowlist for inter-agent interaction. Backwards-compatible: missing block → `enabled=False` defaults.
+- **`personas/slashai.json`** — Canonicalizes the primary bot as a persona (resolves Open Question 3 in spec). Same loader path as Lena.
+- **Hooks into both bots** (`discord_bot.py`, `agents/agent_client.py`, `agents/agent_manager.py`) — `on_message` now calls `proactive_scheduler.on_message_hook(...)` for non-mention/non-DM messages; the agent manager attaches one `ProactiveScheduler` per loaded persona; lifecycle managed in `setup_hook` and `close()`.
+- **`/proactive history` slash command** (`src/commands/proactive_commands.py`, owner-only) — paginated trace of every decision (incl. no-ops) with reasoning, confidence, tokens. Primary tuning surface. `/proactive status/enable/disable/threads/reflect/simulate` are stubbed and land in subsequent bands.
+- **Env vars** — `PROACTIVE_ENABLED` (default `false`), `PROACTIVE_SHADOW_MODE` (default `true`), `PROACTIVE_HEARTBEAT_INTERVAL_SECONDS` (default `3600`), `PROACTIVE_DECIDER_MODEL` (default `claude-haiku-4-5-20251001`), `PROACTIVE_ACTOR_MODEL` (default `claude-sonnet-4-6`), `PROACTIVE_CROSS_PERSONA_LOCKOUT_SECONDS` (default `5`).
+- **Analytics** — `proactive_decision` event (category `system`) on every decider call with `{persona_id, trigger, action, confidence, decider_model, input_tokens, output_tokens, reasoning_excerpt, shadow_mode}`.
+- **Tests** — 51 tests across `test_proactive_policy.py` (quiet hours, lockout, budget, silence threshold) and `test_proactive_decider_validation.py` (sanitizer accepts/rejects, JSON extraction, emoji validation).
+
+### Architectural notes
+
+- AgentManager startup moved from `main()` into `DiscordBot.setup_hook` so `db_pool` and `anthropic_client` are guaranteed ready before persona schedulers attach. Existing behavior is preserved when `personas/` is empty.
+- The decider sanitization layer is the project's defense against MAST failure modes FM-1.1, FM-1.2, FM-2.6: bad JSON, invalid actions, off-window message targets, non-Unicode emoji, and out-of-allowlist personas all fall back to `action='none'` with a `actor_sanitization_rejected: <reason>` reasoning string visible in `/proactive history`.
+
+### Note on band naming
+
+The Enhancement 015 spec was authored when the project was at 0.13.x and refers to bands as v0.14.0 → v0.14.5. Actual released versions are 0.16.x because the project shipped 0.14.0–0.15.12 in the interim. Spec band names remain unchanged in code comments for traceability against the design doc.
 
 ---
 

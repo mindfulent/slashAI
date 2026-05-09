@@ -20,7 +20,7 @@ This directory contains implementation specifications for slashAI features—bot
 | [012](./012_DETERMINISTIC_EXPORT.md) | Deterministic Export | — | 📋 Draft | P3 Low |
 | [013](./013_AUDIT_LOG.md) | Audit Log / Time-Travel | — | 📋 Draft | P2 Medium |
 | [014](./014_REACTION_MEMORY.md) | Reaction-Based Memory Signals | v0.12.0 | ✅ Implemented | — |
-| [015](./015_PROACTIVE_INTERACTION.md) | Proactive Interaction & A2A | v0.14.x (planned) | 📋 Draft | P1 High |
+| [015](./015_PROACTIVE_INTERACTION.md) | Proactive Interaction & A2A | v0.16.0+ (bands 0-3 live; 4-5 pending) | 🚧 Partial | P1 High |
 | — | [Rate Limiting](./RATELIMIT.md) | — | 📋 Draft | TBD |
 
 ## Quick Summary

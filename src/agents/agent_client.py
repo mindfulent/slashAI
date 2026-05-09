@@ -11,7 +11,7 @@ Supports Discord tool use (send/read/edit messages, list channels, etc.).
 import logging
 import os
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import discord
 
@@ -19,6 +19,9 @@ from agents.persona_loader import PersonaConfig
 from claude_client import ClaudeClient
 from utils.discord_typing import safe_typing
 from voice.session import VoiceSession
+
+if TYPE_CHECKING:
+    from proactive.scheduler import ProactiveScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,9 @@ class AgentClient(discord.Client):
             is_agent=True,
         )
         self._voice_session: Optional[VoiceSession] = None
+        # Proactive subsystem (Enhancement 015) — set externally by AgentManager
+        # before/after start; on_ready will call .start() once.
+        self.proactive_scheduler: Optional["ProactiveScheduler"] = None
 
     async def on_ready(self):
         logger.info(
@@ -69,15 +75,49 @@ class AgentClient(discord.Client):
         await tree.sync()
         logger.info(f"Cleared stale slash commands for '{self.persona.display_name}'")
 
+        # Start proactive scheduler if attached
+        if self.proactive_scheduler is not None:
+            try:
+                self.proactive_scheduler.start()
+            except Exception as e:
+                logger.error(
+                    f"[{self.persona.display_name}] proactive scheduler start failed: {e}",
+                    exc_info=True,
+                )
+
     async def on_message(self, message: discord.Message):
-        # Ignore own messages and other bots
-        if message.author == self.user or message.author.bot:
+        # Always ignore our own messages
+        if message.author == self.user:
+            return
+
+        # Bot messages go through the proactive hook ONLY (for inter-agent
+        # thread observation: human-interrupt, advance, continuation tick).
+        # No chat or voice handling for bot messages.
+        if message.author.bot:
+            if self.proactive_scheduler is not None:
+                try:
+                    await self.proactive_scheduler.on_message_hook(message)
+                except Exception as e:
+                    logger.error(
+                        f"[{self.persona.display_name}] proactive on_message_hook (bot msg) failed: {e}",
+                        exc_info=True,
+                    )
             return
 
         # Respond to direct mentions and DMs only
         is_mentioned = self.user in message.mentions
         is_dm = isinstance(message.channel, discord.DMChannel)
         if not is_mentioned and not is_dm:
+            # Activity-path proactive hook: persona may decide to react/reply
+            # autonomously. Only fires when proactive is configured + enabled.
+            if self.proactive_scheduler is not None:
+                try:
+                    await self.proactive_scheduler.on_message_hook(message)
+                except Exception as e:
+                    logger.error(
+                        f"[{self.persona.display_name}] proactive on_message_hook failed: {e}",
+                        exc_info=True,
+                    )
             return
 
         logger.info(

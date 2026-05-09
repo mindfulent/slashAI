@@ -244,6 +244,10 @@ class DiscordBot(commands.Bot):
         self.recognition_scheduler = None  # Recognition system for build reviews
         self.reaction_store = None  # Reaction storage (v0.12.0)
         self.reaction_aggregator = None  # Reaction aggregation job (v0.12.0)
+        # Proactive interaction subsystem (Enhancement 015 / v0.14.0)
+        self.proactive_scheduler = None  # Primary bot's ProactiveScheduler
+        self.agent_manager = None  # Multi-persona AgentManager (was in main())
+        self.global_proactive_config = None  # GlobalProactiveConfig from env
         self._pending_event_drafts: dict[int, "PendingEventDraft"] = {}  # Reaction-based event confirmation (v0.13.1)
         self._ready_event = asyncio.Event()
 
@@ -444,6 +448,13 @@ class DiscordBot(commands.Bot):
                         logger.error(f"Failed to initialize recognition scheduler: {e}", exc_info=True)
                         logger.warning("Recognition processing disabled due to initialization failure")
 
+                # Initialize proactive interaction subsystem (Enhancement 015 / v0.14.0)
+                try:
+                    await self._setup_proactive(anthropic_client, memory_manager, owner_id)
+                except Exception as e:
+                    logger.error(f"Failed to initialize proactive subsystem: {e}", exc_info=True)
+                    logger.warning("Proactive interaction disabled due to initialization failure")
+
                 # Initialize image memory if enabled
                 if image_memory_enabled and self._has_image_memory_config():
                     await self._setup_image_memory(anthropic_client)
@@ -486,6 +497,108 @@ class DiscordBot(commands.Bot):
             logger.warning("Image memory disabled due to initialization failure")
             self.image_observer = None
 
+    async def _setup_proactive(
+        self,
+        anthropic_client: AsyncAnthropic,
+        memory_manager,
+        owner_id: Optional[str],
+    ):
+        """Initialize the proactive interaction subsystem (Enhancement 015 / v0.14.0).
+
+        Loads `personas/slashai.json` for the primary bot, instantiates a
+        ProactiveScheduler for it, mounts the /proactive command cog, and
+        builds the AgentManager (which attaches per-persona schedulers).
+        """
+        from pathlib import Path
+
+        from agents.persona_loader import PersonaConfig
+        from proactive.config import GlobalProactiveConfig
+        from proactive.scheduler import ProactiveScheduler
+
+        self.global_proactive_config = GlobalProactiveConfig.from_env()
+        logger.info(
+            f"Proactive: enabled={self.global_proactive_config.enabled} "
+            f"shadow_mode={self.global_proactive_config.shadow_mode} "
+            f"heartbeat_s={self.global_proactive_config.heartbeat_interval_seconds}"
+        )
+
+        # Load primary persona from personas/slashai.json (canonicalizes the
+        # primary bot per Open Question 3). Fall back to a default persona if
+        # the file is missing so the system still functions.
+        slashai_path = Path("personas/slashai.json")
+        if slashai_path.exists():
+            try:
+                slashai_persona = PersonaConfig.load(slashai_path)
+                logger.info(
+                    f"Loaded primary persona from {slashai_path} "
+                    f"(proactive.enabled={slashai_persona.proactive.enabled}, "
+                    f"channels={len(slashai_persona.proactive.channel_allowlist)})"
+                )
+            except Exception as e:
+                logger.error(f"Failed to load {slashai_path}: {e}; using inline default persona")
+                slashai_persona = PersonaConfig(
+                    schema_version=2, name="slashai", display_name="slashAI"
+                )
+        else:
+            logger.info("personas/slashai.json not found; using inline default persona")
+            slashai_persona = PersonaConfig(
+                schema_version=2, name="slashai", display_name="slashAI"
+            )
+
+        # Discover all persona names for cross-persona context
+        all_persona_names: list[str] = []
+        personas_dir = Path("personas")
+        if personas_dir.exists():
+            all_persona_names = [p.stem for p in personas_dir.glob("*.json")]
+
+        # Build primary's scheduler. The resolver callable is set up here as
+        # a closure: at proactive-tick time, agent_manager.resolve_persona_user_id
+        # will return Lena's bot user.id (from her connected AgentClient) and
+        # this bot's own user.id for slashai. agent_manager is constructed below
+        # so we capture it via a late-bound closure.
+        def _resolve(persona_id: str) -> Optional[int]:
+            if self.agent_manager is None:
+                return None
+            return self.agent_manager.resolve_persona_user_id(persona_id)
+
+        self.proactive_scheduler = ProactiveScheduler(
+            persona=slashai_persona,
+            bot=self,
+            anthropic_client=anthropic_client,
+            memory_manager=memory_manager,
+            db_pool=self.db_pool,
+            global_config=self.global_proactive_config,
+            all_persona_names=all_persona_names,
+            resolve_persona_user_id=_resolve,
+        )
+
+        # Mount the /proactive command cog
+        try:
+            from commands.proactive_commands import ProactiveCommands
+            await self.add_cog(
+                ProactiveCommands(self, self.db_pool, owner_id)
+            )
+            logger.info("Proactive commands cog loaded")
+        except Exception as e:
+            logger.error(f"Failed to load proactive commands: {e}", exc_info=True)
+
+        # Build the agent manager (multi-persona Discord bots) with proactive
+        # infra wired up. Was previously instantiated in main() but moved here
+        # so db_pool/anthropic_client are guaranteed ready.
+        try:
+            from agents.agent_manager import AgentManager
+            self.agent_manager = AgentManager(
+                memory_manager=memory_manager,
+                db_pool=self.db_pool,
+                anthropic_client=anthropic_client,
+                global_proactive_config=self.global_proactive_config,
+                primary_bot=self,
+            )
+            await self.agent_manager.start_all()
+        except Exception as e:
+            logger.error(f"Failed to start agent manager: {e}", exc_info=True)
+            logger.warning("Persona agents and their proactive schedulers will not run")
+
     async def on_ready(self):
         """Called when the bot has connected to Discord."""
         print(f"Logged in as {self.user} (ID: {self.user.id})")
@@ -511,6 +624,13 @@ class DiscordBot(commands.Bot):
             # Start reaction aggregator (v0.12.0)
             if self.reaction_aggregator:
                 self.reaction_aggregator.start()
+
+            # Start proactive scheduler (Enhancement 015 / v0.14.0)
+            if self.proactive_scheduler is not None:
+                try:
+                    self.proactive_scheduler.start()
+                except Exception as e:
+                    logger.error(f"Failed to start proactive scheduler: {e}", exc_info=True)
         else:
             logger.info("MCP-only mode, skipping command sync")
 
@@ -526,8 +646,20 @@ class DiscordBot(commands.Bot):
 
     async def on_message(self, message: discord.Message):
         """Handle incoming messages for chatbot functionality."""
-        # Ignore messages from bots (including self)
+        # Always ignore our own messages
+        if self.user is not None and message.author.id == self.user.id:
+            return
+
+        # Bot messages go through the proactive hook only (for inter-agent
+        # thread observation). No chat / commands / image processing.
         if message.author.bot:
+            if self.enable_chat and self.proactive_scheduler is not None:
+                try:
+                    await self.proactive_scheduler.on_message_hook(message)
+                except Exception as e:
+                    logger.error(
+                        f"Proactive on_message_hook (bot msg) failed: {e}", exc_info=True
+                    )
             return
 
         # DEBUG: Log every incoming message to diagnose mobile upload issues
@@ -575,6 +707,17 @@ class DiscordBot(commands.Bot):
             message.channel, discord.DMChannel
         ):
             await self._handle_chat(message)
+        else:
+            # Activity-path proactive hook (Enhancement 015 / v0.14.0).
+            # Only fires when proactive is configured + enabled + channel
+            # is allowlisted. Defaults to no-op in shadow mode.
+            if self.proactive_scheduler is not None:
+                try:
+                    await self.proactive_scheduler.on_message_hook(message)
+                except Exception as e:
+                    logger.error(
+                        f"Proactive on_message_hook failed: {e}", exc_info=True
+                    )
 
     async def _process_image_attachments(self, message: discord.Message):
         """Process image attachments for memory system."""
@@ -1305,6 +1448,18 @@ class DiscordBot(commands.Bot):
         # Stop reaction aggregator (v0.12.0)
         if self.reaction_aggregator:
             self.reaction_aggregator.stop()
+        # Stop proactive scheduler (Enhancement 015 / v0.14.0)
+        if self.proactive_scheduler:
+            try:
+                self.proactive_scheduler.stop()
+            except Exception as e:
+                logger.error(f"Error stopping proactive scheduler: {e}")
+        # Stop agent manager (was previously in main(); now owned here)
+        if self.agent_manager:
+            try:
+                await self.agent_manager.stop_all()
+            except Exception as e:
+                logger.error(f"Error stopping agent manager: {e}")
         # Stop recognition scheduler
         if self.recognition_scheduler:
             await self.recognition_scheduler.close()
@@ -2396,7 +2551,13 @@ class WebhookServer:
 
 
 async def main():
-    """Run the bot standalone (chatbot mode) with webhook server and agent bots."""
+    """Run the bot standalone (chatbot mode) with webhook server and agent bots.
+
+    The AgentManager (multi-persona Discord bots) is now owned by the primary
+    bot's setup_hook (Enhancement 015 / v0.14.0): db_pool/anthropic_client are
+    only ready after setup_hook runs, and the AgentManager needs both for
+    proactive infrastructure.
+    """
     token = os.getenv("DISCORD_BOT_TOKEN")
     if not token:
         print("Error: DISCORD_BOT_TOKEN environment variable not set")
@@ -2409,31 +2570,16 @@ async def main():
     webhook_port = int(os.getenv("WEBHOOK_SERVER_PORT", "8000"))
     webhook_server = WebhookServer(bot)
 
-    # Phase 2: Agent manager for multi-persona Discord bots (INCEPTION)
-    agent_manager = None
-
     try:
         # Start webhook server first
         await webhook_server.start(webhook_port)
 
-        # Start agent bots if personas exist and have tokens
-        try:
-            from agents.agent_manager import AgentManager
-            memory_mgr = (
-                bot.claude_client.memory
-                if hasattr(bot, 'claude_client') and bot.claude_client and bot.claude_client.memory
-                else None
-            )
-            agent_manager = AgentManager(memory_mgr)
-            await agent_manager.start_all()
-        except Exception as e:
-            logger.warning(f"Agent manager startup failed: {e}")
-
-        # Then start the Discord bot (this blocks until bot disconnects)
+        # Start the Discord bot. setup_hook will initialize db_pool, then build
+        # AgentManager (which starts persona bots) and the primary's
+        # ProactiveScheduler. This call blocks until the bot disconnects.
         await bot.start(token)
     finally:
-        if agent_manager:
-            await agent_manager.stop_all()
+        # bot.close() handles agent_manager.stop_all() now.
         await webhook_server.stop()
 
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "lena",
   "display_name": "Lena",
 
@@ -47,5 +47,31 @@
   "memory": {
     "agent_id": "lena",
     "cross_platform": true
+  },
+
+  "proactive": {
+    "enabled": true,
+    "channel_allowlist": [1456400291623604479],
+    "budgets": {
+      "reactions_per_day": 20,
+      "replies_per_day": 4,
+      "new_topics_per_day": 1,
+      "inter_agent_turns_per_day": 6
+    },
+    "cooldowns": {
+      "reaction_seconds": 600,
+      "reply_seconds": 1800,
+      "new_topic_seconds": 43200
+    },
+    "quiet_hours": {
+      "timezone": "America/Los_Angeles",
+      "start": "22:00",
+      "end": "07:00"
+    },
+    "engagement_temperature": 0.85,
+    "decider_model": "claude-haiku-4-5-20251001",
+    "actor_model": "claude-sonnet-4-6",
+    "silence_threshold_hours": 4,
+    "engages_with_personas": ["slashai"]
   }
 }
