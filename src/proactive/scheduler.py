@@ -17,7 +17,7 @@ can read decisions out of `proactive_actions`.
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import discord
 from discord.ext import tasks
@@ -371,6 +371,101 @@ class ProactiveScheduler:
                     "action": decision.action,
                 },
             )
+
+    # ------------------------------------------------------------------
+    # Simulation (band 5 / v0.16.5) — decider dry-run for tuning
+    # ------------------------------------------------------------------
+
+    async def simulate_decision(
+        self, channel: discord.abc.Messageable
+    ) -> dict[str, Any]:
+        """Run the full decider pipeline against current state without acting.
+
+        Returns a dict suitable for `/proactive simulate` — pre-filter outcome,
+        observer-built context summary, and the decider's would-be JSON.
+        """
+        now = datetime.now(timezone.utc)
+
+        last_persona_action = await self.store.last_persona_action_in_channel(
+            self.persona.name, channel.id
+        )
+        last_other_action = await self.store.last_action_in_channel(
+            channel.id, exclude_persona=self.persona.name
+        )
+        used_today = await self.store.daily_budget_used(
+            self.persona.name,
+            since=now.replace(hour=0, minute=0, second=0, microsecond=0),
+        )
+        budget = remaining_budget(used_today, self.persona.proactive)
+        last_human = await self._last_human_message_at(channel)
+
+        prefilter = PreFilterContext(
+            persona_id=self.persona.name,
+            channel_id=channel.id,
+            trigger="activity",
+            now=now,
+            last_human_message_at=last_human,
+            last_persona_action_at=last_persona_action,
+            last_other_persona_action_at=last_other_action,
+            budget=budget,
+        )
+        allowed, reason = can_consider_acting(
+            prefilter,
+            self.persona.proactive,
+            self.global_config.cross_persona_lockout_seconds,
+        )
+
+        result: dict[str, Any] = {
+            "persona_id": self.persona.name,
+            "channel_id": channel.id,
+            "prefilter_allowed": allowed,
+            "prefilter_reason": reason,
+            "budget_remaining": {
+                "reactions": budget.reactions,
+                "replies": budget.replies,
+                "new_topics": budget.new_topics,
+            },
+            "used_today": dict(used_today),
+            "last_persona_action_at": last_persona_action,
+            "last_other_persona_action_at": last_other_action,
+            "last_human_message_at": last_human,
+            "decider": None,
+        }
+
+        if not allowed:
+            return result
+
+        # Build observer context exactly as a real tick would, but skip the actor
+        ctx = await self.observer.build(
+            channel=channel,
+            trigger="activity",
+            triggering_message=None,
+            prefilter=prefilter,
+            other_personas_present=[
+                p for p in self.all_persona_names if p != self.persona.name
+            ],
+        )
+        decision = await self.decider.decide(ctx)
+
+        result["decider"] = {
+            "action": decision.action,
+            "target_message_id": decision.target_message_id,
+            "target_persona_id": decision.target_persona_id,
+            "emoji": decision.emoji,
+            "reasoning": decision.reasoning,
+            "confidence": decision.confidence,
+            "decider_model": decision.decider_model,
+            "input_tokens": decision.input_tokens,
+            "output_tokens": decision.output_tokens,
+        }
+        result["context"] = {
+            "recent_message_count": len(ctx.recent_messages),
+            "relevant_memories": ctx.relevant_memories,
+            "reflections_about_others": ctx.reflections_about_others,
+            "is_human_conversation_active": ctx.is_human_conversation_active,
+            "active_inter_agent_thread": ctx.active_inter_agent_thread,
+        }
+        return result
 
     # ------------------------------------------------------------------
     # Helpers

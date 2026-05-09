@@ -25,6 +25,7 @@ from discord.ext import commands
 
 from proactive.policy import remaining_budget
 from proactive.store import ProactiveStore
+from proactive.sycophancy import SycophancyDetector
 from proactive.threads import InterAgentThreads
 
 logger = logging.getLogger("slashAI.commands.proactive")
@@ -92,6 +93,7 @@ class ProactiveCommands(commands.Cog):
         self.db = db_pool
         self.store = ProactiveStore(db_pool)
         self.threads = InterAgentThreads(db_pool)
+        self.sycophancy = SycophancyDetector(db_pool)
         self.owner_id = int(owner_id) if owner_id else None
 
     @proactive_group.command(name="history")
@@ -437,11 +439,187 @@ class ProactiveCommands(commands.Cog):
 
     @proactive_group.command(name="simulate")
     @owner_only()
+    @app_commands.describe(
+        channel="Channel to simulate against",
+        persona="Persona to simulate (defaults to slashai)",
+    )
     async def simulate(
-        self, interaction: discord.Interaction, channel: discord.TextChannel
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        persona: Optional[str] = None,
     ):
-        """Run the decider against current state without acting (lands in v0.14.5)."""
-        await interaction.response.send_message(
-            "`/proactive simulate` lands in v0.14.5 (decider dry-run).",
-            ephemeral=True,
+        """Run the decider against the current channel state without acting.
+
+        The single most useful command for tuning. Probes the decider's
+        judgment without consequences.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        scheduler = None
+        if persona is None or persona == "slashai":
+            scheduler = getattr(self.bot, "proactive_scheduler", None)
+        else:
+            agent_manager = getattr(self.bot, "agent_manager", None)
+            if agent_manager is not None:
+                client = agent_manager.agents.get(persona)
+                if client is not None:
+                    scheduler = getattr(client, "proactive_scheduler", None)
+
+        if scheduler is None:
+            await interaction.followup.send(
+                f"Could not find a proactive scheduler for `{persona or 'slashai'}`.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            result = await scheduler.simulate_decision(channel)
+        except Exception as e:
+            logger.error(f"/proactive simulate failed: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"Simulate raised: `{type(e).__name__}: {e}`",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"Simulate — {scheduler.persona.display_name} in #{channel.name}",
+            color=discord.Color.dark_orange(),
         )
+        b = result["budget_remaining"]
+        embed.add_field(
+            name="Pre-filter",
+            value=(
+                f"allowed = `{result['prefilter_allowed']}`\n"
+                f"reason = `{result['prefilter_reason']}`\n"
+                f"budget remaining: react={b['reactions']}, "
+                f"reply={b['replies']}, new_topic={b['new_topics']}"
+            ),
+            inline=False,
+        )
+        if not result["prefilter_allowed"]:
+            embed.set_footer(
+                text="Pre-filter blocked the tick; decider was not called. "
+                     "Adjust persona allowlist / quiet hours / cooldowns to test the decider."
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        d = result["decider"]
+        ctx = result.get("context", {})
+        embed.add_field(
+            name="Would-be decision",
+            value=(
+                f"action = `{d['action']}`\n"
+                f"target_message_id = `{d['target_message_id']}`\n"
+                f"target_persona_id = `{d['target_persona_id']}`\n"
+                f"emoji = {d['emoji'] or '`null`'}\n"
+                f"confidence = `{d['confidence']:.2f}`\n"
+                f"model = `{d['decider_model']}` "
+                f"({d['input_tokens']}/{d['output_tokens']} tok)"
+            ),
+            inline=False,
+        )
+        reasoning = (d["reasoning"] or "(no reasoning)")[:1000]
+        embed.add_field(name="Reasoning", value=f"_{reasoning}_", inline=False)
+
+        ctx_lines = [
+            f"recent messages: {ctx.get('recent_message_count', 0)}",
+            f"human conversation active: {ctx.get('is_human_conversation_active')}",
+        ]
+        memories = ctx.get("relevant_memories") or []
+        reflections = ctx.get("reflections_about_others") or []
+        if memories:
+            ctx_lines.append(f"memories surfaced: {len(memories)}")
+        if reflections:
+            ctx_lines.append(f"reflections surfaced: {len(reflections)}")
+        if ctx.get("active_inter_agent_thread"):
+            t = ctx["active_inter_agent_thread"]
+            ctx_lines.append(
+                f"in active thread with @{t.get('other_participant')} "
+                f"(turn {t.get('turn_count')}/{t.get('max_turns')})"
+            )
+        embed.add_field(name="Context", value="\n".join(ctx_lines), inline=False)
+        embed.set_footer(text="Dry-run — no Discord action was taken.")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @proactive_group.command(name="sycophancy")
+    @owner_only()
+    @app_commands.describe(
+        days="Lookback window in days (default 7, max 90)",
+        view="What to show: per-persona summary or per-thread detail",
+    )
+    @app_commands.choices(view=[
+        app_commands.Choice(name="per-persona", value="persona"),
+        app_commands.Choice(name="per-thread", value="thread"),
+    ])
+    async def sycophancy(
+        self,
+        interaction: discord.Interaction,
+        days: app_commands.Range[int, 1, 90] = 7,
+        view: Optional[app_commands.Choice[str]] = None,
+    ):
+        """Heuristic sycophancy scan — agreement language in inter-agent thread replies.
+
+        This is a tuning surface, not a model-grade detector. High agreement
+        rates flag persona pairs whose threads read as mutual-validation loops.
+        See `src/proactive/sycophancy.py` for the detection model.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        view_value = view.value if view else "persona"
+
+        if view_value == "persona":
+            stats = await self.sycophancy.per_persona(days=days)
+            if not stats:
+                await interaction.followup.send(
+                    f"No proactive replies inside inter-agent threads in the last {days} day(s). "
+                    "Run `/proactive threads` to see if any threads have started.",
+                    ephemeral=True,
+                )
+                return
+            lines = [
+                f"**{s.persona_id}** — replies={s.reply_count}, "
+                f"agreement_hits={s.agreement_hits}, "
+                f"rate={s.agreement_rate:.2f}, threads={s.threads_seen}"
+                for s in stats
+            ]
+            embed = discord.Embed(
+                title=f"Sycophancy (per-persona, last {days}d)",
+                description="\n".join(lines),
+                color=discord.Color.dark_red(),
+            )
+            embed.set_footer(text="rate = agreement_hits / reply_count. >0.5 is suggestive.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # per-thread view
+        stats = await self.sycophancy.per_thread(days=days, limit=20)
+        if not stats:
+            await interaction.followup.send(
+                f"No threads in the last {days} day(s).", ephemeral=True
+            )
+            return
+        lines = []
+        for t in stats:
+            ratio = (
+                t.agreement_hits / t.total_replies_in_thread
+                if t.total_replies_in_thread else 0.0
+            )
+            lines.append(
+                f"`#{t.thread_id:>4}` {t.participants} (init={t.initiator_persona_id}) "
+                f"— turns={t.turn_count}, replies={t.total_replies_in_thread}, "
+                f"hits={t.agreement_hits} (ratio={ratio:.2f}) "
+                f"end={t.ended_reason or 'active'}"
+            )
+        body = "\n".join(lines)
+        if len(body) > 3800:
+            body = body[:3800] + "\n\n_(truncated)_"
+        embed = discord.Embed(
+            title=f"Sycophancy (per-thread, last {days}d)",
+            description=body,
+            color=discord.Color.dark_red(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)

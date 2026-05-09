@@ -8,13 +8,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- **Enhancement 015 band 5** — Polish: `/proactive simulate`, sycophancy detection, backfill (`docs/enhancements/015_PROACTIVE_INTERACTION.md`)
 - **slashAI Desktop** — Tauri (Rust) system tray app for screen share vision in voice chat (see `docs/DESKTOP-PLAN.md`)
 - Slash command support (`/ask`, `/summarize`, `/clear`)
 - Rate limiting and token budget management
 - Multi-guild configuration support
 - User commands for build management (`/builds`, `/myprojects`)
 - Automatic milestone detection with notifications
+
+---
+
+## [0.16.5] - 2026-05-08
+
+### Added — Polish + dry-run tooling (Enhancement 015 band 5; system complete)
+
+Last band of Enhancement 015. Ships the operator's primary tuning surface (`/proactive simulate`), a heuristic sycophancy detector for spotting mutual-validation loops, and a one-shot backfill script for first-deploy importance scoring.
+
+- **`/proactive simulate <channel> [persona]`** — Dry-run the decider against the current channel state. Runs pre-filter, observer (full context bundle), and decider, but skips the actor entirely. Returns an embed with: pre-filter outcome + reason, remaining budget, the decider's would-be JSON (action, target, emoji, confidence, reasoning), context summary (recent message count, memories surfaced, reflections surfaced, active thread state). The single most useful command for tuning the decider prompt without consequences.
+- **`src/proactive/scheduler.py:simulate_decision(channel)`** — Underlying method. Builds the same `PreFilterContext` and `DeciderInput` a real tick would; calls the decider; returns a structured dict. Skips actor, store recording, analytics, and natural-end checks.
+- **`src/proactive/sycophancy.py`** — Heuristic agreement-language detector. `count_agreement_cues(text)` regex-matches a curated cue list (`agree`, `echoing`, `validating`, `spot on`, `fair point`, `+1`, `yeah`, `exactly`, etc.) with word-boundary discipline so "agreeable" doesn't match "agreement". `SycophancyDetector.per_persona(days=7)` aggregates reply counts and cue hits per persona over the lookback window. `per_thread(days=7, limit=20)` shows per-thread density so operators can spot the worst offenders. Detection runs against `proactive_actions.reasoning` (the decider's stated 'why') — not message bodies, which we don't store. Documented as a tuning signal, not a model-grade detector.
+- **`/proactive sycophancy [days] [view]`** — Owner-only embed. `view=persona` shows per-persona agreement rate (cue_hits / reply_count); `view=thread` shows per-thread density with end_reason. Footnote: rate >0.5 is suggestive of a mutual-validation pattern.
+- **`scripts/backfill_reflection_importance.py`** — CLI wrapper around `ReflectionEngine.score_unscored_actions`. Args: `--persona`, `--all-personas`, `--batch-size`, `--max-rows`, `--dry-run`. The heartbeat-time scorer batches at 20 rows/tick to keep ticks short; this script removes that bound for first-deploy backlogs. `--dry-run` counts unscored rows per persona and exits before touching Anthropic — useful for sizing a backfill before paying for it.
+- **14 new tests** (`tests/test_proactive_sycophancy.py`) — Agreement-cue word-boundary discipline (agreement/agreeable both tested), case insensitivity, none/empty input, multi-hit aggregation, JSONB participants in str/list/malformed forms, zero-division safety in agreement-rate.
+
+### Architectural notes
+
+- **`/proactive simulate` is the primary tuning surface.** Operators tweak the decider prompt (or persona identity, or budgets) and run simulate against a channel they care about. The decider's reasoning + confidence reveal whether the change moved judgment in the desired direction. No more "wait an hour for the heartbeat to fire and produce one trace."
+- **Sycophancy detection is a starting point.** A model-grade detector would compare consecutive turn embeddings for similarity drift, score insight novelty across a thread, and look at how often a persona's reasoning references the *other* persona's prior turn. The heuristic version ships as a cheap signal that doesn't require message-body access. The cue list is in `_AGREEMENT_CUES` and is meant to be tuned by the operator over time — append cues that show up in their server's actual chat.
+- **Backfill script is one-shot, not idempotent**. Running it twice is safe (the SQL filters on `importance IS NULL`), but it's intended for first-deploy backlog clearance. Steady-state scoring belongs to the heartbeat.
+
+### Enhancement 015 — system complete
+
+Bands 0-5 all live:
+- v0.16.0 — shadow-mode audit (proactive_actions, decider, sanitization, /proactive history)
+- v0.16.1 — reactions live in allowlisted channels
+- v0.16.2 — replies live, Lena turns on, cross-persona lockout
+- v0.16.3 — inter-agent threads with all 5 termination conditions
+- v0.16.4 — Park-style reflection + heartbeat new_topic
+- v0.16.5 — /proactive simulate, sycophancy detection, backfill script
+
+137 proactive tests, 4 migrations, 11 source files in `src/proactive/`, 1 cog with 8 commands.
+
+Open questions from the spec that remain explicitly out-of-scope (see `docs/enhancements/015_PROACTIVE_INTERACTION.md`):
+- Open Q1 (stage-0 heuristic before Haiku): defer until cost data justifies it.
+- Open Q2 (reflection DM-privacy): reuses existing memory privacy filter.
+- Open Q4 (guild-wide $ ceiling): defer until cost data justifies it.
+- Open Q5 (reflection decay): defer; reflections are low-volume.
 
 ---
 
