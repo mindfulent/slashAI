@@ -126,7 +126,8 @@ class StreamCraftCommands(commands.Cog):
         rows = await self.db.fetch(
             """
             SELECT id, server_name, license_key, state, tier, credit_remaining,
-                   last_validated, server_ip, geo_location, minecraft_version, hidden, label, activated_by_name
+                   last_validated, server_ip, geo_location, minecraft_version, loader,
+                   hidden, label, activated_by_name
             FROM streamcraft_licenses
             WHERE ($1 OR hidden = false)
             ORDER BY CASE state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, id ASC
@@ -154,6 +155,8 @@ class StreamCraftCommands(commands.Cog):
                 mc_ver = row.get("minecraft_version") or "1.21.1"
                 parts = [f"**#{row['id']}** {name}{hidden}"]
                 parts.append(f"`{row['tier'] or 'N/A'}`")
+                if row.get("loader"):
+                    parts.append(f"`{row['loader']}`")
                 if mc_ver != "1.21.1":
                     parts.append(f"MC {mc_ver}")
                 parts.append(f"{credit} credit")
@@ -284,7 +287,8 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
+                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.loader,
+                       sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -292,7 +296,8 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE sl.id = $1
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
+                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.loader,
+                         sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 server_id,
@@ -301,7 +306,8 @@ class StreamCraftCommands(commands.Cog):
             rows = await self.db.fetch(
                 """
                 SELECT sl.id, sl.server_id as sid, sl.server_name, sl.state, sl.tier,
-                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name,
+                       sl.server_ip, sl.geo_location, sl.minecraft_version, sl.loader,
+                       sl.hidden, sl.label, sl.activated_by_name,
                        COUNT(su.id) as sessions,
                        COALESCE(SUM(su.minutes_used), 0) as total_minutes,
                        COALESCE(SUM(su.cost_usd), 0) as total_cost
@@ -309,7 +315,8 @@ class StreamCraftCommands(commands.Cog):
                 LEFT JOIN streamcraft_usage su ON su.license_id = sl.id
                 WHERE ($1 OR sl.hidden = false)
                 GROUP BY sl.id, sl.server_id, sl.server_name, sl.state, sl.tier,
-                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.hidden, sl.label, sl.activated_by_name
+                         sl.server_ip, sl.geo_location, sl.minecraft_version, sl.loader,
+                         sl.hidden, sl.label, sl.activated_by_name
                 ORDER BY CASE sl.state WHEN 'EXPIRED' THEN 1 WHEN 'GRACE' THEN 2 WHEN 'ACTIVE' THEN 3 WHEN 'TRIAL' THEN 4 ELSE 5 END, total_minutes DESC
                 """,
                 show_hidden,
@@ -346,6 +353,8 @@ class StreamCraftCommands(commands.Cog):
                 mc_ver = row.get("minecraft_version") or "1.21.1"
                 parts = [f"**#{row['id']}** {name}{hidden}"]
                 parts.append(f"`{row['tier'] or 'N/A'}`")
+                if row.get("loader"):
+                    parts.append(f"`{row['loader']}`")
                 if mc_ver != "1.21.1":
                     parts.append(f"MC {mc_ver}")
                 mins = row["total_minutes"] or 0
@@ -366,6 +375,8 @@ class StreamCraftCommands(commands.Cog):
                 hidden = " \U0001f6ab" if row["hidden"] else ""
                 parts = [f"**#{row['id']}** {name}{hidden}"]
                 parts.append(f"`{row['tier'] or 'N/A'}`")
+                if row.get("loader"):
+                    parts.append(f"`{row['loader']}`")
                 if row.get("activated_by_name"):
                     parts.append(row["activated_by_name"])
                 lines.append(" \u00b7 ".join(parts))
