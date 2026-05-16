@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — StreamCraft webhook-error ops alert
+
+New `POST /server/streamcraft-webhook-error` endpoint on the slashAI webhook server, paired with `notifyWebhookError()` in the theblockacademy backend. Discord embed in the ops channel whenever `/streamcraft/webhooks/livekit` (or future webhook handlers) throws inside the outer catch — source, event type, room name, first 900 chars of the error message. Caller-side 15-minute dedup per (source, eventType, normalized error-prefix) so a flapping bug fires once per window instead of spamming.
+
+Motivation: the 2026-05-12 → 05-16 silent-drop of `participant_joined` webhooks was logged to `console.error` the whole time but nobody was reading the logs; lost 5 days of usage data. The next variant of this class of bug now pages within a few seconds.
+
 ### Planned
 - **slashAI Desktop** — Tauri (Rust) system tray app for screen share vision in voice chat (see `docs/DESKTOP-PLAN.md`)
 - Slash command support (`/ask`, `/summarize`, `/clear`)
