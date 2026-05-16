@@ -1763,6 +1763,7 @@ class WebhookServer:
         self.app.router.add_post('/server/streamcraft-new-server', self.handle_streamcraft_new_server)
         self.app.router.add_post('/server/streamcraft-state-change', self.handle_streamcraft_state_change)
         self.app.router.add_post('/server/streamcraft-stream-start', self.handle_streamcraft_stream_start)
+        self.app.router.add_post('/server/streamcraft-webhook-error', self.handle_streamcraft_webhook_error)
         self.app.router.add_get('/health', self.handle_health)
 
         # Phase 3: Memory bridge API routes (INCEPTION)
@@ -2499,6 +2500,38 @@ class WebhookServer:
             return await self._blockops_send_embed(channel_id, embed)
         except Exception as e:
             logger.error(f"streamcraft-state-change webhook error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_streamcraft_webhook_error(self, request: web.Request) -> web.Response:
+        """Post when /streamcraft/webhooks/* throws — early warning so we
+        don't lose another 5 days of data the way 2026-05-12 → 05-16 did.
+        Caller is responsible for dedup (15-min window per error)."""
+        denied = self._blockops_auth_check(request)
+        if denied:
+            return denied
+        try:
+            data = await request.json()
+            channel_id = data.get('channel_id')
+            if not channel_id:
+                return web.json_response({"error": "Missing channel_id"}, status=400)
+
+            source = data.get('source') or '—'
+            event_type = data.get('event_type') or '(unknown)'
+            room_name = data.get('room_name') or '—'
+            message = data.get('message') or '(empty)'
+
+            embed = discord.Embed(
+                title="🚨 StreamCraft webhook error",
+                color=0xe74c3c,
+                description=f"`{source}` handler threw on `{event_type}` event.",
+            )
+            embed.add_field(name="Room", value=f"`{room_name}`", inline=True)
+            embed.add_field(name="Error", value=f"```\n{message[:900]}\n```", inline=False)
+            embed.set_footer(text="Dedup window 15 min. Same error suppressed until window expires.")
+
+            return await self._blockops_send_embed(channel_id, embed)
+        except Exception as e:
+            logger.error(f"streamcraft-webhook-error notification failed: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_streamcraft_stream_start(self, request: web.Request) -> web.Response:
